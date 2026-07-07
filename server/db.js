@@ -62,9 +62,45 @@ export function createDb(file = process.env.DB_PATH || path.join(__dirname, '..'
     participant_id TEXT NOT NULL REFERENCES participants(id),
     body TEXT NOT NULL,
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE TABLE IF NOT EXISTS users (
+    id TEXT PRIMARY KEY,
+    email TEXT UNIQUE NOT NULL COLLATE NOCASE,
+    password_hash TEXT NOT NULL,
+    display_name TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE TABLE IF NOT EXISTS auth_sessions (
+    token TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    expires_at TEXT NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS scenario_votes (
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    scenario_id TEXT NOT NULL REFERENCES scenarios(id) ON DELETE CASCADE,
+    PRIMARY KEY (user_id, scenario_id)
   );`);
 
+  migrate(db);
   return db;
+}
+
+// Idempotent column additions for databases created before v2.
+function migrate(db) {
+  const addColumn = (table, column, ddl) => {
+    const cols = db.pragma(`table_info(${table})`).map(c => c.name);
+    if (!cols.includes(column)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${ddl}`);
+  };
+  addColumn('scenarios', 'author_id', 'author_id TEXT REFERENCES users(id)');
+  addColumn('scenarios', 'cloned_from', 'cloned_from TEXT REFERENCES scenarios(id)');
+  addColumn('live_sessions', 'host_id', 'host_id TEXT REFERENCES users(id)');
+  addColumn('participants', 'user_id', 'user_id TEXT REFERENCES users(id)');
+
+  // System user owns pre-v2 content; the seed scenario becomes public.
+  db.prepare(`INSERT OR IGNORE INTO users (id, email, password_hash, display_name)
+              VALUES ('system', 'system@protocall.local', '!', 'ProtoCall')`).run();
+  db.prepare(`UPDATE scenarios SET author_id='system', visibility='public' WHERE author_id IS NULL`).run();
 }
 
 export const uuid = () => randomUUID();
@@ -72,8 +108,8 @@ export const uuid = () => randomUUID();
 export function seedIfEmpty(db) {
   if (db.prepare('SELECT COUNT(*) n FROM scenarios').get().n > 0) return;
   const sid = uuid();
-  db.prepare(`INSERT INTO scenarios (id, title, description, category, subcategory)
-              VALUES (?,?,?,?,?)`).run(
+  db.prepare(`INSERT INTO scenarios (id, title, description, category, subcategory, visibility, author_id)
+              VALUES (?,?,?,?,?,'public','system')`).run(
     sid,
     'Two-Story Residential Fire — Trapped Occupant',
     "Two-story single-family wood-frame residence, fire at 14:00. Heavy dark smoke pushes from the roof and second-floor windows. A frantic bystander yells that an elderly person is trapped in a second-floor bedroom.",

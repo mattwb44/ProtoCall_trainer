@@ -13,15 +13,15 @@ export class Rooms {
     this.db = db;
   }
 
-  createSession(scenarioId) {
+  createSession(scenarioId, hostId) {
     const scenario = this.db.prepare('SELECT * FROM scenarios WHERE id=?').get(scenarioId);
     if (!scenario) return null;
     let code;
     do { code = makeCode(); }
     while (this.db.prepare('SELECT 1 FROM live_sessions WHERE room_code=?').get(code));
     const id = uuid();
-    this.db.prepare('INSERT INTO live_sessions (id, room_code, scenario_id) VALUES (?,?,?)')
-      .run(id, code, scenarioId);
+    this.db.prepare('INSERT INTO live_sessions (id, room_code, scenario_id, host_id) VALUES (?,?,?,?)')
+      .run(id, code, scenarioId, hostId);
     return this.getByCode(code);
   }
 
@@ -37,15 +37,18 @@ export class Rooms {
     return { session, questions };
   }
 
-  join(sessionId, token) {
+  join(sessionId, token, userId = null) {
     let p = this.db.prepare('SELECT * FROM participants WHERE session_id=? AND token=?')
       .get(sessionId, token);
     if (!p) {
       const n = this.db.prepare('SELECT COUNT(*) n FROM participants WHERE session_id=?')
         .get(sessionId).n;
-      p = { id: uuid(), session_id: sessionId, token, display_tag: `P${n + 1}` };
-      this.db.prepare('INSERT INTO participants (id, session_id, token, display_tag) VALUES (?,?,?,?)')
-        .run(p.id, p.session_id, p.token, p.display_tag);
+      p = { id: uuid(), session_id: sessionId, token, display_tag: `P${n + 1}`, user_id: userId };
+      this.db.prepare('INSERT INTO participants (id, session_id, token, display_tag, user_id) VALUES (?,?,?,?,?)')
+        .run(p.id, p.session_id, p.token, p.display_tag, p.user_id);
+    } else if (userId && !p.user_id) {
+      this.db.prepare('UPDATE participants SET user_id=? WHERE id=?').run(userId, p.id);
+      p.user_id = userId;
     }
     return p;
   }
@@ -99,7 +102,7 @@ export class Rooms {
       includeAnswers ? q : { ...q, instructor_answer: undefined });
     return {
       session: {
-        id: room.session.id, room_code: room.session.room_code,
+        id: room.session.id, room_code: room.session.room_code, host_id: room.session.host_id,
         status: room.session.status, title: room.session.title,
         description: room.session.description, category: room.session.category,
         subcategory: room.session.subcategory, image_url: room.session.image_url,

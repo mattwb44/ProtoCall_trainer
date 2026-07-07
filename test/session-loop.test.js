@@ -2,13 +2,15 @@ import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { io as ioc } from 'socket.io-client';
 import { buildServer } from '../server/index.js';
+import { signup, authed, emit, once } from './helpers.js';
 
-let ctx, base;
+let ctx, base, hostCookie;
 
 before(async () => {
   ctx = buildServer({ dbFile: ':memory:' });
   await ctx.app.listen({ port: 0, host: '127.0.0.1' });
   base = `http://127.0.0.1:${ctx.app.server.address().port}`;
+  ({ cookie: hostCookie } = await signup(base, { email: 'chief@station1.test' }));
 });
 
 after(async () => {
@@ -16,10 +18,13 @@ after(async () => {
   await ctx.app.close();
 });
 
-const emit = (sock, event, payload) =>
-  new Promise(res => sock.emit(event, payload, res));
-const once = (sock, event) =>
-  new Promise(res => sock.once(event, res));
+const createSession = async () => {
+  const [{ id: scenarioId }] = await fetch(`${base}/api/scenarios`).then(r => r.json());
+  return fetch(`${base}/api/sessions`, {
+    method: 'POST', headers: authed(hostCookie),
+    body: JSON.stringify({ scenario_id: scenarioId }),
+  }).then(r => r.json());
+};
 
 test('REST: seeded library and scenario detail', async () => {
   const list = await fetch(`${base}/api/scenarios`).then(r => r.json());
@@ -31,33 +36,31 @@ test('REST: seeded library and scenario detail', async () => {
   assert.equal(mc.choices.length, 2);
 });
 
-test('REST: create scenario validates required fields', async () => {
-  const bad = await fetch(`${base}/api/scenarios`, {
+test('REST: creating scenarios requires login, then validates fields', async () => {
+  const anon = await fetch(`${base}/api/scenarios`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ title: 'x' }),
+  });
+  assert.equal(anon.status, 401);
+  const bad = await fetch(`${base}/api/scenarios`, {
+    method: 'POST', headers: authed(hostCookie), body: JSON.stringify({ title: 'x' }),
   });
   assert.equal(bad.status, 400);
 });
 
 test('full live-session loop: create → join → submit → push → end → persisted', async () => {
-  const [{ id: scenarioId }] = await fetch(`${base}/api/scenarios`).then(r => r.json());
-  const { room_code, session_id } = await fetch(`${base}/api/sessions`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ scenario_id: scenarioId }),
-  }).then(r => r.json());
+  const { room_code, session_id } = await createSession();
   assert.match(room_code, /^[A-Z]+-\d{4}$/);
 
-  const host = ioc(base);
+  const host = ioc(base, { extraHeaders: { cookie: hostCookie } });
   const crew = ioc(base);
   try {
     const hostJoin = await emit(host, 'join_room', { code: room_code, role: 'host' });
     assert.equal(hostJoin.state.session.room_code, room_code);
-    // host sees instructor answers
     assert.ok(hostJoin.state.questions[0].instructor_answer.length > 0);
 
     const crewJoin = await emit(crew, 'join_room', { code: room_code.toLowerCase(), token: 'tok-1', role: 'participant' });
     assert.equal(crewJoin.participant.display_tag, 'P1');
-    // participant does NOT see instructor answers before submitting
     assert.equal(crewJoin.state.questions[0].instructor_answer, undefined);
 
     const qid = crewJoin.state.questions[0].id;
@@ -81,7 +84,6 @@ test('full live-session loop: create → join → submit → push → end → pe
     assert.equal(endAck.ok, true);
     await endedOnCrew;
 
-    // persistence checks
     const db = ctx.db;
     assert.equal(db.prepare('SELECT status FROM live_sessions WHERE id=?').get(session_id).status, 'ended');
     const resp = db.prepare('SELECT * FROM responses WHERE session_id=?').all(session_id);
@@ -89,7 +91,6 @@ test('full live-session loop: create → join → submit → push → end → pe
     assert.equal(resp[0].is_pushed, 1);
     assert.equal(db.prepare('SELECT COUNT(*) n FROM notes WHERE session_id=?').get(session_id).n, 1);
 
-    // rejoin with same token reveals answered question's official answer
     const crew2 = ioc(base);
     try {
       const rejoin = await emit(crew2, 'join_room', { code: room_code, token: 'tok-1', role: 'participant' });
@@ -102,18 +103,30 @@ test('full live-session loop: create → join → submit → push → end → pe
   }
 });
 
-test('participants cannot end sessions; guests get unique tags', async () => {
+test('access control: hosting needs login; only the host user opens the control room', async () => {
   const [{ id: scenarioId }] = await fetch(`${base}/api/scenarios`).then(r => r.json());
-  const { room_code } = await fetch(`${base}/api/sessions`, {
+  const anon = await fetch(`${base}/api/sessions`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ scenario_id: scenarioId }),
-  }).then(r => r.json());
+  });
+  assert.equal(anon.status, 401);
+
+  const { room_code } = await createSession();
+  const { cookie: otherCookie } = await signup(base, { email: 'other@station2.test' });
+
+  const stranger = ioc(base, { extraHeaders: { cookie: otherCookie } });
+  const anonSock = ioc(base);
   const a = ioc(base), b = ioc(base);
   try {
+    const denied1 = await emit(stranger, 'join_room', { code: room_code, role: 'host' });
+    assert.match(denied1.error, /Only the session host/);
+    const denied2 = await emit(anonSock, 'join_room', { code: room_code, role: 'host' });
+    assert.match(denied2.error, /Only the session host/);
+
     const ja = await emit(a, 'join_room', { code: room_code, token: 'a', role: 'participant' });
     const jb = await emit(b, 'join_room', { code: room_code, token: 'b', role: 'participant' });
     assert.notEqual(ja.participant.display_tag, jb.participant.display_tag);
-    const denied = await emit(a, 'end_session', {});
-    assert.equal(denied.error, 'host only');
-  } finally { a.close(); b.close(); }
+    const denied3 = await emit(a, 'end_session', {});
+    assert.equal(denied3.error, 'host only');
+  } finally { stranger.close(); anonSock.close(); a.close(); b.close(); }
 });

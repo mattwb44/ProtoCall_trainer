@@ -27,7 +27,7 @@
     <i data-lucide="flame" class="w-6 h-6 text-rose-600"></i>
     <span class="font-bold tracking-tight">ProtoCall<span class="text-rose-500">Trainer</span></span>
   </a>
-  <a href="#/library" class="tap flex items-center gap-1.5 text-sm text-slate-300 hover:text-white px-3 py-2"><i data-lucide="library" class="w-4 h-4"></i>Library</a>
+  <div id="nav-right" class="flex items-center gap-1"></div>
 </nav>
 
 <div id="app"></div>
@@ -63,10 +63,15 @@ const routes = {
   'create': renderCreator,
   'host': code => renderHost(code),
   'join': code => renderJoin(code),
+  'login': () => renderAuth('login'),
+  'signup': () => renderAuth('signup'),
+  'me': renderMe,
+  'public': renderPublic,
+  'session': id => renderSessionDetail(id),
 };
 function route() {
   leaveSocket();
-  const [name, arg] = location.hash.replace(/^#\//, '').split('/');
+  const [name, arg] = location.hash.replace(/^#\//, '').split('?')[0].split('/');
   (routes[name] || renderLanding)(arg);
 }
 window.addEventListener('hashchange', route);
@@ -116,6 +121,10 @@ async function renderLibrary() {
       <h1 class="text-2xl font-bold">Scenario Library</h1>
       <a href="#/create" class="tap flex items-center gap-1.5 text-sm bg-rose-600 hover:bg-rose-500 px-4 py-2.5 rounded-xl font-medium"><i data-lucide="plus" class="w-4 h-4"></i>New</a>
     </div>
+    ${me ? '' : `<div class="bg-amber-950/40 border border-amber-800/50 rounded-xl p-4 text-sm text-amber-100 flex items-center gap-3">
+      <i data-lucide="log-in" class="w-5 h-5 text-amber-400 shrink-0"></i>
+      <span><a href="#/login" class="font-bold text-amber-300 hover:underline">Log in</a> to host live sessions and build your own scenarios. Joining a room never needs an account.</span>
+    </div>`}
     ${scenarios.map(s => `
     <div class="bg-slate-800 rounded-2xl p-5 flex flex-col sm:flex-row sm:items-center gap-4">
       <div class="flex-1">
@@ -128,13 +137,7 @@ async function renderLibrary() {
     </div>`).join('') || '<p class="text-slate-500 italic">No scenarios yet.</p>'}
   </main>`;
   icons();
-  app.querySelectorAll('[data-launch]').forEach(btn => btn.onclick = async () => {
-    const res = await fetch('/api/sessions', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ scenario_id: btn.dataset.launch }),
-    }).then(r => r.json());
-    location.hash = '#/host/' + res.room_code;
-  });
+  bindLaunchButtons();
 }
 
 /* ═══ Creator ═══ */
@@ -143,8 +146,9 @@ const SUBCATS = {
   'EMS': ['Cardiac','Trauma','Pediatric','Medical'],
   'Motor Vehicle Accidents': ['Extrication','Rollover','Hazardous Materials'],
 };
-let draftQs = [];
+let draftQs = [], draftPublic = false;
 function renderCreator() {
+  if (!me) { sessionStorage.authNext = '#/create'; location.hash = '#/login'; return; }
   draftQs = [{ prompt: '', kind: 'text', choices: null, instructor_answer: '', role_track: '' }];
   app.innerHTML = `
   <main class="max-w-3xl mx-auto p-4 sm:p-6 space-y-5 anim-in">
@@ -171,12 +175,28 @@ function renderCreator() {
       </div>
       <div id="c-qs" class="space-y-3"></div>
     </section>
+    <section class="bg-slate-800 rounded-2xl p-4 sm:p-6 flex items-center justify-between gap-4">
+      <div>
+        <p class="font-medium" id="vis-label">Private (Personal Library)</p>
+        <p class="text-sm text-slate-400">Toggle to share with the Public Community Library</p>
+      </div>
+      <button id="vis-toggle" class="tap relative w-14 h-8 rounded-full bg-slate-600 transition-colors shrink-0">
+        <span id="vis-knob" class="absolute top-1 left-1 w-6 h-6 bg-white rounded-full transition-transform"></span>
+      </button>
+    </section>
     <button id="c-save" class="tap w-full bg-emerald-600 hover:bg-emerald-500 rounded-2xl py-4 font-bold text-lg flex items-center justify-center gap-2">
       <i data-lucide="save" class="w-5 h-5"></i>Save to Library</button>
   </main>`;
   const fillSub = () => $('#c-sub').innerHTML = SUBCATS[$('#c-cat').value].map(s => `<option>${s}</option>`).join('');
   $('#c-cat').onchange = fillSub; fillSub();
   $('#c-addq').onclick = () => { draftQs.push({ prompt: '', kind: 'text', choices: null, instructor_answer: '', role_track: '' }); drawQs(); };
+  draftPublic = false;
+  $('#vis-toggle').onclick = () => {
+    draftPublic = !draftPublic;
+    $('#vis-knob').style.transform = draftPublic ? 'translateX(24px)' : '';
+    $('#vis-toggle').classList.toggle('bg-emerald-600', draftPublic);
+    $('#vis-label').textContent = draftPublic ? 'Shared to Public Community Library' : 'Private (Personal Library)';
+  };
   $('#c-save').onclick = saveScenario;
   drawQs(); icons();
 }
@@ -210,6 +230,7 @@ async function saveScenario() {
     title: $('#c-title').value.trim(), description: $('#c-desc').value.trim(),
     category: $('#c-cat').value, subcategory: $('#c-sub').value,
     image_url: $('#c-img').value.trim(),
+    visibility: draftPublic ? 'public' : 'private',
     questions: draftQs.filter(q => q.prompt.trim()),
   };
   if (!body.title) return toast('Title is required', 'bg-amber-500');
@@ -322,7 +343,8 @@ function renderJoin(code) {
     if (pState) pState.session.status = 'ended';
     const b = $('#conn-badge');
     if (b) { b.innerHTML = '<span class="w-2 h-2 bg-slate-500 rounded-full"></span> ENDED'; b.className = 'flex items-center gap-1.5 text-xs font-semibold bg-slate-800 text-slate-400 px-3 py-1.5 rounded-full'; }
-    $('#guest-drawer')?.classList.remove('hidden');
+    if (me) toast('Session saved to your Completed Library');
+    else $('#guest-drawer')?.classList.remove('hidden');
   });
   s.io.on('reconnect', () => renderJoin(code));
   s.on('disconnect', () => {
@@ -365,7 +387,7 @@ function drawParticipant() {
       <p class="font-bold flex items-center gap-2"><i data-lucide="bookmark" class="w-5 h-5 text-amber-400"></i>Don't lose tonight's training.</p>
       <p class="text-sm text-slate-300 mt-1">Create a quick account to permanently save your answers, pushed notes, and the full scenario to your Completed Library.</p>
       <div class="flex gap-2 mt-3">
-        <button class="tap flex-1 bg-emerald-600 hover:bg-emerald-500 rounded-xl py-3 font-bold" onclick="toast('Accounts coming in v2')">Create Account</button>
+        <button class="tap flex-1 bg-emerald-600 hover:bg-emerald-500 rounded-xl py-3 font-bold" onclick="location.hash='#/signup'">Create Account</button>
         <button class="tap px-4 rounded-xl bg-slate-700 hover:bg-slate-600 text-sm" onclick="this.closest('#guest-drawer').classList.add('hidden')">Not now</button>
       </div>
     </div>
@@ -432,7 +454,216 @@ function bindCards() {
   });
 }
 
-route(); icons();
+/* ═══ Auth state & new views ═══ */
+let me = null;
+
+function renderNav() {
+  $('#nav-right').innerHTML = `
+    <a href="#/public" class="tap flex items-center gap-1.5 text-sm text-slate-300 hover:text-white px-3 py-2"><i data-lucide="globe" class="w-4 h-4"></i><span class="hidden sm:inline">Community</span></a>
+    <a href="#/library" class="tap flex items-center gap-1.5 text-sm text-slate-300 hover:text-white px-3 py-2"><i data-lucide="library" class="w-4 h-4"></i><span class="hidden sm:inline">Library</span></a>
+    ${me ? `
+    <a href="#/me" class="tap flex items-center gap-1.5 text-sm text-amber-300 hover:text-amber-200 px-3 py-2"><i data-lucide="circle-user" class="w-4 h-4"></i>${esc(me.display_name)}</a>
+    <button id="nav-logout" class="tap text-sm text-slate-400 hover:text-white px-3 py-2">Log out</button>`
+    : `<a href="#/login" class="tap flex items-center gap-1.5 text-sm bg-rose-600 hover:bg-rose-500 rounded-xl px-4 py-2 font-semibold"><i data-lucide="log-in" class="w-4 h-4"></i>Log in</a>`}`;
+  icons();
+  const lo = $('#nav-logout');
+  if (lo) lo.onclick = async () => {
+    await fetch('/api/logout', { method: 'POST' });
+    me = null; renderNav(); location.hash = '#/'; route();
+  };
+}
+
+function renderAuth(mode) {
+  const login = mode === 'login';
+  app.innerHTML = `
+  <main class="max-w-sm mx-auto p-6 pt-12 anim-in">
+    <div class="bg-slate-800 rounded-2xl p-6 space-y-4">
+      <h1 class="text-xl font-bold">${login ? 'Log in' : 'Create your account'}</h1>
+      ${login ? '' : `<p class="text-sm text-slate-400">Your answers, notes, and completed sessions from this device will be saved to your new account automatically.</p>`}
+      ${login ? '' : `<div><label class="text-sm font-medium text-slate-300">Display name</label>
+        <input id="a-name" class="mt-1 w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 focus:border-amber-500 focus:outline-none"></div>`}
+      <div><label class="text-sm font-medium text-slate-300">Email</label>
+        <input id="a-email" type="email" class="mt-1 w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 focus:border-amber-500 focus:outline-none"></div>
+      <div><label class="text-sm font-medium text-slate-300">Password ${login ? '' : '<span class="text-slate-500">(8+ characters)</span>'}</label>
+        <input id="a-pass" type="password" class="mt-1 w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 focus:border-amber-500 focus:outline-none"></div>
+      <p id="a-err" class="text-sm text-rose-400 hidden"></p>
+      <button id="a-go" class="tap w-full bg-rose-600 hover:bg-rose-500 rounded-xl py-3 font-bold">${login ? 'Log in' : 'Sign up'}</button>
+      <p class="text-sm text-slate-400 text-center">${login
+        ? `No account? <a href="#/signup" class="text-amber-400 hover:underline">Sign up</a>`
+        : `Already have one? <a href="#/login" class="text-amber-400 hover:underline">Log in</a>`}</p>
+    </div>
+  </main>`;
+  const go = async () => {
+    const payload = {
+      email: $('#a-email').value.trim(),
+      password: $('#a-pass').value,
+      guest_token: token,
+    };
+    if (!login) payload.display_name = $('#a-name').value.trim();
+    const res = await fetch(`/api/${login ? 'login' : 'signup'}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
+    });
+    const body = await res.json();
+    if (!res.ok) { $('#a-err').textContent = body.error; $('#a-err').classList.remove('hidden'); return; }
+    me = body; renderNav();
+    if (body.claimed_sessions > 0) toast(`Welcome, ${body.display_name} — ${body.claimed_sessions} past session${body.claimed_sessions > 1 ? 's' : ''} saved to your library`);
+    else toast(`Welcome, ${body.display_name}`);
+    location.hash = sessionStorage.authNext || '#/me';
+    sessionStorage.removeItem('authNext');
+  };
+  $('#a-go').onclick = go;
+  app.querySelectorAll('input').forEach(el => el.addEventListener('keydown', e => e.key === 'Enter' && go()));
+  icons();
+}
+
+async function renderMe() {
+  if (!me) { sessionStorage.authNext = '#/me'; location.hash = '#/login'; return; }
+  const [sessions, scenarios] = await Promise.all([
+    fetch('/api/me/sessions').then(r => r.json()),
+    fetch('/api/scenarios').then(r => r.json()),
+  ]);
+  const mine = scenarios.filter(s => s.mine);
+  app.innerHTML = `
+  <main class="max-w-2xl mx-auto p-4 sm:p-6 space-y-5 anim-in">
+    <h1 class="text-2xl font-bold">My Library</h1>
+    <section class="space-y-3">
+      <div class="flex items-center justify-between">
+        <h2 class="font-semibold flex items-center gap-2"><i data-lucide="square-pen" class="w-4 h-4 text-amber-400"></i>My Scenarios</h2>
+        <a href="#/create" class="tap flex items-center gap-1.5 text-sm bg-rose-600 hover:bg-rose-500 px-4 py-2.5 rounded-xl font-medium"><i data-lucide="plus" class="w-4 h-4"></i>New</a>
+      </div>
+      ${mine.map(s => `
+      <div class="bg-slate-800 rounded-2xl p-4 flex items-center gap-3">
+        <div class="flex-1 min-w-0">
+          <p class="font-bold truncate">${esc(s.title)}</p>
+          <p class="text-sm text-slate-400">${esc(s.category)} · ${esc(s.subcategory)} · ${s.question_count} questions
+            ${s.cloned_from ? '· <span class="text-slate-500">cloned</span>' : ''}</p>
+        </div>
+        <span class="text-xs font-semibold px-2.5 py-1 rounded-full ${s.visibility === 'public' ? 'bg-emerald-900/60 text-emerald-300' : 'bg-slate-700 text-slate-300'}">${s.visibility}</span>
+        <button data-launch="${s.id}" class="tap bg-emerald-600 hover:bg-emerald-500 rounded-xl px-4 py-2.5 font-bold text-sm shrink-0">Launch</button>
+      </div>`).join('') || '<p class="text-sm text-slate-500 italic">Nothing yet — build one or clone from the community library.</p>'}
+    </section>
+    <section class="space-y-3">
+      <h2 class="font-semibold flex items-center gap-2"><i data-lucide="history" class="w-4 h-4 text-emerald-400"></i>Completed Sessions</h2>
+      ${sessions.map(s => `
+      <a href="#/session/${s.id}" class="block bg-slate-800 hover:bg-slate-700 rounded-2xl p-4">
+        <div class="flex items-center justify-between gap-3">
+          <div class="min-w-0">
+            <p class="font-bold truncate">${esc(s.title)}</p>
+            <p class="text-sm text-slate-400">${esc(s.started_at)} · room ${esc(s.room_code)} · ${s.hosted ? 'hosted by you' : 'participated'}</p>
+          </div>
+          <span class="text-xs font-semibold px-2.5 py-1 rounded-full ${s.status === 'live' ? 'bg-emerald-900/60 text-emerald-300' : 'bg-slate-700 text-slate-300'}">${s.status}</span>
+        </div>
+      </a>`).join('') || '<p class="text-sm text-slate-500 italic">No sessions yet.</p>'}
+    </section>
+  </main>`;
+  icons();
+  bindLaunchButtons();
+}
+
+async function renderPublic() {
+  const q = new URLSearchParams(location.hash.split('?')[1] || '');
+  const cat = q.get('category') || '', sub = q.get('subcategory') || '';
+  const list = await fetch(`/api/public/scenarios?category=${encodeURIComponent(cat)}&subcategory=${encodeURIComponent(sub)}`).then(r => r.json());
+  app.innerHTML = `
+  <main class="max-w-2xl mx-auto p-4 sm:p-6 space-y-4 anim-in">
+    <h1 class="text-2xl font-bold">Community Library</h1>
+    <div class="flex gap-2">
+      <select id="f-cat" class="tap flex-1 bg-slate-900 border border-slate-700 rounded-xl px-3 py-2.5 text-sm">
+        <option value="">All categories</option>
+        ${Object.keys(SUBCATS).map(c => `<option ${c === cat ? 'selected' : ''}>${c}</option>`).join('')}
+      </select>
+      <select id="f-sub" class="tap flex-1 bg-slate-900 border border-slate-700 rounded-xl px-3 py-2.5 text-sm">
+        <option value="">All subcategories</option>
+        ${(SUBCATS[cat] || []).map(s => `<option ${s === sub ? 'selected' : ''}>${s}</option>`).join('')}
+      </select>
+    </div>
+    ${list.map(s => `
+    <div class="bg-slate-800 rounded-2xl p-4 space-y-3">
+      <div>
+        <p class="font-bold">${esc(s.title)}</p>
+        <p class="text-sm text-slate-400">${esc(s.category)} · ${esc(s.subcategory)} · ${s.question_count} questions · by ${esc(s.author_name ?? 'unknown')}</p>
+      </div>
+      <div class="flex items-center gap-2 flex-wrap">
+        <button data-vote="${s.id}" class="tap flex items-center gap-1.5 text-sm px-4 py-2.5 rounded-xl ${s.my_vote ? 'bg-amber-600 font-semibold' : 'bg-slate-700 hover:bg-slate-600'}">
+          <i data-lucide="arrow-big-up" class="w-4 h-4"></i><span data-votecount="${s.id}">${s.votes}</span></button>
+        <button data-clone="${s.id}" class="tap flex items-center gap-1.5 text-sm bg-slate-700 hover:bg-slate-600 px-4 py-2.5 rounded-xl"><i data-lucide="copy-plus" class="w-4 h-4"></i>Clone</button>
+        <button data-launch="${s.id}" class="tap flex items-center gap-1.5 text-sm bg-emerald-600 hover:bg-emerald-500 px-4 py-2.5 rounded-xl font-bold ml-auto"><i data-lucide="radio-tower" class="w-4 h-4"></i>Launch Live</button>
+      </div>
+    </div>`).join('') || '<p class="text-sm text-slate-500 italic">No public scenarios match.</p>'}
+  </main>`;
+  icons();
+  const refilter = () => {
+    const c = $('#f-cat').value;
+    const s2 = $('#f-sub').value;
+    location.hash = `#/public?category=${encodeURIComponent(c)}&subcategory=${encodeURIComponent(c ? s2 : '')}`;
+  };
+  $('#f-cat').onchange = () => { $('#f-sub').value = ''; refilter(); };
+  $('#f-sub').onchange = refilter;
+  app.querySelectorAll('[data-vote]').forEach(btn => btn.onclick = async () => {
+    if (!me) { sessionStorage.authNext = location.hash; location.hash = '#/login'; return; }
+    const r = await fetch(`/api/scenarios/${btn.dataset.vote}/vote`, { method: 'POST' }).then(x => x.json());
+    app.querySelector(`[data-votecount="${btn.dataset.vote}"]`).textContent = r.votes;
+    btn.classList.toggle('bg-amber-600', r.voted); btn.classList.toggle('font-semibold', r.voted);
+    btn.classList.toggle('bg-slate-700', !r.voted);
+  });
+  app.querySelectorAll('[data-clone]').forEach(btn => btn.onclick = async () => {
+    if (!me) { sessionStorage.authNext = location.hash; location.hash = '#/login'; return; }
+    const r = await fetch(`/api/scenarios/${btn.dataset.clone}/clone`, { method: 'POST' });
+    if (r.ok) { toast('Cloned to your private library'); location.hash = '#/me'; }
+    else toast('Clone failed', 'bg-rose-600');
+  });
+  bindLaunchButtons();
+}
+
+async function renderSessionDetail(id) {
+  if (!me) { sessionStorage.authNext = `#/session/${id}`; location.hash = '#/login'; return; }
+  const res = await fetch(`/api/me/sessions/${id}`);
+  if (!res.ok) { toast('Session not found', 'bg-rose-600'); location.hash = '#/me'; return; }
+  const { session, questions, responses, notes, my_participant_id } = await res.json();
+  app.innerHTML = `
+  <main class="max-w-2xl mx-auto p-4 sm:p-6 space-y-4 anim-in pb-16">
+    <a href="#/me" class="text-sm text-slate-400 hover:text-white flex items-center gap-1"><i data-lucide="arrow-left" class="w-4 h-4"></i>My Library</a>
+    <div class="bg-slate-800 rounded-2xl p-5">
+      <h1 class="font-bold text-lg">${esc(session.title)}</h1>
+      <p class="text-sm text-slate-400 mt-1">${esc(session.category)} · ${esc(session.subcategory)} · room ${esc(session.room_code)} · ${esc(session.started_at)}</p>
+    </div>
+    <div class="bg-rose-950/50 border border-rose-800/50 rounded-xl p-4 text-sm text-rose-100">
+      <p class="font-bold text-rose-300 mb-1">DISPATCH</p>${esc(session.description)}
+    </div>
+    ${questions.map((qn, i) => {
+      const mineResp = responses.find(r => r.question_id === qn.id && r.participant_id === my_participant_id);
+      const pushed = responses.filter(r => r.question_id === qn.id && r.is_pushed);
+      const note = notes.find(n => n.question_id === qn.id);
+      return `<div class="bg-slate-800 rounded-2xl p-4 space-y-3">
+        <p class="font-semibold text-sm"><span class="text-rose-400 font-bold">Q${i + 1}.</span> ${qn.role_track ? `<span class="text-amber-400">${esc(qn.role_track)}</span> · ` : ''}${esc(qn.prompt)}</p>
+        ${mineResp ? `<div class="bg-slate-900 rounded-xl px-4 py-3 text-sm"><p class="text-xs font-bold text-slate-500 mb-1">YOUR ANSWER</p>${esc(mineResp.body)}</div>` : ''}
+        ${pushed.map(p => `<div class="bg-slate-900 border-l-4 border-rose-500 rounded-lg px-3 py-2.5 text-sm"><p class="text-xs font-bold text-rose-400 mb-0.5">PUSHED · ${esc(p.display_tag)}</p>${esc(p.body)}</div>`).join('')}
+        <div class="bg-emerald-950/40 border border-emerald-900 rounded-xl px-4 py-3 text-sm text-emerald-100"><p class="text-xs font-bold text-emerald-400 mb-1">OFFICIAL ANSWER</p>${esc(qn.instructor_answer)}</div>
+        ${note ? `<div class="bg-amber-950/30 border border-amber-800/50 rounded-xl px-4 py-3 text-sm"><p class="text-xs font-bold text-amber-400 mb-1">YOUR NOTES</p>${esc(note.body)}</div>` : ''}
+      </div>`;
+    }).join('')}
+  </main>`;
+  icons();
+}
+
+function bindLaunchButtons() {
+  app.querySelectorAll('[data-launch]').forEach(btn => btn.onclick = async () => {
+    if (!me) { sessionStorage.authNext = location.hash; location.hash = '#/login'; return; }
+    const res = await fetch('/api/sessions', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ scenario_id: btn.dataset.launch }),
+    });
+    if (!res.ok) { toast('Could not launch session', 'bg-rose-600'); return; }
+    location.hash = '#/host/' + (await res.json()).room_code;
+  });
+}
+
+async function boot() {
+  me = await fetch('/api/me').then(r => r.json()).catch(() => null);
+  renderNav();
+  route();
+}
+boot();
 </script>
 </body>
 </html>
