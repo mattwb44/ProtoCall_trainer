@@ -1,0 +1,438 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>ProtoCall Trainer — CrewTable</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://unpkg.com/lucide@latest"></script>
+<script src="/socket.io/socket.io.js"></script>
+<style>
+  html{background:#020617}
+  ::-webkit-scrollbar{width:6px;height:6px}
+  ::-webkit-scrollbar-thumb{background:#334155;border-radius:3px}
+  .tap{min-width:48px;min-height:48px}
+  @keyframes pulse-live{0%,100%{opacity:1}50%{opacity:.4}}
+  .live-dot{animation:pulse-live 1.6s infinite}
+  @keyframes slide-in{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+  .anim-in{animation:slide-in .3s ease-out}
+  @keyframes flash-push{0%{background:#9f1239}100%{background:#1e293b}}
+  .pushed-flash{animation:flash-push 1.2s ease-out}
+</style>
+</head>
+<body class="bg-slate-950 text-slate-100 antialiased min-h-screen">
+
+<nav class="sticky top-0 z-40 bg-slate-900/95 backdrop-blur border-b border-slate-800 px-4 py-2.5 flex items-center justify-between">
+  <a href="#/" class="flex items-center gap-2">
+    <i data-lucide="flame" class="w-6 h-6 text-rose-600"></i>
+    <span class="font-bold tracking-tight">ProtoCall<span class="text-rose-500">Trainer</span></span>
+  </a>
+  <a href="#/library" class="tap flex items-center gap-1.5 text-sm text-slate-300 hover:text-white px-3 py-2"><i data-lucide="library" class="w-4 h-4"></i>Library</a>
+</nav>
+
+<div id="app"></div>
+<div id="toast" class="fixed top-16 left-1/2 -translate-x-1/2 z-50 bg-emerald-600 text-white px-5 py-3 rounded-xl font-semibold shadow-xl hidden anim-in"></div>
+
+<script>
+const $ = sel => document.querySelector(sel);
+const app = $('#app');
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+function toast(msg, color) {
+  const t = $('#toast');
+  t.textContent = msg;
+  t.className = t.className.replace(/bg-\S+/, color || 'bg-emerald-600');
+  t.classList.remove('hidden');
+  clearTimeout(t._t); t._t = setTimeout(() => t.classList.add('hidden'), 2500);
+}
+function icons(){ lucide.createIcons(); }
+const token = localStorage.pcToken || (localStorage.pcToken = crypto.randomUUID());
+
+let socket = null;
+function getSocket() {
+  if (!socket) socket = io();
+  return socket;
+}
+function leaveSocket() {
+  if (socket) { socket.removeAllListeners(); socket.disconnect(); socket = null; }
+}
+
+/* ═══ Router ═══ */
+const routes = {
+  '': renderLanding,
+  'library': renderLibrary,
+  'create': renderCreator,
+  'host': code => renderHost(code),
+  'join': code => renderJoin(code),
+};
+function route() {
+  leaveSocket();
+  const [name, arg] = location.hash.replace(/^#\//, '').split('/');
+  (routes[name] || renderLanding)(arg);
+}
+window.addEventListener('hashchange', route);
+
+/* ═══ Landing ═══ */
+function renderLanding() {
+  app.innerHTML = `
+  <main class="max-w-md mx-auto p-6 pt-14 space-y-6 anim-in">
+    <div class="text-center space-y-2">
+      <i data-lucide="flame" class="w-14 h-14 text-rose-600 mx-auto"></i>
+      <h1 class="text-3xl font-black">CrewTable</h1>
+      <p class="text-slate-400">Live tactical fireground & EMS scenario training</p>
+    </div>
+    <div class="bg-slate-800 rounded-2xl p-5 space-y-3">
+      <label class="text-sm font-semibold text-slate-300">Join a live session</label>
+      <div class="flex gap-2">
+        <input id="join-code" placeholder="ROOM CODE e.g. FIRE-4821" class="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 uppercase font-mono tracking-wider focus:border-amber-500 focus:outline-none">
+        <button id="join-btn" class="tap bg-rose-600 hover:bg-rose-500 rounded-xl px-5 font-bold">Join</button>
+      </div>
+    </div>
+    <div class="grid grid-cols-2 gap-3">
+      <a href="#/library" class="tap bg-slate-800 hover:bg-slate-700 rounded-2xl p-5 text-center space-y-2">
+        <i data-lucide="radio-tower" class="w-7 h-7 mx-auto text-emerald-400"></i>
+        <p class="font-semibold text-sm">Host a Session</p>
+      </a>
+      <a href="#/create" class="tap bg-slate-800 hover:bg-slate-700 rounded-2xl p-5 text-center space-y-2">
+        <i data-lucide="square-pen" class="w-7 h-7 mx-auto text-amber-400"></i>
+        <p class="font-semibold text-sm">Build a Scenario</p>
+      </a>
+    </div>
+  </main>`;
+  icons();
+  const go = () => {
+    const code = $('#join-code').value.trim().toUpperCase();
+    if (code) location.hash = '#/join/' + code;
+  };
+  $('#join-btn').onclick = go;
+  $('#join-code').addEventListener('keydown', e => e.key === 'Enter' && go());
+}
+
+/* ═══ Library ═══ */
+async function renderLibrary() {
+  const scenarios = await fetch('/api/scenarios').then(r => r.json());
+  app.innerHTML = `
+  <main class="max-w-2xl mx-auto p-4 sm:p-6 space-y-4 anim-in">
+    <div class="flex items-center justify-between">
+      <h1 class="text-2xl font-bold">Scenario Library</h1>
+      <a href="#/create" class="tap flex items-center gap-1.5 text-sm bg-rose-600 hover:bg-rose-500 px-4 py-2.5 rounded-xl font-medium"><i data-lucide="plus" class="w-4 h-4"></i>New</a>
+    </div>
+    ${scenarios.map(s => `
+    <div class="bg-slate-800 rounded-2xl p-5 flex flex-col sm:flex-row sm:items-center gap-4">
+      <div class="flex-1">
+        <p class="font-bold">${esc(s.title)}</p>
+        <p class="text-sm text-slate-400 mt-0.5">${esc(s.category)} · ${esc(s.subcategory)} · ${s.question_count} questions</p>
+      </div>
+      <button data-launch="${s.id}" class="tap bg-emerald-600 hover:bg-emerald-500 rounded-xl px-5 py-3 font-bold text-sm flex items-center justify-center gap-2 shrink-0">
+        <i data-lucide="radio-tower" class="w-4 h-4"></i>Launch Live
+      </button>
+    </div>`).join('') || '<p class="text-slate-500 italic">No scenarios yet.</p>'}
+  </main>`;
+  icons();
+  app.querySelectorAll('[data-launch]').forEach(btn => btn.onclick = async () => {
+    const res = await fetch('/api/sessions', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ scenario_id: btn.dataset.launch }),
+    }).then(r => r.json());
+    location.hash = '#/host/' + res.room_code;
+  });
+}
+
+/* ═══ Creator ═══ */
+const SUBCATS = {
+  'Fireground': ['Residential','Commercial','Wildland','High-Rise'],
+  'EMS': ['Cardiac','Trauma','Pediatric','Medical'],
+  'Motor Vehicle Accidents': ['Extrication','Rollover','Hazardous Materials'],
+};
+let draftQs = [];
+function renderCreator() {
+  draftQs = [{ prompt: '', kind: 'text', choices: null, instructor_answer: '', role_track: '' }];
+  app.innerHTML = `
+  <main class="max-w-3xl mx-auto p-4 sm:p-6 space-y-5 anim-in">
+    <h1 class="text-2xl font-bold">Scenario Creator</h1>
+    <section class="bg-slate-800 rounded-2xl p-4 sm:p-6 space-y-4">
+      <div><label class="text-sm font-medium text-slate-300">Title</label>
+        <input id="c-title" class="mt-1 w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 focus:border-rose-500 focus:outline-none"></div>
+      <div><label class="text-sm font-medium text-slate-300">Dispatch / Description</label>
+        <textarea id="c-desc" rows="3" class="mt-1 w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 focus:border-rose-500 focus:outline-none"></textarea></div>
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div><label class="text-sm font-medium text-slate-300">Category</label>
+          <select id="c-cat" class="mt-1 w-full tap bg-slate-900 border border-slate-700 rounded-xl px-4 py-3">
+            ${Object.keys(SUBCATS).map(c => `<option>${c}</option>`).join('')}</select></div>
+        <div><label class="text-sm font-medium text-slate-300">Subcategory</label>
+          <select id="c-sub" class="mt-1 w-full tap bg-slate-900 border border-slate-700 rounded-xl px-4 py-3"></select></div>
+      </div>
+      <div><label class="text-sm font-medium text-slate-300">Scenario image URL (optional)</label>
+        <input id="c-img" placeholder="https://…" class="mt-1 w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 focus:border-amber-500 focus:outline-none"></div>
+    </section>
+    <section class="bg-slate-800 rounded-2xl p-4 sm:p-6 space-y-3">
+      <div class="flex items-center justify-between">
+        <h2 class="font-semibold">Questions</h2>
+        <button id="c-addq" class="tap flex items-center gap-1.5 text-sm bg-rose-600 hover:bg-rose-500 px-4 py-2.5 rounded-xl font-medium"><i data-lucide="plus" class="w-4 h-4"></i>Add</button>
+      </div>
+      <div id="c-qs" class="space-y-3"></div>
+    </section>
+    <button id="c-save" class="tap w-full bg-emerald-600 hover:bg-emerald-500 rounded-2xl py-4 font-bold text-lg flex items-center justify-center gap-2">
+      <i data-lucide="save" class="w-5 h-5"></i>Save to Library</button>
+  </main>`;
+  const fillSub = () => $('#c-sub').innerHTML = SUBCATS[$('#c-cat').value].map(s => `<option>${s}</option>`).join('');
+  $('#c-cat').onchange = fillSub; fillSub();
+  $('#c-addq').onclick = () => { draftQs.push({ prompt: '', kind: 'text', choices: null, instructor_answer: '', role_track: '' }); drawQs(); };
+  $('#c-save').onclick = saveScenario;
+  drawQs(); icons();
+}
+function drawQs() {
+  $('#c-qs').innerHTML = draftQs.map((q, i) => `
+  <div class="bg-slate-900 border border-slate-700 rounded-xl p-4 space-y-3">
+    <div class="flex items-center justify-between gap-2 flex-wrap">
+      <input data-f="role_track" data-i="${i}" value="${esc(q.role_track)}" placeholder="Role track (e.g. Firefighter)" class="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-xs w-52">
+      <div class="flex items-center gap-1 bg-slate-800 rounded-lg p-1 text-xs">
+        <button data-kind="text" data-i="${i}" class="px-3 py-1.5 rounded-md ${q.kind==='text'?'bg-amber-600 font-semibold':''}">Text Box</button>
+        <button data-kind="multiple_choice" data-i="${i}" class="px-3 py-1.5 rounded-md ${q.kind==='multiple_choice'?'bg-amber-600 font-semibold':''}">Multiple Choice</button>
+      </div>
+    </div>
+    <textarea data-f="prompt" data-i="${i}" rows="2" placeholder="Question prompt…" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm">${esc(q.prompt)}</textarea>
+    ${q.kind==='multiple_choice' ? `<input data-f="choicesRaw" data-i="${i}" value="${esc((q.choices||[]).join(' | '))}" placeholder="Choices separated by | " class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm">` : ''}
+    <div><label class="text-xs font-semibold text-emerald-400">Instructor Answer</label>
+      <textarea data-f="instructor_answer" data-i="${i}" rows="2" class="mt-1 w-full bg-slate-800 border border-emerald-900 rounded-lg px-3 py-2 text-sm text-emerald-100">${esc(q.instructor_answer)}</textarea></div>
+  </div>`).join('');
+  $('#c-qs').querySelectorAll('[data-f]').forEach(el => el.onchange = () => {
+    const q = draftQs[el.dataset.i];
+    if (el.dataset.f === 'choicesRaw') q.choices = el.value.split('|').map(s => s.trim()).filter(Boolean);
+    else q[el.dataset.f] = el.value;
+  });
+  $('#c-qs').querySelectorAll('[data-kind]').forEach(el => el.onclick = () => {
+    draftQs[el.dataset.i].kind = el.dataset.kind; drawQs();
+  });
+  icons();
+}
+async function saveScenario() {
+  const body = {
+    title: $('#c-title').value.trim(), description: $('#c-desc').value.trim(),
+    category: $('#c-cat').value, subcategory: $('#c-sub').value,
+    image_url: $('#c-img').value.trim(),
+    questions: draftQs.filter(q => q.prompt.trim()),
+  };
+  if (!body.title) return toast('Title is required', 'bg-amber-500');
+  const res = await fetch('/api/scenarios', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+  });
+  if (res.ok) { toast('Scenario saved'); location.hash = '#/library'; }
+  else toast('Save failed', 'bg-rose-600');
+}
+
+/* ═══ Host Control Room ═══ */
+function renderHost(code) {
+  const s = getSocket();
+  s.on('response_incoming', r => { if (hostState) { hostState.responses.push(r); drawMatrix(); } });
+  s.on('answer_pushed', r => {
+    if (!hostState) return;
+    const found = hostState.responses.find(x => x.id === r.id);
+    if (found) found.is_pushed = 1;
+    drawMatrix();
+  });
+  s.on('participant_count', n => { const el = $('#pcount'); if (el) el.textContent = Math.max(0, n - 1); });
+  s.emit('join_room', { code, role: 'host' }, ({ error, state }) => {
+    if (error) { toast(error, 'bg-rose-600'); location.hash = '#/library'; return; }
+    drawHost(state);
+  });
+}
+let hostState = null;
+function drawHost(state) {
+  hostState = state;
+  const { session } = state;
+  app.innerHTML = `
+  <main class="p-4 sm:p-6 max-w-7xl mx-auto anim-in">
+    <div class="flex flex-col lg:flex-row gap-5">
+      <aside class="lg:w-[30%] space-y-4">
+        <div class="bg-slate-800 rounded-2xl p-5">
+          <div id="live-flag" class="flex items-center gap-2 text-emerald-400 text-sm font-semibold mb-2">
+            <span class="w-2.5 h-2.5 bg-emerald-500 rounded-full live-dot"></span> LIVE SESSION</div>
+          <h1 class="font-bold text-lg leading-snug">${esc(session.title)}</h1>
+          <p class="text-sm text-slate-400 mt-1">${esc(session.category)} · ${esc(session.subcategory)}</p>
+        </div>
+        <div class="bg-slate-800 rounded-2xl p-5 text-center">
+          <p class="text-sm text-slate-400 mb-1">Room Code</p>
+          <p class="text-4xl font-black tracking-widest text-amber-400">${esc(session.room_code)}</p>
+          <img id="qr" src="/api/sessions/${esc(session.room_code)}/qr.svg" alt="QR join code" class="mt-4 mx-auto rounded-xl bg-white p-1 w-40 h-40">
+          <p class="text-xs text-slate-500 mt-2 break-all">${location.origin}/#/join/${esc(session.room_code)}</p>
+        </div>
+        <div class="bg-slate-800 rounded-2xl p-5 flex items-center justify-between">
+          <div class="flex items-center gap-3"><i data-lucide="users" class="w-6 h-6 text-emerald-400"></i>
+            <span class="text-slate-300 font-medium">Participants</span></div>
+          <span id="pcount" class="text-3xl font-black text-emerald-400">0</span>
+        </div>
+      </aside>
+      <section class="lg:w-[70%] space-y-4 pb-24">
+        <h2 class="font-bold text-lg flex items-center gap-2"><i data-lucide="layout-grid" class="w-5 h-5 text-amber-400"></i>Aggregation Matrix <span class="text-xs font-normal text-slate-400">— live anonymous responses</span></h2>
+        <div id="matrix" class="space-y-4"></div>
+      </section>
+    </div>
+    <div class="fixed bottom-0 inset-x-0 bg-slate-900/95 backdrop-blur border-t border-slate-800 p-3 flex justify-end z-30">
+      <button id="end-btn" class="tap bg-rose-700 hover:bg-rose-600 px-6 py-3 rounded-xl font-bold flex items-center gap-2">
+        <i data-lucide="power" class="w-5 h-5"></i>End Session</button>
+    </div>
+  </main>`;
+  drawMatrix(); icons();
+  $('#end-btn').onclick = () => {
+    if (!confirm('End this session for all participants? The session will be archived to the database.')) return;
+    getSocket().emit('end_session', {}, () => {
+      toast('Session ended and archived');
+      $('#live-flag').innerHTML = '<span class="w-2.5 h-2.5 bg-slate-500 rounded-full"></span> ENDED';
+      $('#live-flag').className = 'flex items-center gap-2 text-slate-400 text-sm font-semibold mb-2';
+    });
+  };
+}
+function drawMatrix() {
+  if (!hostState) return;
+  $('#matrix').innerHTML = hostState.questions.map(q => {
+    const rows = hostState.responses.filter(r => r.question_id === q.id).map(r => `
+      <div class="flex items-start gap-3 bg-slate-900 rounded-xl p-3 anim-in ${r.is_pushed ? 'ring-2 ring-rose-500' : ''}">
+        <span class="shrink-0 w-8 h-8 rounded-full bg-slate-700 text-xs font-bold flex items-center justify-center text-slate-300">${esc(r.display_tag)}</span>
+        <p class="flex-1 text-sm text-slate-200 pt-1">${esc(r.body)}</p>
+        <button data-push="${r.id}" ${r.is_pushed ? 'disabled' : ''} class="tap shrink-0 text-xs font-bold px-3 py-2 rounded-lg ${r.is_pushed ? 'bg-rose-900 text-rose-300' : 'bg-rose-600 hover:bg-rose-500'}">${r.is_pushed ? '✓ Pushed' : 'Push to Crew'}</button>
+      </div>`).join('');
+    return `<div class="bg-slate-800 rounded-2xl p-4">
+      <p class="font-semibold text-sm mb-1"><span class="text-amber-400">${esc(q.role_track)}</span> · ${esc(q.prompt)}</p>
+      <p class="text-xs text-emerald-400 mb-3 flex items-center gap-1"><i data-lucide="shield-check" class="w-3.5 h-3.5"></i>${esc(q.instructor_answer)}</p>
+      <div class="space-y-2">${rows || '<p class="text-sm text-slate-500 italic">Waiting for responses…</p>'}</div>
+    </div>`;
+  }).join('');
+  $('#matrix').querySelectorAll('[data-push]').forEach(btn =>
+    btn.onclick = () => getSocket().emit('push_answer', { response_id: btn.dataset.push }));
+  icons();
+}
+
+/* ═══ Participant ═══ */
+let pState = null, myId = null;
+const answered = new Map(); // question_id -> official answer
+function renderJoin(code) {
+  const s = getSocket();
+  ['answer_pushed','session_ended','disconnect'].forEach(ev => s.off(ev));
+  s.on('answer_pushed', r => {
+      const slot = document.getElementById('pushed-' + r.question_id);
+      if (!slot || slot.querySelector(`[data-rid="${r.id}"]`)) return;
+      const d = document.createElement('div');
+      d.dataset.rid = r.id;
+      d.className = 'pushed-flash bg-slate-800 border-l-4 border-rose-500 rounded-lg px-3 py-2.5 text-sm anim-in';
+      d.innerHTML = `<p class="text-xs font-bold text-rose-400 mb-0.5 flex items-center gap-1"><i data-lucide="megaphone" class="w-3.5 h-3.5"></i>PUSHED BY INSTRUCTOR · ${esc(r.display_tag)}</p>${esc(r.body)}`;
+      slot.appendChild(d); icons();
+      toast('Instructor pushed an answer', 'bg-rose-600');
+  });
+  s.on('session_ended', () => {
+    if (pState) pState.session.status = 'ended';
+    const b = $('#conn-badge');
+    if (b) { b.innerHTML = '<span class="w-2 h-2 bg-slate-500 rounded-full"></span> ENDED'; b.className = 'flex items-center gap-1.5 text-xs font-semibold bg-slate-800 text-slate-400 px-3 py-1.5 rounded-full'; }
+    $('#guest-drawer')?.classList.remove('hidden');
+  });
+  s.io.on('reconnect', () => renderJoin(code));
+  s.on('disconnect', () => {
+    const b = $('#conn-badge');
+    if (b && pState?.session.status === 'live') { b.innerHTML = 'RECONNECTING…'; b.className = 'text-xs font-semibold bg-amber-900/60 text-amber-300 px-3 py-1.5 rounded-full'; }
+  });
+  s.emit('join_room', { code, token, role: 'participant' }, ({ error, state, participant }) => {
+    if (error) { toast(error, 'bg-rose-600'); location.hash = '#/'; return; }
+    pState = state; myId = participant.id;
+    answered.clear();
+    state.responses.filter(r => r.participant_id === myId).forEach(r => {
+      const q = state.questions.find(x => x.id === r.question_id);
+      answered.set(r.question_id, q?.instructor_answer ?? '');
+    });
+    drawParticipant();
+  });
+}
+function drawParticipant() {
+  const { session, questions, responses } = pState;
+  const ended = session.status !== 'live';
+  app.innerHTML = `
+  <main class="max-w-md mx-auto pb-40 anim-in">
+    <header class="sticky top-[52px] z-30 bg-slate-900/95 backdrop-blur border-b border-slate-800 px-4 py-3 flex items-center justify-between">
+      <div><p class="text-xs text-slate-400">Room <span class="font-mono font-bold text-amber-400">${esc(session.room_code)}</span></p>
+        <p class="font-semibold text-sm leading-tight">${esc(session.title)}</p></div>
+      <span id="conn-badge" class="flex items-center gap-1.5 text-xs font-semibold ${ended ? 'bg-slate-800 text-slate-400' : 'bg-emerald-900/60 text-emerald-300'} px-3 py-1.5 rounded-full">
+        ${ended ? 'ENDED' : '<span class="w-2 h-2 bg-emerald-400 rounded-full live-dot"></span> LIVE'}</span>
+    </header>
+    ${session.image_url ? `<img src="${esc(session.image_url)}" class="w-full max-h-64 object-cover cursor-pointer" onclick="window.open(this.src)">` : ''}
+    <div class="px-4 pt-4">
+      <div class="bg-rose-950/50 border border-rose-800/50 rounded-xl p-4 text-sm text-rose-100">
+        <p class="font-bold text-rose-300 mb-1 flex items-center gap-1.5"><i data-lucide="siren" class="w-4 h-4"></i>DISPATCH</p>
+        ${esc(session.description)}
+      </div>
+    </div>
+    <div id="q-stream" class="px-4 pt-4 space-y-4">
+      ${questions.map((q, i) => qCard(q, i, responses)).join('')}
+    </div>
+    <div id="guest-drawer" class="fixed bottom-0 inset-x-0 z-30 max-w-md mx-auto bg-slate-800 border-t-2 border-amber-500 rounded-t-2xl p-4 shadow-2xl hidden anim-in">
+      <p class="font-bold flex items-center gap-2"><i data-lucide="bookmark" class="w-5 h-5 text-amber-400"></i>Don't lose tonight's training.</p>
+      <p class="text-sm text-slate-300 mt-1">Create a quick account to permanently save your answers, pushed notes, and the full scenario to your Completed Library.</p>
+      <div class="flex gap-2 mt-3">
+        <button class="tap flex-1 bg-emerald-600 hover:bg-emerald-500 rounded-xl py-3 font-bold" onclick="toast('Accounts coming in v2')">Create Account</button>
+        <button class="tap px-4 rounded-xl bg-slate-700 hover:bg-slate-600 text-sm" onclick="this.closest('#guest-drawer').classList.add('hidden')">Not now</button>
+      </div>
+    </div>
+  </main>`;
+  bindCards(); icons();
+  // re-render pushed answers already in state
+  responses.filter(r => r.is_pushed).forEach(r => {
+    const slot = document.getElementById('pushed-' + r.question_id);
+    if (slot) slot.insertAdjacentHTML('beforeend',
+      `<div data-rid="${r.id}" class="bg-slate-800 border-l-4 border-rose-500 rounded-lg px-3 py-2.5 text-sm">
+        <p class="text-xs font-bold text-rose-400 mb-0.5">PUSHED BY INSTRUCTOR · ${esc(r.display_tag)}</p>${esc(r.body)}</div>`);
+  });
+}
+function qCard(q, i, responses) {
+  const done = answered.has(q.id);
+  const mine = responses.find(r => r.participant_id === myId && r.question_id === q.id);
+  const input = q.kind === 'multiple_choice'
+    ? `<div class="space-y-2">${(q.choices || []).map(c => `
+        <label class="tap flex items-center gap-3 bg-slate-900 border ${mine?.body === c ? 'border-amber-500' : 'border-slate-700'} rounded-xl px-4 py-3 cursor-pointer has-[:checked]:border-amber-500">
+          <input type="radio" name="${q.id}" value="${esc(c)}" ${done ? 'disabled' : ''} ${mine?.body === c ? 'checked' : ''} class="accent-rose-600 w-5 h-5"><span class="text-sm">${esc(c)}</span></label>`).join('')}</div>`
+    : `<textarea id="in-${q.id}" rows="3" ${done ? 'disabled' : ''} placeholder="Type your answer…" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-sm focus:border-amber-500 focus:outline-none disabled:opacity-60">${esc(mine?.body ?? '')}</textarea>`;
+  return `<div class="bg-slate-800 rounded-2xl p-4 space-y-3" id="card-${q.id}">
+    <p class="font-semibold text-sm leading-snug"><span class="text-rose-400 font-bold">Q${i + 1}.</span> ${q.role_track ? `<span class="text-amber-400">${esc(q.role_track)}</span> · ` : ''}${esc(q.prompt)}</p>
+    <div id="pushed-${q.id}" class="space-y-2"></div>
+    ${input}
+    ${done ? '' : `<button data-submit="${q.id}" class="tap w-full bg-rose-600 hover:bg-rose-500 rounded-xl py-3 font-bold text-sm">Submit Answer</button>`}
+    <div class="border border-slate-700 rounded-xl overflow-hidden">
+      <button data-acc="${q.id}" class="tap w-full flex items-center justify-between px-4 py-3 text-sm font-semibold ${done ? 'text-emerald-400' : 'text-slate-500'}">
+        <span class="flex items-center gap-2"><i data-lucide="${done ? 'shield-check' : 'lock'}" class="w-4 h-4"></i>Official Answer</span>
+        <i data-lucide="chevron-down" class="w-4 h-4"></i></button>
+      <div id="acc-${q.id}" class="hidden px-4 pb-4 text-sm text-emerald-100 bg-emerald-950/40 pt-3 border-t border-emerald-900">${esc(answered.get(q.id) ?? '')}</div>
+    </div>
+    ${done ? `<div><label class="text-xs font-semibold text-amber-400 flex items-center gap-1"><i data-lucide="pencil-line" class="w-3.5 h-3.5"></i>Your Notes</label>
+      <textarea data-note="${q.id}" rows="2" placeholder="Tactical notes — saved automatically" class="mt-1 w-full bg-amber-950/30 border border-amber-800/50 rounded-xl px-4 py-3 text-sm focus:border-amber-500 focus:outline-none"></textarea></div>` : ''}
+  </div>`;
+}
+function bindCards() {
+  app.querySelectorAll('[data-submit]').forEach(btn => btn.onclick = () => {
+    const qid = btn.dataset.submit;
+    const q = pState.questions.find(x => x.id === qid);
+    let val;
+    if (q.kind === 'multiple_choice') {
+      val = app.querySelector(`input[name="${qid}"]:checked`)?.value;
+      if (!val) return toast('Pick an option first', 'bg-amber-500');
+    } else {
+      val = $('#in-' + qid).value.trim();
+      if (!val) return toast('Type an answer first', 'bg-amber-500');
+    }
+    getSocket().emit('submit_response', { question_id: qid, body: val }, res => {
+      if (res?.error) return toast('Submit failed', 'bg-rose-600');
+      answered.set(qid, res.official_answer);
+      pState.responses.push({ id: 'local', question_id: qid, participant_id: myId, body: val, is_pushed: 0 });
+      drawParticipant();
+      toast('Submitted — Official Answer unlocked');
+    });
+  });
+  app.querySelectorAll('[data-acc]').forEach(btn => btn.onclick = () => {
+    const qid = btn.dataset.acc;
+    if (!answered.has(qid)) return toast('Locked until you submit your answer', 'bg-amber-500');
+    document.getElementById('acc-' + qid).classList.toggle('hidden');
+  });
+  app.querySelectorAll('[data-note]').forEach(ta => {
+    ta.onchange = () => getSocket().emit('save_note', { question_id: ta.dataset.note, body: ta.value }, () => toast('Note saved', 'bg-amber-500'));
+  });
+}
+
+route(); icons();
+</script>
+</body>
+</html>
