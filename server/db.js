@@ -80,6 +80,13 @@ export function createDb(file = process.env.DB_PATH || path.join(__dirname, '..'
     user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     scenario_id TEXT NOT NULL REFERENCES scenarios(id) ON DELETE CASCADE,
     PRIMARY KEY (user_id, scenario_id)
+  );
+  CREATE TABLE IF NOT EXISTS scenario_media (
+    id TEXT PRIMARY KEY,
+    scenario_id TEXT NOT NULL REFERENCES scenarios(id) ON DELETE CASCADE,
+    kind TEXT NOT NULL DEFAULT 'photo' CHECK (kind IN ('photo','ekg','map')),
+    url TEXT NOT NULL,
+    sort_order INTEGER NOT NULL DEFAULT 0
   );`);
 
   migrate(db);
@@ -96,6 +103,8 @@ function migrate(db) {
   addColumn('scenarios', 'cloned_from', 'cloned_from TEXT REFERENCES scenarios(id)');
   addColumn('live_sessions', 'host_id', 'host_id TEXT REFERENCES users(id)');
   addColumn('participants', 'user_id', 'user_id TEXT REFERENCES users(id)');
+  addColumn('scenarios', 'deleted_at', 'deleted_at TEXT');
+  addColumn('questions', 'deleted', 'deleted INTEGER NOT NULL DEFAULT 0');
 
   // System user owns pre-v2 content; the seed scenario becomes public.
   db.prepare(`INSERT OR IGNORE INTO users (id, email, password_hash, display_name)

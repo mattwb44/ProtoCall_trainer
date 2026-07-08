@@ -60,7 +60,7 @@ function leaveSocket() {
 const routes = {
   '': renderLanding,
   'library': renderLibrary,
-  'create': renderCreator,
+  'create': id => renderCreator(id),
   'host': code => renderHost(code),
   'join': code => renderJoin(code),
   'login': () => renderAuth('login'),
@@ -146,13 +146,23 @@ const SUBCATS = {
   'EMS': ['Cardiac','Trauma','Pediatric','Medical'],
   'Motor Vehicle Accidents': ['Extrication','Rollover','Hazardous Materials'],
 };
-let draftQs = [], draftPublic = false;
-function renderCreator() {
-  if (!me) { sessionStorage.authNext = '#/create'; location.hash = '#/login'; return; }
+let draftQs = [], draftPublic = false, draftMedia = [], editingId = null;
+async function renderCreator(id) {
+  if (!me) { sessionStorage.authNext = location.hash; location.hash = '#/login'; return; }
+  editingId = id || null;
   draftQs = [{ prompt: '', kind: 'text', choices: null, instructor_answer: '', role_track: '' }];
+  draftMedia = [];
+  let existing = null;
+  if (editingId) {
+    const res = await fetch(`/api/scenarios/${editingId}`);
+    existing = res.ok ? await res.json() : null;
+    if (!existing?.mine) { toast('Scenario not found', 'bg-rose-600'); location.hash = '#/me'; return; }
+    draftQs = existing.questions.map(q => ({ id: q.id, prompt: q.prompt, kind: q.kind, choices: q.choices, instructor_answer: q.instructor_answer, role_track: q.role_track }));
+    draftMedia = existing.media.map(m => ({ kind: m.kind, url: m.url }));
+  }
   app.innerHTML = `
   <main class="max-w-3xl mx-auto p-4 sm:p-6 space-y-5 anim-in">
-    <h1 class="text-2xl font-bold">Scenario Creator</h1>
+    <h1 class="text-2xl font-bold">${editingId ? 'Edit Scenario' : 'Scenario Creator'}</h1>
     <section class="bg-slate-800 rounded-2xl p-4 sm:p-6 space-y-4">
       <div><label class="text-sm font-medium text-slate-300">Title</label>
         <input id="c-title" class="mt-1 w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 focus:border-rose-500 focus:outline-none"></div>
@@ -165,8 +175,14 @@ function renderCreator() {
         <div><label class="text-sm font-medium text-slate-300">Subcategory</label>
           <select id="c-sub" class="mt-1 w-full tap bg-slate-900 border border-slate-700 rounded-xl px-4 py-3"></select></div>
       </div>
-      <div><label class="text-sm font-medium text-slate-300">Scenario image URL (optional)</label>
-        <input id="c-img" placeholder="https://…" class="mt-1 w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 focus:border-amber-500 focus:outline-none"></div>
+      <div>
+        <label class="text-sm font-medium text-slate-300">Media <span class="text-slate-500">(photo · EKG strip · map)</span></label>
+        <div id="c-media" class="mt-2 space-y-2"></div>
+        <label class="mt-2 tap flex items-center justify-center gap-2 border-2 border-dashed border-slate-600 rounded-xl p-5 text-slate-400 hover:border-amber-500 hover:text-amber-400 cursor-pointer transition">
+          <i data-lucide="image-plus" class="w-5 h-5"></i><span id="c-upload-label">Upload image</span>
+          <input id="c-file" type="file" accept="image/png,image/jpeg,image/webp,image/gif" class="hidden">
+        </label>
+      </div>
     </section>
     <section class="bg-slate-800 rounded-2xl p-4 sm:p-6 space-y-3">
       <div class="flex items-center justify-between">
@@ -189,16 +205,49 @@ function renderCreator() {
   </main>`;
   const fillSub = () => $('#c-sub').innerHTML = SUBCATS[$('#c-cat').value].map(s => `<option>${s}</option>`).join('');
   $('#c-cat').onchange = fillSub; fillSub();
+  if (existing) {
+    $('#c-title').value = existing.title;
+    $('#c-desc').value = existing.description;
+    $('#c-cat').value = existing.category; fillSub();
+    $('#c-sub').value = existing.subcategory;
+  }
   $('#c-addq').onclick = () => { draftQs.push({ prompt: '', kind: 'text', choices: null, instructor_answer: '', role_track: '' }); drawQs(); };
-  draftPublic = false;
-  $('#vis-toggle').onclick = () => {
-    draftPublic = !draftPublic;
+  const applyVis = () => {
     $('#vis-knob').style.transform = draftPublic ? 'translateX(24px)' : '';
     $('#vis-toggle').classList.toggle('bg-emerald-600', draftPublic);
     $('#vis-label').textContent = draftPublic ? 'Shared to Public Community Library' : 'Private (Personal Library)';
   };
+  draftPublic = existing?.visibility === 'public';
+  applyVis();
+  $('#vis-toggle').onclick = () => { draftPublic = !draftPublic; applyVis(); };
+  $('#c-file').onchange = async () => {
+    const file = $('#c-file').files[0];
+    if (!file) return;
+    $('#c-upload-label').textContent = 'Uploading…';
+    const form = new FormData();
+    form.append('file', file);
+    const res = await fetch('/api/media', { method: 'POST', body: form });
+    $('#c-upload-label').textContent = 'Upload image';
+    $('#c-file').value = '';
+    if (!res.ok) { toast((await res.json()).error || 'Upload failed', 'bg-rose-600'); return; }
+    draftMedia.push({ kind: 'photo', url: (await res.json()).url });
+    drawMedia();
+  };
   $('#c-save').onclick = saveScenario;
-  drawQs(); icons();
+  drawQs(); drawMedia(); icons();
+}
+function drawMedia() {
+  $('#c-media').innerHTML = draftMedia.map((m, i) => `
+    <div class="flex items-center gap-3 bg-slate-900 border border-slate-700 rounded-xl p-2">
+      <img src="${esc(m.url)}" class="w-16 h-16 object-cover rounded-lg bg-slate-800">
+      <select data-mkind="${i}" class="tap bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm">
+        ${['photo', 'ekg', 'map'].map(k => `<option value="${k}" ${m.kind === k ? 'selected' : ''}>${k === 'ekg' ? 'EKG strip' : k}</option>`).join('')}
+      </select>
+      <button data-mdel="${i}" class="tap ml-auto text-slate-400 hover:text-rose-400 px-3"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
+    </div>`).join('');
+  $('#c-media').querySelectorAll('[data-mkind]').forEach(el => el.onchange = () => draftMedia[el.dataset.mkind].kind = el.value);
+  $('#c-media').querySelectorAll('[data-mdel]').forEach(el => el.onclick = () => { draftMedia.splice(el.dataset.mdel, 1); drawMedia(); });
+  icons();
 }
 function drawQs() {
   $('#c-qs').innerHTML = draftQs.map((q, i) => `
@@ -229,15 +278,16 @@ async function saveScenario() {
   const body = {
     title: $('#c-title').value.trim(), description: $('#c-desc').value.trim(),
     category: $('#c-cat').value, subcategory: $('#c-sub').value,
-    image_url: $('#c-img').value.trim(),
     visibility: draftPublic ? 'public' : 'private',
     questions: draftQs.filter(q => q.prompt.trim()),
+    media: draftMedia,
   };
   if (!body.title) return toast('Title is required', 'bg-amber-500');
-  const res = await fetch('/api/scenarios', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+  const res = await fetch(editingId ? `/api/scenarios/${editingId}` : '/api/scenarios', {
+    method: editingId ? 'PUT' : 'POST',
+    headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
   });
-  if (res.ok) { toast('Scenario saved'); location.hash = '#/library'; }
+  if (res.ok) { toast(editingId ? 'Scenario updated' : 'Scenario saved'); location.hash = '#/me'; }
   else toast('Save failed', 'bg-rose-600');
 }
 
@@ -373,7 +423,7 @@ function drawParticipant() {
       <span id="conn-badge" class="flex items-center gap-1.5 text-xs font-semibold ${ended ? 'bg-slate-800 text-slate-400' : 'bg-emerald-900/60 text-emerald-300'} px-3 py-1.5 rounded-full">
         ${ended ? 'ENDED' : '<span class="w-2 h-2 bg-emerald-400 rounded-full live-dot"></span> LIVE'}</span>
     </header>
-    ${session.image_url ? `<img src="${esc(session.image_url)}" class="w-full max-h-64 object-cover cursor-pointer" onclick="window.open(this.src)">` : ''}
+    ${mediaStrip(pState.media, session.image_url)}
     <div class="px-4 pt-4">
       <div class="bg-rose-950/50 border border-rose-800/50 rounded-xl p-4 text-sm text-rose-100">
         <p class="font-bold text-rose-300 mb-1 flex items-center gap-1.5"><i data-lucide="siren" class="w-4 h-4"></i>DISPATCH</p>
@@ -400,6 +450,32 @@ function drawParticipant() {
       `<div data-rid="${r.id}" class="bg-slate-800 border-l-4 border-rose-500 rounded-lg px-3 py-2.5 text-sm">
         <p class="text-xs font-bold text-rose-400 mb-0.5">PUSHED BY INSTRUCTOR · ${esc(r.display_tag)}</p>${esc(r.body)}</div>`);
   });
+}
+const KIND_LABEL = { photo: 'PHOTO', ekg: 'EKG STRIP', map: 'MAP' };
+function mediaStrip(media, legacyUrl) {
+  const items = (media?.length ? media : (legacyUrl ? [{ kind: 'photo', url: legacyUrl }] : []));
+  if (!items.length) return '';
+  return `<div class="flex gap-2 overflow-x-auto px-4 pt-4 snap-x">
+    ${items.map(m => `
+    <div class="relative shrink-0 snap-start cursor-pointer group ${items.length === 1 ? 'w-full' : 'w-[85%]'}" onclick="openMediaViewer('${esc(m.url)}')">
+      <img src="${esc(m.url)}" class="w-full h-52 object-cover rounded-xl bg-slate-800">
+      <span class="absolute top-2 left-2 bg-slate-950/80 text-[10px] font-bold tracking-wider px-2 py-1 rounded">${KIND_LABEL[m.kind] ?? 'MEDIA'}</span>
+      <span class="absolute bottom-2 right-2 bg-slate-950/80 text-xs px-2.5 py-1.5 rounded-lg flex items-center gap-1.5 group-hover:bg-slate-950"><i data-lucide="expand" class="w-3.5 h-3.5"></i>Tap to Expand</span>
+    </div>`).join('')}
+  </div>`;
+}
+function openMediaViewer(url) {
+  const ov = document.createElement('div');
+  ov.className = 'fixed inset-0 z-50 bg-slate-950/95 overflow-auto';
+  ov.innerHTML = `
+    <button class="fixed top-3 right-3 z-10 tap bg-slate-800/90 rounded-full p-3" aria-label="Close"><i data-lucide="x" class="w-5 h-5"></i></button>
+    <div class="min-h-full min-w-full flex items-center justify-center p-2">
+      <img src="${esc(url)}" class="max-w-none w-auto max-h-none" style="max-width:min(1400px,180vw)">
+    </div>`;
+  ov.querySelector('button').onclick = () => ov.remove();
+  ov.onclick = e => { if (e.target === ov || e.target.tagName === 'DIV') ov.remove(); };
+  document.body.appendChild(ov);
+  icons();
 }
 function qCard(q, i, responses) {
   const done = answered.has(q.id);
@@ -522,7 +598,8 @@ async function renderMe() {
     fetch('/api/me/sessions').then(r => r.json()),
     fetch('/api/scenarios').then(r => r.json()),
   ]);
-  const mine = scenarios.filter(s => s.mine);
+  const mine = scenarios.filter(s => s.mine && !s.deleted_at);
+  const deleted = scenarios.filter(s => s.mine && s.deleted_at);
   app.innerHTML = `
   <main class="max-w-2xl mx-auto p-4 sm:p-6 space-y-5 anim-in">
     <h1 class="text-2xl font-bold">My Library</h1>
@@ -539,8 +616,24 @@ async function renderMe() {
             ${s.cloned_from ? '· <span class="text-slate-500">cloned</span>' : ''}</p>
         </div>
         <span class="text-xs font-semibold px-2.5 py-1 rounded-full ${s.visibility === 'public' ? 'bg-emerald-900/60 text-emerald-300' : 'bg-slate-700 text-slate-300'}">${s.visibility}</span>
+        <a href="#/create/${s.id}" class="tap flex items-center text-slate-300 hover:text-white px-3" title="Edit"><i data-lucide="pencil" class="w-4 h-4"></i></a>
+        <button data-del="${s.id}" class="tap text-slate-400 hover:text-rose-400 px-3" title="Delete"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
         <button data-launch="${s.id}" class="tap bg-emerald-600 hover:bg-emerald-500 rounded-xl px-4 py-2.5 font-bold text-sm shrink-0">Launch</button>
       </div>`).join('') || '<p class="text-sm text-slate-500 italic">Nothing yet — build one or clone from the community library.</p>'}
+      ${deleted.length ? `
+      <details class="pt-1">
+        <summary class="text-sm text-slate-500 cursor-pointer hover:text-slate-300">Deleted (${deleted.length})</summary>
+        <div class="space-y-2 mt-2">
+        ${deleted.map(s => `
+          <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4 flex items-center gap-3 opacity-80">
+            <div class="flex-1 min-w-0">
+              <p class="font-bold truncate text-slate-400">${esc(s.title)}</p>
+              <p class="text-xs text-slate-500">deleted ${esc(s.deleted_at)}</p>
+            </div>
+            <button data-restore="${s.id}" class="tap bg-slate-700 hover:bg-slate-600 rounded-xl px-4 py-2.5 font-bold text-sm">Restore</button>
+          </div>`).join('')}
+        </div>
+      </details>` : ''}
     </section>
     <section class="space-y-3">
       <h2 class="font-semibold flex items-center gap-2"><i data-lucide="history" class="w-4 h-4 text-emerald-400"></i>Completed Sessions</h2>
@@ -558,6 +651,17 @@ async function renderMe() {
   </main>`;
   icons();
   bindLaunchButtons();
+  app.querySelectorAll('[data-del]').forEach(btn => btn.onclick = async () => {
+    if (!confirm('Delete this scenario? Past sessions are kept, and you can restore it later.')) return;
+    const r = await fetch(`/api/scenarios/${btn.dataset.del}`, { method: 'DELETE' });
+    if (r.ok) { toast('Scenario deleted'); renderMe(); }
+    else toast('Delete failed', 'bg-rose-600');
+  });
+  app.querySelectorAll('[data-restore]').forEach(btn => btn.onclick = async () => {
+    const r = await fetch(`/api/scenarios/${btn.dataset.restore}/restore`, { method: 'POST' });
+    if (r.ok) { toast('Scenario restored'); renderMe(); }
+    else toast('Restore failed', 'bg-rose-600');
+  });
 }
 
 async function renderPublic() {
@@ -619,14 +723,19 @@ async function renderSessionDetail(id) {
   if (!me) { sessionStorage.authNext = `#/session/${id}`; location.hash = '#/login'; return; }
   const res = await fetch(`/api/me/sessions/${id}`);
   if (!res.ok) { toast('Session not found', 'bg-rose-600'); location.hash = '#/me'; return; }
-  const { session, questions, responses, notes, my_participant_id } = await res.json();
+  const { session, questions, responses, notes, media, my_participant_id } = await res.json();
   app.innerHTML = `
   <main class="max-w-2xl mx-auto p-4 sm:p-6 space-y-4 anim-in pb-16">
     <a href="#/me" class="text-sm text-slate-400 hover:text-white flex items-center gap-1"><i data-lucide="arrow-left" class="w-4 h-4"></i>My Library</a>
-    <div class="bg-slate-800 rounded-2xl p-5">
-      <h1 class="font-bold text-lg">${esc(session.title)}</h1>
-      <p class="text-sm text-slate-400 mt-1">${esc(session.category)} · ${esc(session.subcategory)} · room ${esc(session.room_code)} · ${esc(session.started_at)}</p>
+    <div class="bg-slate-800 rounded-2xl p-5 flex items-start justify-between gap-3 flex-wrap">
+      <div class="min-w-0">
+        <h1 class="font-bold text-lg">${esc(session.title)}</h1>
+        <p class="text-sm text-slate-400 mt-1">${esc(session.category)} · ${esc(session.subcategory)} · room ${esc(session.room_code)} · ${esc(session.started_at)}</p>
+      </div>
+      <a href="/api/me/sessions/${esc(session.id)}/pdf" class="tap flex items-center gap-2 bg-rose-600 hover:bg-rose-500 rounded-xl px-4 py-2.5 font-bold text-sm shrink-0">
+        <i data-lucide="file-down" class="w-4 h-4"></i>Download PDF</a>
     </div>
+    ${media?.length ? `<div class="-mx-4">${mediaStrip(media, session.image_url)}</div>` : ''}
     <div class="bg-rose-950/50 border border-rose-800/50 rounded-xl p-4 text-sm text-rose-100">
       <p class="font-bold text-rose-300 mb-1">DISPATCH</p>${esc(session.description)}
     </div>

@@ -32,9 +32,12 @@ export class Rooms {
        WHERE s.room_code = ?`).get(code?.toUpperCase());
     if (!session) return null;
     const questions = this.db.prepare(
-      'SELECT * FROM questions WHERE scenario_id=? ORDER BY sort_order').all(session.scenario_id)
+      'SELECT * FROM questions WHERE scenario_id=? AND deleted=0 ORDER BY sort_order').all(session.scenario_id)
       .map(q => ({ ...q, choices: q.choices ? JSON.parse(q.choices) : null }));
-    return { session, questions };
+    const media = this.db.prepare(
+      'SELECT id, kind, url, sort_order FROM scenario_media WHERE scenario_id=? ORDER BY sort_order')
+      .all(session.scenario_id);
+    return { session, questions, media };
   }
 
   join(sessionId, token, userId = null) {
@@ -108,6 +111,7 @@ export class Rooms {
         subcategory: room.session.subcategory, image_url: room.session.image_url,
       },
       questions,
+      media: room.media,
       responses,
     };
   }

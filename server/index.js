@@ -1,5 +1,8 @@
 import Fastify from 'fastify';
 import fastifyStatic from '@fastify/static';
+import fastifyMultipart from '@fastify/multipart';
+import { createMediaStore, MAX_UPLOAD_BYTES } from './media.js';
+import { sessionPdf } from './pdf.js';
 import { Server as SocketServer } from 'socket.io';
 import QRCode from 'qrcode';
 import path from 'node:path';
@@ -13,13 +16,19 @@ import {
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-export function buildServer({ dbFile } = {}) {
+export function buildServer({ dbFile, mediaDir } = {}) {
   const db = createDb(dbFile);
   seedIfEmpty(db);
   const rooms = new Rooms(db);
+  const media = createMediaStore(mediaDir);
 
   const app = Fastify();
   app.register(fastifyStatic, { root: path.join(__dirname, '..', 'public') });
+  app.register(fastifyStatic, {
+    root: media.dir, prefix: '/media/', decorateReply: false,
+    cacheControl: true, maxAge: '365d', immutable: true, // filenames are content-unique UUIDs
+  });
+  app.register(fastifyMultipart, { limits: { fileSize: MAX_UPLOAD_BYTES, files: 1 } });
 
   const currentUser = req => userFromCookieHeader(db, req.headers.cookie);
   const requireUser = (req, reply) => {
@@ -78,8 +87,35 @@ export function buildServer({ dbFile } = {}) {
     return { claimed_sessions: claimGuest(user.id, guest_token) };
   });
 
+  // ── Media ──
+  app.post('/api/media', async (req, reply) => {
+    const user = requireUser(req, reply); if (!user) return;
+    const file = await req.file();
+    if (!file) return reply.code(400).send({ error: 'no file' });
+    let buffer;
+    try { buffer = await file.toBuffer(); }
+    catch { return reply.code(413).send({ error: `file exceeds ${MAX_UPLOAD_BYTES / 1024 / 1024} MB limit` }); }
+    const url = await media.save(buffer, file.mimetype);
+    if (!url) return reply.code(415).send({ error: 'only png, jpeg, webp, or gif images are accepted' });
+    reply.code(201);
+    return { url };
+  });
+
   // ── Scenario library ──
-  const canLaunch = (s, user) => s.visibility === 'public' || (user && s.author_id === user.id);
+  const canLaunch = (s, user) =>
+    !s.deleted_at && (s.visibility === 'public' || (user && s.author_id === user.id));
+
+  const mediaFor = id => db.prepare(
+    'SELECT id, kind, url, sort_order FROM scenario_media WHERE scenario_id=? ORDER BY sort_order').all(id);
+
+  const replaceMedia = (scenarioId, list) => {
+    db.prepare('DELETE FROM scenario_media WHERE scenario_id=?').run(scenarioId);
+    const ins = db.prepare('INSERT INTO scenario_media (id, scenario_id, kind, url, sort_order) VALUES (?,?,?,?,?)');
+    (list ?? []).forEach((m, i) => {
+      if (m?.url && ['photo', 'ekg', 'map'].includes(m.kind ?? 'photo'))
+        ins.run(uuid(), scenarioId, m.kind ?? 'photo', m.url, i);
+    });
+  };
 
   app.get('/api/scenarios', req => {
     const user = currentUser(req);
@@ -88,7 +124,7 @@ export function buildServer({ dbFile } = {}) {
               (SELECT COUNT(*) FROM questions q WHERE q.scenario_id=s.id) AS question_count,
               (SELECT COUNT(*) FROM scenario_votes v WHERE v.scenario_id=s.id) AS votes
        FROM scenarios s LEFT JOIN users u ON u.id=s.author_id
-       WHERE s.visibility='public' OR s.author_id=?
+       WHERE (s.visibility='public' AND s.deleted_at IS NULL) OR s.author_id=?
        ORDER BY (s.author_id=?) DESC, s.created_at DESC`)
       .all(user?.id ?? '', user?.id ?? '')
       .map(s => ({ ...s, mine: !!user && s.author_id === user.id }));
@@ -103,7 +139,7 @@ export function buildServer({ dbFile } = {}) {
               (SELECT COUNT(*) FROM scenario_votes v WHERE v.scenario_id=s.id) AS votes,
               (SELECT COUNT(*) FROM scenario_votes v WHERE v.scenario_id=s.id AND v.user_id=?) AS my_vote
        FROM scenarios s LEFT JOIN users u ON u.id=s.author_id
-       WHERE s.visibility='public'`;
+       WHERE s.visibility='public' AND s.deleted_at IS NULL`;
     const params = [user?.id ?? ''];
     if (category) { sql += ' AND s.category=?'; params.push(category); }
     if (subcategory) { sql += ' AND s.subcategory=?'; params.push(subcategory); }
@@ -114,11 +150,12 @@ export function buildServer({ dbFile } = {}) {
   app.get('/api/scenarios/:id', (req, reply) => {
     const s = db.prepare('SELECT * FROM scenarios WHERE id=?').get(req.params.id);
     const user = currentUser(req);
-    if (!s || (s.visibility !== 'public' && s.author_id !== user?.id))
+    if (!s || (s.visibility !== 'public' && s.author_id !== user?.id)
+        || (s.deleted_at && s.author_id !== user?.id))
       return reply.code(404).send({ error: 'not found' });
-    const questions = db.prepare('SELECT * FROM questions WHERE scenario_id=? ORDER BY sort_order')
+    const questions = db.prepare('SELECT * FROM questions WHERE scenario_id=? AND deleted=0 ORDER BY sort_order')
       .all(s.id).map(q => ({ ...q, choices: q.choices ? JSON.parse(q.choices) : null }));
-    return { ...s, questions, mine: s.author_id === user?.id };
+    return { ...s, questions, media: mediaFor(s.id), mine: s.author_id === user?.id };
   });
 
   app.post('/api/scenarios', (req, reply) => {
@@ -134,10 +171,61 @@ export function buildServer({ dbFile } = {}) {
                               VALUES (?,?,?,?,?,?,?,?)`);
       questions.forEach((q, i) => ins.run(uuid(), id, q.prompt, q.kind ?? 'text',
         q.choices ? JSON.stringify(q.choices) : null, q.instructor_answer ?? '', q.role_track ?? '', i));
+      replaceMedia(id, req.body.media);
     });
     tx();
     reply.code(201);
     return { id };
+  });
+
+  app.put('/api/scenarios/:id', (req, reply) => {
+    const user = requireUser(req, reply); if (!user) return;
+    const s = db.prepare('SELECT * FROM scenarios WHERE id=?').get(req.params.id);
+    if (!s || s.author_id !== user.id) return reply.code(404).send({ error: 'not found' });
+    const { title, description = '', category, subcategory, image_url = '', visibility = 'private', questions = [], media: mediaList } = req.body ?? {};
+    if (!title || !category || !subcategory) return reply.code(400).send({ error: 'title, category, subcategory required' });
+    if (!['private', 'public'].includes(visibility)) return reply.code(400).send({ error: 'bad visibility' });
+    const existing = db.prepare('SELECT id FROM questions WHERE scenario_id=? AND deleted=0').all(s.id).map(q => q.id);
+    const keptIds = new Set(questions.filter(q => q.id).map(q => q.id));
+    const tx = db.transaction(() => {
+      db.prepare(`UPDATE scenarios SET title=?, description=?, category=?, subcategory=?, image_url=?, visibility=? WHERE id=?`)
+        .run(title, description, category, subcategory, image_url, visibility, s.id);
+      // Reconcile questions: update kept, insert new, soft-delete removed (responses may reference them).
+      const upd = db.prepare(`UPDATE questions SET prompt=?, kind=?, choices=?, instructor_answer=?, role_track=?, sort_order=? WHERE id=? AND scenario_id=?`);
+      const ins = db.prepare(`INSERT INTO questions (id, scenario_id, prompt, kind, choices, instructor_answer, role_track, sort_order)
+                              VALUES (?,?,?,?,?,?,?,?)`);
+      questions.forEach((q, i) => {
+        const choices = q.choices ? JSON.stringify(q.choices) : null;
+        if (q.id && existing.includes(q.id))
+          upd.run(q.prompt, q.kind ?? 'text', choices, q.instructor_answer ?? '', q.role_track ?? '', i, q.id, s.id);
+        else
+          ins.run(uuid(), s.id, q.prompt, q.kind ?? 'text', choices, q.instructor_answer ?? '', q.role_track ?? '', i);
+      });
+      const gone = existing.filter(id => !keptIds.has(id));
+      if (gone.length) {
+        const del = db.prepare('UPDATE questions SET deleted=1 WHERE id=?');
+        gone.forEach(id => del.run(id));
+      }
+      if (mediaList !== undefined) replaceMedia(s.id, mediaList);
+    });
+    tx();
+    return { id: s.id };
+  });
+
+  app.delete('/api/scenarios/:id', (req, reply) => {
+    const user = requireUser(req, reply); if (!user) return;
+    const r = db.prepare(`UPDATE scenarios SET deleted_at=datetime('now') WHERE id=? AND author_id=? AND deleted_at IS NULL`)
+      .run(req.params.id, user.id);
+    if (!r.changes) return reply.code(404).send({ error: 'not found' });
+    return { ok: true };
+  });
+
+  app.post('/api/scenarios/:id/restore', (req, reply) => {
+    const user = requireUser(req, reply); if (!user) return;
+    const r = db.prepare('UPDATE scenarios SET deleted_at=NULL WHERE id=? AND author_id=? AND deleted_at IS NOT NULL')
+      .run(req.params.id, user.id);
+    if (!r.changes) return reply.code(404).send({ error: 'not found' });
+    return { ok: true };
   });
 
   app.post('/api/scenarios/:id/clone', (req, reply) => {
@@ -150,10 +238,11 @@ export function buildServer({ dbFile } = {}) {
       db.prepare(`INSERT INTO scenarios (id, title, description, category, subcategory, image_url, visibility, author_id, cloned_from)
                   VALUES (?,?,?,?,?,?,'private',?,?)`)
         .run(id, src.title, src.description, src.category, src.subcategory, src.image_url, user.id, src.id);
-      const qs = db.prepare('SELECT * FROM questions WHERE scenario_id=? ORDER BY sort_order').all(src.id);
+      const qs = db.prepare('SELECT * FROM questions WHERE scenario_id=? AND deleted=0 ORDER BY sort_order').all(src.id);
       const ins = db.prepare(`INSERT INTO questions (id, scenario_id, prompt, kind, choices, instructor_answer, role_track, sort_order)
                               VALUES (?,?,?,?,?,?,?,?)`);
       qs.forEach(q => ins.run(uuid(), id, q.prompt, q.kind, q.choices, q.instructor_answer, q.role_track, q.sort_order));
+      replaceMedia(id, mediaFor(src.id));
     });
     tx();
     reply.code(201);
@@ -185,20 +274,38 @@ export function buildServer({ dbFile } = {}) {
        ORDER BY ls.started_at DESC`).all(user.id, user.id, user.id);
   });
 
-  app.get('/api/me/sessions/:id', (req, reply) => {
-    const user = requireUser(req, reply); if (!user) return;
+  // Shared by the JSON detail view and the PDF download. Returns null if not permitted.
+  function sessionDetailFor(user, sessionId) {
     const ls = db.prepare(
       `SELECT ls.*, sc.title, sc.description, sc.category, sc.subcategory, sc.image_url
-       FROM live_sessions ls JOIN scenarios sc ON sc.id=ls.scenario_id WHERE ls.id=?`).get(req.params.id);
+       FROM live_sessions ls JOIN scenarios sc ON sc.id=ls.scenario_id WHERE ls.id=?`).get(sessionId);
     const me = ls && db.prepare('SELECT * FROM participants WHERE session_id=? AND user_id=?').get(ls.id, user.id);
-    if (!ls || (ls.host_id !== user.id && !me)) return reply.code(404).send({ error: 'not found' });
+    if (!ls || (ls.host_id !== user.id && !me)) return null;
+    // Include soft-deleted questions: the session happened with them.
     const questions = db.prepare('SELECT * FROM questions WHERE scenario_id=? ORDER BY sort_order')
       .all(ls.scenario_id).map(q => ({ ...q, choices: q.choices ? JSON.parse(q.choices) : null }));
     const responses = db.prepare(
       `SELECT r.*, p.display_tag, p.user_id FROM responses r
        JOIN participants p ON p.id=r.participant_id WHERE r.session_id=?`).all(ls.id);
     const notes = me ? db.prepare('SELECT * FROM notes WHERE session_id=? AND participant_id=?').all(ls.id, me.id) : [];
-    return { session: ls, questions, responses, notes, my_participant_id: me?.id ?? null };
+    return { session: ls, questions, responses, notes, media: mediaFor(ls.scenario_id), my_participant_id: me?.id ?? null };
+  }
+
+  app.get('/api/me/sessions/:id', (req, reply) => {
+    const user = requireUser(req, reply); if (!user) return;
+    const detail = sessionDetailFor(user, req.params.id);
+    if (!detail) return reply.code(404).send({ error: 'not found' });
+    return detail;
+  });
+
+  app.get('/api/me/sessions/:id/pdf', (req, reply) => {
+    const user = requireUser(req, reply); if (!user) return;
+    const detail = sessionDetailFor(user, req.params.id);
+    if (!detail) return reply.code(404).send({ error: 'not found' });
+    const safe = detail.session.title.replace(/[^\w\- ]+/g, '').trim().replace(/ +/g, '_') || 'session';
+    reply.type('application/pdf')
+      .header('content-disposition', `attachment; filename="${safe}_${detail.session.room_code}.pdf"`);
+    return reply.send(sessionPdf(detail));
   });
 
   // ── Live sessions ──
