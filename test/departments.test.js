@@ -5,7 +5,7 @@ import { buildServer } from '../server/index.js';
 import { signup, authed, emit } from './helpers.js';
 
 let ctx, base;
-let chief, member, outsider; // cookies
+let chief, member, outsider, admin; // cookies
 
 const post = (path, cookie, body) => fetch(`${base}${path}`, {
   method: 'POST',
@@ -20,6 +20,8 @@ before(async () => {
   ({ cookie: chief } = await signup(base, { email: 'chief@sta1.test', display_name: 'Chief Miller' }));
   ({ cookie: member } = await signup(base, { email: 'ff@sta1.test', display_name: 'FF Jones' }));
   ({ cookie: outsider } = await signup(base, { email: 'out@sta9.test', display_name: 'Outsider' }));
+  ({ cookie: admin } = await signup(base, { email: 'ops@site.test', display_name: 'Site Ops' }));
+  ctx.db.prepare("UPDATE users SET role='site_admin' WHERE email='ops@site.test'").run();
 });
 
 after(async () => {
@@ -29,15 +31,33 @@ after(async () => {
 
 let joinCode, deptScenarioId;
 
-test('create department, join by code, wrong code rejected', async () => {
+test('create department → pending until site_admin approval; then join works', async () => {
   const created = await post('/api/departments', chief, { name: 'Station 1' });
   assert.equal(created.status, 201);
+  assert.equal((await created.json()).pending, true);
   const mine = await fetch(`${base}/api/departments/mine`, { headers: { cookie: chief } }).then(r => r.json());
   assert.equal(mine.chief, true);
+  assert.equal(mine.department.verified_at, null, 'starts pending');
   assert.match(mine.department.join_code, /^[A-Z2-9]{8}$/);
   joinCode = mine.department.join_code;
 
-  assert.equal((await post('/api/departments/join', member, { code: 'ZZZZ99' })).status, 404);
+  // while pending: joining, department visibility, and badging are all locked
+  assert.equal((await post('/api/departments/join', member, { code: joinCode })).status, 403);
+  const pendingScenario = await fetch(`${base}/api/scenarios`, {
+    method: 'POST', headers: authed(chief),
+    body: JSON.stringify({ title: 'Locked', visibility: 'department', category: 'EMS', subcategory: 'Trauma', questions: [] }),
+  });
+  assert.equal(pendingScenario.status, 400);
+
+  // approval is site_admin only
+  const pendingList = await fetch(`${base}/api/moderation/departments`, { headers: { cookie: admin } }).then(r => r.json());
+  const row = pendingList.find(d => d.name === 'Station 1');
+  assert.equal(row.creator_name, 'Chief Miller');
+  assert.equal((await post(`/api/moderation/departments/${row.id}/approve`, chief)).status, 403);
+  assert.equal((await post(`/api/moderation/departments/${row.id}/approve`, admin)).status, 200);
+  assert.equal((await post(`/api/moderation/departments/${row.id}/approve`, admin)).status, 404, 'already approved');
+
+  assert.equal((await post('/api/departments/join', member, { code: 'ZZZZ99ZZ' })).status, 404);
   const joined = await post('/api/departments/join', member, { code: joinCode.toLowerCase() });
   assert.equal(joined.status, 200);
 
@@ -203,4 +223,21 @@ test('membership management: remove member, then chief can leave', async () => {
   const chiefAfter = await fetch(`${base}/api/me`, { headers: { cookie: chief } }).then(r => r.json());
   assert.equal(chiefAfter.role, 'standard');
   assert.equal(chiefAfter.department, null);
+});
+
+test('reject: deletes pending department, resets creator, reverts its scenarios', async () => {
+  const { cookie: rogue } = await signup(base, { email: 'rogue@sta7.test', display_name: 'Rogue' });
+  await post('/api/departments', rogue, { name: 'Fake Dept' });
+
+  const pending = await fetch(`${base}/api/moderation/departments`, { headers: { cookie: admin } }).then(r => r.json());
+  const row = pending.find(d => d.name === 'Fake Dept');
+  assert.ok(row);
+  assert.equal((await post(`/api/moderation/departments/${row.id}/reject`, rogue)).status, 403);
+  assert.equal((await post(`/api/moderation/departments/${row.id}/reject`, admin)).status, 200);
+
+  const meAfter = await fetch(`${base}/api/me`, { headers: { cookie: rogue } }).then(r => r.json());
+  assert.equal(meAfter.department, null);
+  assert.equal(meAfter.role, 'standard');
+  const pendingAfter = await fetch(`${base}/api/moderation/departments`, { headers: { cookie: admin } }).then(r => r.json());
+  assert.ok(!pendingAfter.find(d => d.name === 'Fake Dept'));
 });

@@ -1,7 +1,8 @@
 // ProtoCall Trainer service worker.
-// Shell + media: cache-first. Library GETs: network-first with cache fallback.
+// Shell + library GETs: network-first with cache fallback (deploys show up immediately;
+// cache only serves when offline). Media: cache-first (immutable UUID filenames).
 // Auth, live sessions, and sockets: never cached.
-const CACHE = 'protocall-v1';
+const CACHE = 'protocall-v2';
 const SHELL = ['/', '/manifest.json', '/icon.svg'];
 
 self.addEventListener('install', e => {
@@ -23,8 +24,8 @@ self.addEventListener('fetch', e => {
   if (e.request.method !== 'GET' || url.origin !== location.origin) return;
   if (url.pathname.startsWith('/socket.io')) return;
 
-  // Library reads: freshest wins, cache keeps the firehouse browsing offline.
-  if (CACHEABLE_API.test(url.pathname)) {
+  // Shell + library reads: freshest wins, cache keeps the firehouse browsing offline.
+  if (CACHEABLE_API.test(url.pathname) || url.pathname === '/' || e.request.mode === 'navigate') {
     e.respondWith(
       fetch(e.request)
         .then(res => {
@@ -32,7 +33,7 @@ self.addEventListener('fetch', e => {
           caches.open(CACHE).then(c => c.put(e.request, copy));
           return res;
         })
-        .catch(() => caches.match(e.request))
+        .catch(() => caches.match(e.request, { ignoreSearch: e.request.mode === 'navigate' }))
     );
     return;
   }

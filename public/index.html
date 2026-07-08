@@ -889,7 +889,7 @@ async function renderDepartment() {
     };
     $('#d-create').onclick = async () => {
       const r = await fetch('/api/departments', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: $('#d-name').value }) });
-      if (r.ok) { toast('Department created — you are the Training Chief'); await refreshMe(); renderDepartment(); }
+      if (r.ok) { toast('Submitted — your department is awaiting site approval'); await refreshMe(); renderDepartment(); }
       else toast((await r.json()).error, 'bg-rose-600');
     };
     return;
@@ -907,7 +907,16 @@ async function renderDepartment() {
       <button id="d-leave" class="tap text-sm text-slate-400 hover:text-rose-400 px-3 py-2">Leave department</button>
     </div>
 
-    ${chief ? `
+    ${!department.verified_at ? `
+    <section class="bg-amber-950/40 border border-amber-800/50 rounded-2xl p-5 flex items-start gap-3">
+      <i data-lucide="hourglass" class="w-5 h-5 text-amber-400 shrink-0 mt-0.5"></i>
+      <div class="text-sm text-amber-100">
+        <p class="font-bold text-amber-300">Awaiting site approval</p>
+        <p class="mt-1">Your department is in the review queue. The join code activates and department scenarios unlock once it's approved.</p>
+      </div>
+    </section>` : ''}
+
+    ${chief && department.verified_at ? `
     <section class="bg-slate-800 rounded-2xl p-5 flex items-center justify-between gap-4 flex-wrap">
       <div>
         <p class="text-sm text-slate-400">Join code — share it in the dayroom</p>
@@ -967,8 +976,9 @@ async function renderDepartment() {
     else toast((await r.json()).error, 'bg-rose-600');
   };
   if (chief) {
-    $('#d-regen').onclick = async () => {
-      const r = await fetch('/api/departments/regenerate-code', { method: 'POST' }).then(x => x.json());
+    const regen = $('#d-regen');
+    if (regen) regen.onclick = async () => {
+      await fetch('/api/departments/regenerate-code', { method: 'POST' });
       toast('Join code regenerated'); renderDepartment();
     };
     app.querySelectorAll('[data-kick]').forEach(btn => btn.onclick = async () => {
@@ -998,10 +1008,29 @@ async function renderDepartment() {
 /* ═══ Moderation (site admin) ═══ */
 async function renderModeration() {
   if (!me || me.role !== 'site_admin') { location.hash = '#/'; return; }
-  const reports = await fetch('/api/moderation/reports').then(r => r.json());
+  const [reports, pendingDepts] = await Promise.all([
+    fetch('/api/moderation/reports').then(r => r.json()),
+    fetch('/api/moderation/departments').then(r => r.json()),
+  ]);
   app.innerHTML = `
   <main class="max-w-2xl mx-auto p-4 sm:p-6 space-y-4 anim-in">
     <h1 class="text-2xl font-bold flex items-center gap-2"><i data-lucide="shield-alert" class="w-6 h-6 text-rose-400"></i>Moderation Queue</h1>
+
+    <h2 class="font-semibold flex items-center gap-2 pt-1"><i data-lucide="building-2" class="w-4 h-4 text-amber-400"></i>Pending Departments</h2>
+    ${pendingDepts.map(d => `
+    <div class="bg-slate-800 rounded-2xl p-4 space-y-2">
+      <div class="flex items-center justify-between gap-2">
+        <p class="font-bold truncate">${esc(d.name)}</p>
+        <span class="text-xs text-slate-500 shrink-0">${d.member_count} member${d.member_count === 1 ? '' : 's'}</span>
+      </div>
+      <p class="text-sm text-slate-400">requested by ${esc(d.creator_name ?? 'unknown')} (${esc(d.creator_email ?? '—')}) · ${esc(d.created_at)}</p>
+      <div class="flex gap-2">
+        <button data-dept="${d.id}" data-daction="reject" class="tap flex-1 text-sm bg-slate-700 hover:bg-slate-600 rounded-xl py-2.5 font-semibold">Reject</button>
+        <button data-dept="${d.id}" data-daction="approve" class="tap flex-1 text-sm bg-emerald-600 hover:bg-emerald-500 rounded-xl py-2.5 font-bold">Approve</button>
+      </div>
+    </div>`).join('') || '<p class="text-sm text-slate-500 italic">No departments awaiting approval.</p>'}
+
+    <h2 class="font-semibold flex items-center gap-2 pt-2"><i data-lucide="flag" class="w-4 h-4 text-rose-400"></i>Reported Scenarios</h2>
     ${reports.map(r => `
     <div class="bg-slate-800 rounded-2xl p-4 space-y-2">
       <div class="flex items-center justify-between gap-2">
@@ -1023,6 +1052,14 @@ async function renderModeration() {
       body: JSON.stringify({ action: btn.dataset.action }),
     });
     toast(btn.dataset.action === 'unlist' ? 'Scenario unlisted' : 'Report dismissed');
+    renderModeration();
+  });
+  app.querySelectorAll('[data-dept]').forEach(btn => btn.onclick = async () => {
+    if (btn.dataset.daction === 'reject' &&
+        !confirm('Reject this department? It will be deleted and its creator reset to a standard member.')) return;
+    const r = await fetch(`/api/moderation/departments/${btn.dataset.dept}/${btn.dataset.daction}`, { method: 'POST' });
+    if (r.ok) toast(btn.dataset.daction === 'approve' ? 'Department approved' : 'Department rejected');
+    else toast((await r.json()).error, 'bg-rose-600');
     renderModeration();
   });
 }

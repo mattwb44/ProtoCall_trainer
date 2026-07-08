@@ -137,6 +137,8 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
   };
   const isChiefOf = (user, deptId) =>
     user.role === 'dept_admin' && user.department_id && user.department_id === deptId;
+  const deptVerified = deptId =>
+    !!(deptId && db.prepare('SELECT verified_at FROM departments WHERE id=?').get(deptId)?.verified_at);
 
   app.post('/api/departments', (req, reply) => {
     const user = requireUser(req, reply); if (!user) return;
@@ -150,7 +152,7 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
     });
     tx();
     reply.code(201);
-    return { id };
+    return { id, pending: true };
   });
 
   app.post('/api/departments/join', (req, reply) => {
@@ -159,6 +161,7 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
     const dept = db.prepare('SELECT * FROM departments WHERE join_code=?')
       .get((req.body?.code ?? '').trim().toUpperCase());
     if (!dept) return reply.code(404).send({ error: 'invalid join code' });
+    if (!dept.verified_at) return reply.code(403).send({ error: 'this department is awaiting site approval' });
     db.prepare("UPDATE users SET department_id=?, role='standard' WHERE id=?").run(dept.id, user.id);
     return { id: dept.id, name: dept.name };
   });
@@ -214,6 +217,8 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
     const s = db.prepare('SELECT * FROM scenarios WHERE id=? AND deleted_at IS NULL').get(req.params.id);
     if (!s || s.visibility !== 'department' || !isChiefOf(user, s.department_id))
       return reply.code(403).send({ error: 'only the department chief can badge department scenarios' });
+    if (!deptVerified(s.department_id))
+      return reply.code(403).send({ error: 'department awaiting site approval' });
     const official = req.body?.official ? 1 : 0;
     db.prepare('UPDATE scenarios SET is_official=? WHERE id=?').run(official, s.id);
     return { is_official: official };
@@ -275,6 +280,41 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
     if (user.role !== 'site_admin') { reply.code(403).send({ error: 'site admin only' }); return null; }
     return user;
   };
+
+  app.get('/api/moderation/departments', (req, reply) => {
+    if (!requireSiteAdmin(req, reply)) return;
+    return db.prepare(
+      `SELECT d.id, d.name, d.created_at, u.display_name AS creator_name, u.email AS creator_email,
+              (SELECT COUNT(*) FROM users m WHERE m.department_id=d.id) AS member_count
+       FROM departments d
+       LEFT JOIN users u ON u.department_id=d.id AND u.role='dept_admin'
+       WHERE d.verified_at IS NULL
+       ORDER BY d.created_at`).all();
+  });
+
+  app.post('/api/moderation/departments/:id/approve', (req, reply) => {
+    if (!requireSiteAdmin(req, reply)) return;
+    const r = db.prepare("UPDATE departments SET verified_at=datetime('now') WHERE id=? AND verified_at IS NULL")
+      .run(req.params.id);
+    if (!r.changes) return reply.code(404).send({ error: 'pending department not found' });
+    return { ok: true };
+  });
+
+  app.post('/api/moderation/departments/:id/reject', (req, reply) => {
+    if (!requireSiteAdmin(req, reply)) return;
+    const dept = db.prepare('SELECT id FROM departments WHERE id=? AND verified_at IS NULL').get(req.params.id);
+    if (!dept) return reply.code(404).send({ error: 'pending department not found' });
+    const tx = db.transaction(() => {
+      db.prepare(`UPDATE users SET department_id=NULL,
+                  role=CASE WHEN role='dept_admin' THEN 'standard' ELSE role END
+                  WHERE department_id=?`).run(dept.id);
+      db.prepare("UPDATE scenarios SET visibility='private', department_id=NULL, is_official=0 WHERE department_id=?")
+        .run(dept.id);
+      db.prepare('DELETE FROM departments WHERE id=?').run(dept.id);
+    });
+    tx();
+    return { ok: true };
+  });
 
   app.get('/api/moderation/reports', (req, reply) => {
     if (!requireSiteAdmin(req, reply)) return;
@@ -390,6 +430,8 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
     if (!['private', 'department', 'public'].includes(visibility)) return reply.code(400).send({ error: 'bad visibility' });
     if (visibility === 'department' && !user.department_id)
       return reply.code(400).send({ error: 'join a department first' });
+    if (visibility === 'department' && !deptVerified(user.department_id))
+      return reply.code(400).send({ error: 'your department is awaiting site approval' });
     const id = uuid();
     const tx = db.transaction(() => {
       db.prepare(`INSERT INTO scenarios (id, title, description, category, subcategory, image_url, visibility, author_id, department_id)
@@ -415,6 +457,8 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
     if (!['private', 'department', 'public'].includes(visibility)) return reply.code(400).send({ error: 'bad visibility' });
     if (visibility === 'department' && !user.department_id)
       return reply.code(400).send({ error: 'join a department first' });
+    if (visibility === 'department' && !deptVerified(user.department_id))
+      return reply.code(400).send({ error: 'your department is awaiting site approval' });
     const existing = db.prepare('SELECT id FROM questions WHERE scenario_id=? AND deleted=0').all(s.id).map(q => q.id);
     const keptIds = new Set(questions.filter(q => q.id).map(q => q.id));
     const tx = db.transaction(() => {
