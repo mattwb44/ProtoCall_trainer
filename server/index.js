@@ -26,7 +26,9 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
   const rooms = new Rooms(db);
   const media = createMediaStore(mediaDir);
 
-  const app = Fastify();
+  // trustProxy: behind Railway's edge, the client IP and protocol live in x-forwarded-*;
+  // without it rate limits key on the proxy IP and QR URLs come out http.
+  const app = Fastify({ trustProxy: true });
   // CSP off deliberately: the frontend uses CDN scripts and inline JS by design.
   // Awaited so the rate-limit onRoute hook exists before routes are defined below.
   await app.register(fastifyHelmet, { contentSecurityPolicy: false, crossOriginEmbedderPolicy: false });
