@@ -41,13 +41,14 @@ export function userFromCookieHeader(db, cookieHeader) {
   const token = tokenFromCookieHeader(cookieHeader);
   if (!token) return null;
   const row = db.prepare(
-    `SELECT u.id, u.email, u.display_name, s.token FROM auth_sessions s
+    `SELECT u.id, u.email, u.display_name, u.role, u.department_id, s.token FROM auth_sessions s
      JOIN users u ON u.id = s.user_id
      WHERE s.token=? AND s.expires_at > datetime('now')`).get(token);
   if (!row) return null;
   db.prepare(`UPDATE auth_sessions SET expires_at=datetime('now','+30 days') WHERE token=?`)
     .run(token);
-  return { id: row.id, email: row.email, display_name: row.display_name, token: row.token };
+  return { id: row.id, email: row.email, display_name: row.display_name,
+           role: row.role, department_id: row.department_id, token: row.token };
 }
 
 export function setCookieValue(token) {

@@ -81,6 +81,22 @@ export function createDb(file = process.env.DB_PATH || path.join(__dirname, '..'
     scenario_id TEXT NOT NULL REFERENCES scenarios(id) ON DELETE CASCADE,
     PRIMARY KEY (user_id, scenario_id)
   );
+  CREATE TABLE IF NOT EXISTS departments (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    join_code TEXT UNIQUE NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    verified_at TEXT
+  );
+  CREATE TABLE IF NOT EXISTS reports (
+    id TEXT PRIMARY KEY,
+    scenario_id TEXT NOT NULL REFERENCES scenarios(id) ON DELETE CASCADE,
+    reporter_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    reason TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    resolved_at TEXT,
+    resolution TEXT CHECK (resolution IN ('dismissed','unlisted') OR resolution IS NULL)
+  );
   CREATE TABLE IF NOT EXISTS scenario_media (
     id TEXT PRIMARY KEY,
     scenario_id TEXT NOT NULL REFERENCES scenarios(id) ON DELETE CASCADE,
@@ -105,6 +121,10 @@ function migrate(db) {
   addColumn('participants', 'user_id', 'user_id TEXT REFERENCES users(id)');
   addColumn('scenarios', 'deleted_at', 'deleted_at TEXT');
   addColumn('questions', 'deleted', 'deleted INTEGER NOT NULL DEFAULT 0');
+  addColumn('users', 'role', "role TEXT NOT NULL DEFAULT 'standard'");
+  addColumn('users', 'department_id', 'department_id TEXT REFERENCES departments(id)');
+  addColumn('scenarios', 'department_id', 'department_id TEXT REFERENCES departments(id)');
+  addColumn('scenarios', 'is_official', 'is_official INTEGER NOT NULL DEFAULT 0');
 
   // System user owns pre-v2 content; the seed scenario becomes public.
   db.prepare(`INSERT OR IGNORE INTO users (id, email, password_hash, display_name)
