@@ -1,0 +1,13 @@
+{
+  "name": "ProtoCall Trainer",
+  "short_name": "ProtoCall",
+  "description": "Live tactical fireground & EMS scenario training for your crew",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#020617",
+  "theme_color": "#020617",
+  "icons": [
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "/icon-maskable.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "maskable" }
+  ]
+}

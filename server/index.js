@@ -1,6 +1,10 @@
 import Fastify from 'fastify';
 import fastifyStatic from '@fastify/static';
 import fastifyMultipart from '@fastify/multipart';
+import fastifyHelmet from '@fastify/helmet';
+import fastifyRateLimit from '@fastify/rate-limit';
+import fs from 'node:fs';
+import os from 'node:os';
 import { createMediaStore, MAX_UPLOAD_BYTES } from './media.js';
 import { sessionPdf } from './pdf.js';
 import { Server as SocketServer } from 'socket.io';
@@ -16,13 +20,18 @@ import {
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-export function buildServer({ dbFile, mediaDir } = {}) {
+export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRateMax = 300 } = {}) {
   const db = createDb(dbFile);
   seedIfEmpty(db);
   const rooms = new Rooms(db);
   const media = createMediaStore(mediaDir);
 
   const app = Fastify();
+  // CSP off deliberately: the frontend uses CDN scripts and inline JS by design.
+  // Awaited so the rate-limit onRoute hook exists before routes are defined below.
+  await app.register(fastifyHelmet, { contentSecurityPolicy: false, crossOriginEmbedderPolicy: false });
+  await app.register(fastifyRateLimit, { max: globalRateMax, timeWindow: '1 minute' });
+  const authLimited = { config: { rateLimit: { max: authRateMax, timeWindow: '1 minute' } } };
   app.register(fastifyStatic, { root: path.join(__dirname, '..', 'public') });
   app.register(fastifyStatic, {
     root: media.dir, prefix: '/media/', decorateReply: false,
@@ -38,7 +47,25 @@ export function buildServer({ dbFile, mediaDir } = {}) {
   };
 
   // ── Auth ──
-  app.post('/api/signup', (req, reply) => {
+  app.get('/healthz', () => {
+    db.prepare('SELECT 1').get();
+    return { ok: true, uptime_s: Math.floor(process.uptime()) };
+  });
+
+  // Consistent online snapshot of the live database, for offsite backups.
+  app.get('/api/admin/backup', async (req, reply) => {
+    const user = currentUser(req);
+    if (!user || user.role !== 'site_admin') return reply.code(403).send({ error: 'site admin only' });
+    const tmp = path.join(os.tmpdir(), `protocall-backup-${Date.now()}.db`);
+    await db.backup(tmp);
+    const stream = fs.createReadStream(tmp);
+    stream.on('close', () => fs.unlink(tmp, () => {}));
+    reply.type('application/vnd.sqlite3')
+      .header('content-disposition', `attachment; filename="protocall-${new Date().toISOString().slice(0, 10)}.db"`);
+    return reply.send(stream);
+  });
+
+  app.post('/api/signup', authLimited, (req, reply) => {
     const { email, password, display_name, guest_token } = req.body ?? {};
     if (!email?.includes('@') || !password || password.length < 8 || !display_name?.trim())
       return reply.code(400).send({ error: 'valid email, display name, and password (8+ chars) required' });
@@ -53,7 +80,7 @@ export function buildServer({ dbFile, mediaDir } = {}) {
     return { id, email, display_name: display_name.trim(), claimed_sessions: claimed };
   });
 
-  app.post('/api/login', (req, reply) => {
+  app.post('/api/login', authLimited, (req, reply) => {
     const { email, password, guest_token } = req.body ?? {};
     const user = db.prepare('SELECT * FROM users WHERE email=?').get(email ?? '');
     if (!user || !verifyPassword(password ?? '', user.password_hash))
@@ -607,9 +634,36 @@ export function buildServer({ dbFile, mediaDir } = {}) {
   return { app, io, db };
 }
 
+// Multi-node fan-out is one env var away: set REDIS_URL and the adapter loads.
+async function attachRedisAdapter(io) {
+  if (!process.env.REDIS_URL) return;
+  const { createAdapter } = await import('@socket.io/redis-adapter');
+  const { createClient } = await import('redis');
+  const pub = createClient({ url: process.env.REDIS_URL });
+  const sub = pub.duplicate();
+  await Promise.all([pub.connect(), sub.connect()]);
+  io.adapter(createAdapter(pub, sub));
+  console.log('Socket.IO Redis adapter attached');
+}
+
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  const { app } = buildServer();
+  const { app, io } = await buildServer();
   const port = Number(process.env.PORT) || 3000;
-  app.listen({ port, host: '0.0.0.0' }).then(() =>
-    console.log(`ProtoCall Trainer running at http://localhost:${port}`));
+  attachRedisAdapter(io)
+    .catch(err => console.error('Redis adapter failed, continuing single-node:', err.message))
+    .then(() => app.listen({ port, host: '0.0.0.0' }))
+    .then(() => console.log(`ProtoCall Trainer running at http://localhost:${port}`));
+
+  // Graceful shutdown so redeploys don't drop mid-session events.
+  let shuttingDown = false;
+  for (const sig of ['SIGTERM', 'SIGINT']) {
+    process.on(sig, () => {
+      if (shuttingDown) return;
+      shuttingDown = true;
+      console.log(`${sig} received — closing`);
+      io.close();
+      app.close().then(() => process.exit(0));
+      setTimeout(() => process.exit(0), 5000).unref();
+    });
+  }
 }

@@ -4,6 +4,12 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>ProtoCall Trainer — CrewTable</title>
+<link rel="manifest" href="/manifest.json">
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/icon.svg">
+<meta name="theme-color" content="#020617">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <script src="https://cdn.tailwindcss.com"></script>
 <script src="https://unpkg.com/lucide@latest"></script>
 <script src="/socket.io/socket.io.js"></script>
@@ -406,13 +412,16 @@ function renderJoin(code) {
     if (me) toast('Session saved to your Completed Library');
     else $('#guest-drawer')?.classList.remove('hidden');
   });
-  s.io.on('reconnect', () => renderJoin(code));
+  let joinedOnce = false;
+  s.off('connect');
+  s.on('connect', () => { if (joinedOnce) renderJoin(code); }); // any reconnect → full rejoin + queue flush
   s.on('disconnect', () => {
     const b = $('#conn-badge');
     if (b && pState?.session.status === 'live') { b.innerHTML = 'RECONNECTING…'; b.className = 'text-xs font-semibold bg-amber-900/60 text-amber-300 px-3 py-1.5 rounded-full'; }
   });
   s.emit('join_room', { code, token, role: 'participant' }, ({ error, state, participant }) => {
     if (error) { toast(error, 'bg-rose-600'); location.hash = '#/'; return; }
+    joinedOnce = true;
     pState = state; myId = participant.id;
     answered.clear();
     state.responses.filter(r => r.participant_id === myId).forEach(r => {
@@ -420,6 +429,7 @@ function renderJoin(code) {
       answered.set(r.question_id, q?.instructor_answer ?? '');
     });
     drawParticipant();
+    flushQueue();
   });
 }
 function drawParticipant() {
@@ -489,17 +499,21 @@ function openMediaViewer(url) {
 }
 function qCard(q, i, responses) {
   const done = answered.has(q.id);
+  const inQueue = !done && queuedAnswers.has(q.id);
+  const locked = done || inQueue;
   const mine = responses.find(r => r.participant_id === myId && r.question_id === q.id);
+  const shownBody = mine?.body ?? (inQueue ? queuedAnswers.get(q.id) : '');
   const input = q.kind === 'multiple_choice'
     ? `<div class="space-y-2">${(q.choices || []).map(c => `
-        <label class="tap flex items-center gap-3 bg-slate-900 border ${mine?.body === c ? 'border-amber-500' : 'border-slate-700'} rounded-xl px-4 py-3 cursor-pointer has-[:checked]:border-amber-500">
-          <input type="radio" name="${q.id}" value="${esc(c)}" ${done ? 'disabled' : ''} ${mine?.body === c ? 'checked' : ''} class="accent-rose-600 w-5 h-5"><span class="text-sm">${esc(c)}</span></label>`).join('')}</div>`
-    : `<textarea id="in-${q.id}" rows="3" ${done ? 'disabled' : ''} placeholder="Type your answer…" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-sm focus:border-amber-500 focus:outline-none disabled:opacity-60">${esc(mine?.body ?? '')}</textarea>`;
+        <label class="tap flex items-center gap-3 bg-slate-900 border ${shownBody === c ? 'border-amber-500' : 'border-slate-700'} rounded-xl px-4 py-3 cursor-pointer has-[:checked]:border-amber-500">
+          <input type="radio" name="${q.id}" value="${esc(c)}" ${locked ? 'disabled' : ''} ${shownBody === c ? 'checked' : ''} class="accent-rose-600 w-5 h-5"><span class="text-sm">${esc(c)}</span></label>`).join('')}</div>`
+    : `<textarea id="in-${q.id}" rows="3" ${locked ? 'disabled' : ''} placeholder="Type your answer…" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-sm focus:border-amber-500 focus:outline-none disabled:opacity-60">${esc(shownBody)}</textarea>`;
   return `<div class="bg-slate-800 rounded-2xl p-4 space-y-3" id="card-${q.id}">
     <p class="font-semibold text-sm leading-snug"><span class="text-rose-400 font-bold">Q${i + 1}.</span> ${q.role_track ? `<span class="text-amber-400">${esc(q.role_track)}</span> · ` : ''}${esc(q.prompt)}</p>
     <div id="pushed-${q.id}" class="space-y-2"></div>
     ${input}
-    ${done ? '' : `<button data-submit="${q.id}" class="tap w-full bg-rose-600 hover:bg-rose-500 rounded-xl py-3 font-bold text-sm">Submit Answer</button>`}
+    ${inQueue ? `<div class="flex items-center gap-2 bg-amber-950/40 border border-amber-800/50 rounded-xl px-4 py-3 text-sm text-amber-200"><i data-lucide="cloud-off" class="w-4 h-4 shrink-0"></i>Queued — sends automatically when you're back online</div>` : ''}
+    ${locked ? '' : `<button data-submit="${q.id}" class="tap w-full bg-rose-600 hover:bg-rose-500 rounded-xl py-3 font-bold text-sm">Submit Answer</button>`}
     <div class="border border-slate-700 rounded-xl overflow-hidden">
       <button data-acc="${q.id}" class="tap w-full flex items-center justify-between px-4 py-3 text-sm font-semibold ${done ? 'text-emerald-400' : 'text-slate-500'}">
         <span class="flex items-center gap-2"><i data-lucide="${done ? 'shield-check' : 'lock'}" class="w-4 h-4"></i>Official Answer</span>
@@ -510,6 +524,64 @@ function qCard(q, i, responses) {
       <textarea data-note="${q.id}" rows="2" placeholder="Tactical notes — saved automatically" class="mt-1 w-full bg-amber-950/30 border border-amber-800/50 rounded-xl px-4 py-3 text-sm focus:border-amber-500 focus:outline-none"></textarea></div>` : ''}
   </div>`;
 }
+/* ─── Offline answer queue: queued in localStorage, flushed on rejoin ─── */
+const queuedAnswers = new Map(); // question_id -> body (current room)
+const readQueue = () => { try { return JSON.parse(localStorage.pcQueue || '{}'); } catch { return {}; } };
+function queuePut(code, qid, body) {
+  const q = readQueue();
+  (q[code] ??= []).push({ question_id: qid, body });
+  localStorage.pcQueue = JSON.stringify(q);
+  queuedAnswers.set(qid, body);
+}
+function queueRemove(code, qid) {
+  const q = readQueue();
+  q[code] = (q[code] || []).filter(x => x.question_id !== qid);
+  if (!q[code].length) delete q[code];
+  localStorage.pcQueue = JSON.stringify(q);
+  queuedAnswers.delete(qid);
+}
+
+function applySubmitSuccess(qid, body, officialAnswer) {
+  answered.set(qid, officialAnswer);
+  pState.responses.push({ id: 'local-' + qid, question_id: qid, participant_id: myId, body, is_pushed: 0 });
+  drawParticipant();
+}
+
+function sendResponse(qid, val) {
+  const code = pState.session.room_code;
+  getSocket().timeout(5000).emit('submit_response', { question_id: qid, body: val }, (err, res) => {
+    if (err) { // socket down or server unreachable — hold it locally
+      queuePut(code, qid, val);
+      drawParticipant();
+      toast('Offline — answer queued, sends when you reconnect', 'bg-amber-500');
+      return;
+    }
+    if (res?.error) return toast('Submit failed', 'bg-rose-600');
+    applySubmitSuccess(qid, val, res.official_answer);
+    toast('Submitted — Official Answer unlocked');
+  });
+}
+
+function flushQueue() {
+  const code = pState.session.room_code;
+  const items = readQueue()[code] || [];
+  queuedAnswers.clear();
+  items.forEach(it => queuedAnswers.set(it.question_id, it.body));
+  items.forEach(it => {
+    // skip anything the server already has (e.g. flushed from another tab)
+    if (pState.responses.some(r => r.participant_id === myId && r.question_id === it.question_id)) {
+      queueRemove(code, it.question_id);
+      return;
+    }
+    getSocket().timeout(5000).emit('submit_response', { question_id: it.question_id, body: it.body }, (err, res) => {
+      if (err || res?.error) return; // still offline — stays queued for next rejoin
+      queueRemove(code, it.question_id);
+      applySubmitSuccess(it.question_id, it.body, res.official_answer);
+      toast('Queued answer delivered');
+    });
+  });
+}
+
 function bindCards() {
   app.querySelectorAll('[data-submit]').forEach(btn => btn.onclick = () => {
     const qid = btn.dataset.submit;
@@ -522,13 +594,7 @@ function bindCards() {
       val = $('#in-' + qid).value.trim();
       if (!val) return toast('Type an answer first', 'bg-amber-500');
     }
-    getSocket().emit('submit_response', { question_id: qid, body: val }, res => {
-      if (res?.error) return toast('Submit failed', 'bg-rose-600');
-      answered.set(qid, res.official_answer);
-      pState.responses.push({ id: 'local', question_id: qid, participant_id: myId, body: val, is_pushed: 0 });
-      drawParticipant();
-      toast('Submitted — Official Answer unlocked');
-    });
+    sendResponse(qid, val);
   });
   app.querySelectorAll('[data-acc]').forEach(btn => btn.onclick = () => {
     const qid = btn.dataset.acc;
@@ -970,6 +1036,7 @@ async function boot() {
   me = await fetch('/api/me').then(r => r.json()).catch(() => null);
   renderNav();
   route();
+  if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
 }
 boot();
 </script>

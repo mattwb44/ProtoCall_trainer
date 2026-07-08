@@ -15,14 +15,14 @@ host pushes notable answers → session ends and persists. Fastify + Socket.IO +
 single process. *This is the product's heartbeat; everything after is compounding value
 around it.*
 
-## v2 — Accounts, Ownership & the Completed Library (PRD-v2.md — next up)
+## v2 — Accounts, Ownership & the Completed Library ✅ (shipped, PRD-v2.md)
 Email/password auth, scenario ownership (private/public), guest→account claiming that
 retroactively attaches past sessions, "My Library" (authored scenarios + completed
 sessions), public community browse with taxonomy filters, clone, upvotes.
 **Why now:** ownership is the dependency for nearly everything below; retrofitting it
 later gets more painful with every table added.
 
-## v3 — Rich Scenarios & the Take-Home (media + PDF)
+## v3 — Rich Scenarios & the Take-Home ✅ (shipped, PRD-v3.md)
 - Media uploads: photos, EKG strips, maps — multi-image per scenario, stored on local
   disk behind an object-storage-shaped interface (S3 swap later).
 - Participant media viewer: full-screen expand, pinch-zoom on mobile.
@@ -33,7 +33,7 @@ later gets more painful with every table added.
 **Why here:** for fireground/EMS training the image *is* the scenario, and the PDF is
 what makes a session feel like it counted. Both are pure value-add on the v2 foundation.
 
-## v4 — Department Spaces & Trust
+## v4 — Department Spaces & Trust ✅ (shipped, PRD-v4.md — email verification/reset deferred pending a mail-provider choice)
 - Verified departments; Training Chief / Department Admin role.
 - "Official Department Protocol" badging — official scenarios pinned and highlighted
   for department members so training aligns with local operating guidelines.
@@ -46,7 +46,7 @@ what makes a session feel like it counted. Both are pure value-add on the v2 fou
 **Why here:** this is the organizational layer — it only pays off once individuals
 (v2) are creating rich content (v3) worth standardizing on.
 
-## v5 — Scale & Reach
+## v5 — Scale & Reach ✅ (shipped, PRD-v5.md — PWA/offline/hardening built; Redis env-gated; Postgres deferred with a documented trigger)
 - Postgres migration (schema is already column-compatible) and Redis: Socket.IO
   adapter for multi-node fan-out, transient room state, presence.
 - Horizontal scaling behind a load balancer; the SPEC.md architecture realized.

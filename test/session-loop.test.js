@@ -7,7 +7,7 @@ import { signup, authed, emit, once } from './helpers.js';
 let ctx, base, hostCookie;
 
 before(async () => {
-  ctx = buildServer({ dbFile: ':memory:' });
+  ctx = await buildServer({ dbFile: ':memory:', authRateMax: 1000 });
   await ctx.app.listen({ port: 0, host: '127.0.0.1' });
   base = `http://127.0.0.1:${ctx.app.server.address().port}`;
   ({ cookie: hostCookie } = await signup(base, { email: 'chief@station1.test' }));

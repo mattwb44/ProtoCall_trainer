@@ -14,7 +14,7 @@ const post = (path, cookie, body) => fetch(`${base}${path}`, {
 });
 
 before(async () => {
-  ctx = buildServer({ dbFile: ':memory:' });
+  ctx = await buildServer({ dbFile: ':memory:', authRateMax: 1000 });
   await ctx.app.listen({ port: 0, host: '127.0.0.1' });
   base = `http://127.0.0.1:${ctx.app.server.address().port}`;
   ({ cookie: chief } = await signup(base, { email: 'chief@sta1.test', display_name: 'Chief Miller' }));

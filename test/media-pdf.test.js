@@ -15,7 +15,7 @@ const PNG = Buffer.from(
 
 before(async () => {
   mediaDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pc-media-'));
-  ctx = buildServer({ dbFile: ':memory:', mediaDir });
+  ctx = await buildServer({ dbFile: ':memory:', mediaDir, authRateMax: 1000 });
   await ctx.app.listen({ port: 0, host: '127.0.0.1' });
   base = `http://127.0.0.1:${ctx.app.server.address().port}`;
 });
