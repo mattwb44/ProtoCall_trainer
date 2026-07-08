@@ -23,6 +23,12 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRateMax = 300 } = {}) {
   const db = createDb(dbFile);
   seedIfEmpty(db);
+  // Operator bootstrap: promote the configured account to site_admin on boot (idempotent).
+  if (process.env.SITE_ADMIN_EMAIL) {
+    const r = db.prepare("UPDATE users SET role='site_admin' WHERE email=? AND role!='site_admin'")
+      .run(process.env.SITE_ADMIN_EMAIL);
+    if (r.changes) console.log(`Promoted ${process.env.SITE_ADMIN_EMAIL} to site_admin`);
+  }
   const rooms = new Rooms(db);
   const media = createMediaStore(mediaDir);
 
@@ -125,7 +131,7 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
   const deptCode = () => {
     const chars = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'; // no lookalikes
     let c;
-    do { c = Array.from({ length: 6 }, () => chars[Math.floor(Math.random() * chars.length)]).join(''); }
+    do { c = Array.from({ length: 8 }, () => chars[Math.floor(Math.random() * chars.length)]).join(''); }
     while (db.prepare('SELECT 1 FROM departments WHERE join_code=?').get(c));
     return c;
   };

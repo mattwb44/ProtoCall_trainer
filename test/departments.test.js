@@ -34,7 +34,7 @@ test('create department, join by code, wrong code rejected', async () => {
   assert.equal(created.status, 201);
   const mine = await fetch(`${base}/api/departments/mine`, { headers: { cookie: chief } }).then(r => r.json());
   assert.equal(mine.chief, true);
-  assert.match(mine.department.join_code, /^[A-Z2-9]{6}$/);
+  assert.match(mine.department.join_code, /^[A-Z2-9]{8}$/);
   joinCode = mine.department.join_code;
 
   assert.equal((await post('/api/departments/join', member, { code: 'ZZZZ99' })).status, 404);
