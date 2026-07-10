@@ -697,17 +697,19 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
     const revealAnswers = ls.host_id === user.id || ls.status !== 'live'
       || (me && rooms.hasAnsweredAll(ls.id, me.id));
     // Include soft-deleted questions: the session happened with them.
-    // Solo runs with a role only ever contained the common + role questions.
+    // A participant who played a role only ever saw common + role questions;
+    // the host's archive keeps every track.
+    const filterTrack = me?.role_track && ls.host_id !== user.id;
     const questions = db.prepare('SELECT * FROM questions WHERE scenario_id=? ORDER BY sort_order')
       .all(ls.scenario_id)
-      .filter(q => !(ls.mode === 'solo' && me?.role_track) || !q.role_track || q.role_track === me.role_track)
+      .filter(q => !filterTrack || !q.role_track || q.role_track === me.role_track)
       .map(q => ({
         ...q,
         choices: q.choices ? JSON.parse(q.choices) : null,
         instructor_answer: revealAnswers ? q.instructor_answer : undefined,
       }));
     const responses = db.prepare(
-      `SELECT r.*, p.display_tag, p.user_id FROM responses r
+      `SELECT r.*, p.display_tag, p.user_id, p.role_track FROM responses r
        JOIN participants p ON p.id=r.participant_id WHERE r.session_id=?`).all(ls.id);
     const notes = me ? db.prepare('SELECT * FROM notes WHERE session_id=? AND participant_id=?').all(ls.id, me.id) : [];
     return { session: ls, questions, responses, notes, media: mediaFor(ls.scenario_id), my_participant_id: me?.id ?? null };
@@ -860,7 +862,7 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
   io.on('connection', socket => {
     const socketUser = userFromCookieHeader(db, socket.handshake.headers.cookie);
 
-    socket.on('join_room', ({ code, token, role }, ack) => {
+    socket.on('join_room', ({ code, token, role, role_track }, ack) => {
       const room = rooms.getByCode(code);
       if (!room || room.session.mode === 'solo') return ack?.({ error: 'Room not found' });
       if (role === 'host' && (!socketUser || room.session.host_id !== socketUser.id))
@@ -873,19 +875,26 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
       if (role === 'host') {
         socket.join(`room:${code}:host`);
       } else {
-        participant = rooms.join(room.session.id, token || uuid(), socketUser?.id ?? null);
+        participant = rooms.join(room.session.id, token || uuid(), socketUser?.id ?? null,
+          typeof role_track === 'string' ? role_track : '');
         socket.data.participantId = participant.id;
+        socket.data.roleTrack = participant.role_track;
       }
 
       const state = rooms.roomState(code, { includeAnswers: role === 'host' });
+      // Role tracks present in this scenario — the client's role-pick options.
+      state.tracks = [...new Set(room.questions.map(q => q.role_track).filter(Boolean))];
       if (role !== 'host') {
+        // v7 role overlay: a participant with a role sees common + role questions.
+        if (participant.role_track)
+          state.questions = state.questions.filter(q => !q.role_track || q.role_track === participant.role_track);
         // PRD-v7: no partial reveals — instructor answers appear only once
-        // this participant has answered every question (or the session has
-        // ended and everyone moves to debrief), then all at once.
+        // this participant has answered every question in their track (or the
+        // session has ended and everyone moves to debrief), then all at once.
         const revealed = room.session.status !== 'live'
           || rooms.hasAnsweredAll(room.session.id, participant.id);
         if (revealed) {
-          const answers = rooms.officialAnswers(room.session.id);
+          const answers = rooms.officialAnswers(room.session.id, participant.role_track);
           state.questions = state.questions.map(q => ({ ...q, instructor_answer: answers[q.id] }));
         }
         state.answers_revealed = revealed;
@@ -895,14 +904,17 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
     });
 
     socket.on('submit_response', ({ question_id, body }, ack) => {
-      const { sessionId, participantId, code } = socket.data ?? {};
+      const { sessionId, participantId, code, roleTrack } = socket.data ?? {};
       if (!sessionId || !participantId || !body?.trim()) return ack?.({ error: 'invalid' });
+      const q = rooms.getByCode(code)?.questions.find(x => x.id === question_id);
+      if (!q || (roleTrack && q.role_track && q.role_track !== roleTrack))
+        return ack?.({ error: 'invalid' }); // not this participant's track
       const resp = rooms.submitResponse(sessionId, question_id, participantId, body.trim());
       io.to(`room:${code}:host`).emit('response_incoming', resp);
-      // PRD-v7: answers reveal only when this submission completes the set.
+      // PRD-v7: answers reveal only when this submission completes the track set.
       const complete = rooms.hasAnsweredAll(sessionId, participantId);
       ack?.(complete
-        ? { ok: true, complete, official_answers: rooms.officialAnswers(sessionId) }
+        ? { ok: true, complete, official_answers: rooms.officialAnswers(sessionId, roleTrack) }
         : { ok: true, complete });
     });
 

@@ -40,18 +40,30 @@ export class Rooms {
     return { session, questions, media };
   }
 
-  join(sessionId, token, userId = null) {
+  join(sessionId, token, userId = null, roleTrack = '') {
     let p = this.db.prepare('SELECT * FROM participants WHERE session_id=? AND token=?')
       .get(sessionId, token);
     if (!p) {
       const n = this.db.prepare('SELECT COUNT(*) n FROM participants WHERE session_id=?')
         .get(sessionId).n;
-      p = { id: uuid(), session_id: sessionId, token, display_tag: `P${n + 1}`, user_id: userId };
-      this.db.prepare('INSERT INTO participants (id, session_id, token, display_tag, user_id) VALUES (?,?,?,?,?)')
-        .run(p.id, p.session_id, p.token, p.display_tag, p.user_id);
-    } else if (userId && !p.user_id) {
+      p = { id: uuid(), session_id: sessionId, token, display_tag: `P${n + 1}`, user_id: userId, role_track: roleTrack };
+      this.db.prepare('INSERT INTO participants (id, session_id, token, display_tag, user_id, role_track) VALUES (?,?,?,?,?,?)')
+        .run(p.id, p.session_id, p.token, p.display_tag, p.user_id, p.role_track);
+      return p;
+    }
+    if (userId && !p.user_id) {
       this.db.prepare('UPDATE participants SET user_id=? WHERE id=?').run(userId, p.id);
       p.user_id = userId;
+    }
+    // A role can be picked once, and only before any answer lands — changing
+    // roles mid-run would corrupt the completeness math behind answer reveal.
+    if (roleTrack && !p.role_track) {
+      const answered = this.db.prepare(
+        'SELECT COUNT(*) n FROM responses WHERE session_id=? AND participant_id=?').get(sessionId, p.id).n;
+      if (!answered) {
+        this.db.prepare('UPDATE participants SET role_track=? WHERE id=?').run(roleTrack, p.id);
+        p.role_track = roleTrack;
+      }
     }
     return p;
   }
@@ -62,7 +74,7 @@ export class Rooms {
       'INSERT INTO responses (id, session_id, question_id, participant_id, body) VALUES (?,?,?,?,?)')
       .run(id, sessionId, questionId, participantId, body);
     return this.db.prepare(
-      `SELECT r.*, p.display_tag FROM responses r
+      `SELECT r.*, p.display_tag, p.role_track FROM responses r
        JOIN participants p ON p.id = r.participant_id WHERE r.id=?`).get(id);
   }
 
@@ -90,24 +102,33 @@ export class Rooms {
 
   // PRD-v7: model answers are gated on full submission — these two power
   // the "has this participant earned the reveal yet?" checks everywhere.
+  // A participant's question set is the common track plus their role's track
+  // (role_track '' = every question, which is also the untracked-scenario case).
   hasAnsweredAll(sessionId, participantId) {
+    const track = this.db.prepare('SELECT role_track FROM participants WHERE id=?')
+      .get(participantId)?.role_track ?? '';
+    const trackSql = track ? "AND (q.role_track='' OR q.role_track=@track)" : '';
+    const trackArg = track ? { track } : {};
     const total = this.db.prepare(
       `SELECT COUNT(*) n FROM questions q
        JOIN live_sessions ls ON ls.scenario_id = q.scenario_id
-       WHERE ls.id=? AND q.deleted=0`).get(sessionId).n;
+       WHERE ls.id=@sid AND q.deleted=0 ${trackSql}`).get({ sid: sessionId, ...trackArg }).n;
     if (!total) return false;
     const mine = this.db.prepare(
       `SELECT COUNT(DISTINCT r.question_id) n FROM responses r
-       JOIN questions q ON q.id = r.question_id AND q.deleted=0
-       WHERE r.session_id=? AND r.participant_id=?`).get(sessionId, participantId).n;
+       JOIN questions q ON q.id = r.question_id AND q.deleted=0 ${trackSql}
+       WHERE r.session_id=@sid AND r.participant_id=@pid`)
+      .get({ sid: sessionId, pid: participantId, ...trackArg }).n;
     return mine >= total;
   }
 
-  officialAnswers(sessionId) {
+  officialAnswers(sessionId, roleTrack = '') {
+    const trackSql = roleTrack ? "AND (q.role_track='' OR q.role_track=@track)" : '';
     const rows = this.db.prepare(
       `SELECT q.id, q.instructor_answer FROM questions q
        JOIN live_sessions ls ON ls.scenario_id = q.scenario_id
-       WHERE ls.id=? AND q.deleted=0`).all(sessionId);
+       WHERE ls.id=@sid AND q.deleted=0 ${trackSql}`)
+      .all({ sid: sessionId, ...(roleTrack ? { track: roleTrack } : {}) });
     return Object.fromEntries(rows.map(q => [q.id, q.instructor_answer ?? '']));
   }
 
@@ -121,7 +142,7 @@ export class Rooms {
     const room = this.getByCode(code);
     if (!room) return null;
     const responses = this.db.prepare(
-      `SELECT r.id, r.question_id, r.body, r.is_pushed, r.participant_id, p.display_tag
+      `SELECT r.id, r.question_id, r.body, r.is_pushed, r.participant_id, p.display_tag, p.role_track
        FROM responses r JOIN participants p ON p.id = r.participant_id
        WHERE r.session_id=? ORDER BY r.submitted_at`).all(room.session.id);
     const questions = room.questions.map(q =>

@@ -378,8 +378,8 @@ function drawMatrix() {
   $('#matrix').innerHTML = hostState.questions.map(q => {
     const rows = hostState.responses.filter(r => r.question_id === q.id).map(r => `
       <div class="flex items-start gap-3 bg-slate-900 rounded-xl p-3 anim-in ${r.is_pushed ? 'ring-2 ring-rose-500' : ''}">
-        <span class="shrink-0 w-8 h-8 rounded-full bg-slate-700 text-xs font-bold flex items-center justify-center text-slate-300">${esc(r.display_tag)}</span>
-        <p class="flex-1 text-sm text-slate-200 pt-1">${esc(r.body)}</p>
+        <span class="shrink-0 w-8 h-8 rounded-full bg-slate-700 text-xs font-bold flex items-center justify-center text-slate-300" title="${esc(r.role_track || '')}">${esc(r.display_tag)}</span>
+        <p class="flex-1 text-sm text-slate-200 pt-1">${r.role_track ? `<span class="text-xs font-bold text-amber-400 mr-1.5">${esc(r.role_track)}</span>` : ''}${esc(r.body)}</p>
         <button data-push="${r.id}" ${r.is_pushed ? 'disabled' : ''} class="tap shrink-0 text-xs font-bold px-3 py-2 rounded-lg ${r.is_pushed ? 'bg-rose-900 text-rose-300' : 'bg-rose-600 hover:bg-rose-500'}">${r.is_pushed ? '✓ Pushed' : 'Push to Crew'}</button>
       </div>`).join('');
     return `<div class="bg-slate-800 rounded-2xl p-4">
@@ -394,7 +394,30 @@ function drawMatrix() {
 }
 
 /* ═══ Participant ═══ */
-let pState = null, myId = null;
+let pState = null, myId = null, myRole = '';
+function drawRolePicker(code, state) {
+  app.innerHTML = `
+  <main class="max-w-md mx-auto p-4 pt-10 space-y-4 anim-in">
+    <header class="text-center">
+      <p class="text-xs text-slate-400">Room <span class="font-mono font-bold text-amber-400">${esc(state.session.room_code)}</span></p>
+      <h1 class="text-xl font-bold leading-tight">${esc(state.session.title)}</h1>
+      <p class="text-sm text-slate-400 mt-2">This scenario trains every seat on the rig. Pick yours — you'll get the common questions plus your role's.</p>
+    </header>
+    <div class="space-y-2">
+      ${state.tracks.map(t => `
+      <button data-role="${esc(t)}" class="tap w-full flex items-center gap-3 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-2xl px-5 py-4 text-left">
+        <i data-lucide="user" class="w-5 h-5 text-amber-400"></i><span class="font-semibold">${esc(t)}</span></button>`).join('')}
+      <button data-role="ALL" class="tap w-full flex items-center gap-3 bg-slate-900 hover:bg-slate-800 border border-slate-800 rounded-2xl px-5 py-4 text-left">
+        <i data-lucide="users" class="w-5 h-5 text-slate-400"></i><span class="font-semibold text-slate-300">All roles — give me everything</span></button>
+    </div>
+    <p class="text-xs text-slate-500 text-center">Your role locks in once you submit your first answer.</p>
+  </main>`;
+  icons();
+  app.querySelectorAll('[data-role]').forEach(btn => btn.onclick = () => {
+    sessionStorage['pcRole:' + code] = btn.dataset.role;
+    renderJoin(code);
+  });
+}
 const answered = new Set(); // question_ids this participant submitted
 const official = new Map(); // question_id -> model answer, filled only after full submission (PRD-v7)
 function renderJoin(code) {
@@ -425,10 +448,17 @@ function renderJoin(code) {
     const b = $('#conn-badge');
     if (b && pState?.session.status === 'live') { b.innerHTML = 'RECONNECTING…'; b.className = 'text-xs font-semibold bg-amber-900/60 text-amber-300 px-3 py-1.5 rounded-full'; }
   });
-  s.emit('join_room', { code, token, role: 'participant' }, ({ error, state, participant }) => {
+  const savedRole = sessionStorage['pcRole:' + code] ?? '';
+  s.emit('join_room', { code, token, role: 'participant', role_track: savedRole === 'ALL' ? '' : savedRole }, ({ error, state, participant }) => {
     if (error) { toast(error, 'bg-rose-600'); location.hash = '#/'; return; }
     joinedOnce = true;
-    pState = state; myId = participant.id;
+    // v7 role overlay: tracked scenario + no role picked yet → choose a seat first
+    if (state.tracks?.length && !participant.role_track && savedRole !== 'ALL'
+        && !state.responses.some(r => r.participant_id === participant.id)) {
+      drawRolePicker(code, state);
+      return;
+    }
+    pState = state; myId = participant.id; myRole = participant.role_track;
     answered.clear(); official.clear();
     state.responses.filter(r => r.participant_id === myId).forEach(r => answered.add(r.question_id));
     if (state.answers_revealed) state.questions.forEach(q => official.set(q.id, q.instructor_answer ?? ''));
@@ -442,7 +472,7 @@ function drawParticipant() {
   app.innerHTML = `
   <main class="max-w-md mx-auto pb-40 anim-in">
     <header class="sticky top-[52px] z-30 bg-slate-900/95 backdrop-blur border-b border-slate-800 px-4 py-3 flex items-center justify-between">
-      <div><p class="text-xs text-slate-400">Room <span class="font-mono font-bold text-amber-400">${esc(session.room_code)}</span></p>
+      <div><p class="text-xs text-slate-400">Room <span class="font-mono font-bold text-amber-400">${esc(session.room_code)}</span>${myRole ? ` · <span class="font-semibold text-amber-400">${esc(myRole)}</span>` : ''}</p>
         <p class="font-semibold text-sm leading-tight">${esc(session.title)}</p></div>
       <span id="conn-badge" class="flex items-center gap-1.5 text-xs font-semibold ${ended ? 'bg-slate-800 text-slate-400' : 'bg-emerald-900/60 text-emerald-300'} px-3 py-1.5 rounded-full">
         ${ended ? 'ENDED' : '<span class="w-2 h-2 bg-emerald-400 rounded-full live-dot"></span> LIVE'}</span>
@@ -1123,7 +1153,7 @@ async function renderSessionDetail(id) {
         ${isHost && analysis ? responses.filter(r => r.question_id === qn.id).map(r => {
           const a = assessFor(r.id);
           return `<div class="bg-slate-900 rounded-xl px-4 py-3 text-sm space-y-1 ${a?.classification === 'review' ? 'border border-amber-500/40' : ''}">
-            <div class="flex items-center justify-between gap-2"><p class="text-xs font-bold text-slate-500">${esc(r.display_tag)}</p>${a ? badge(a.classification) : ''}</div>
+            <div class="flex items-center justify-between gap-2"><p class="text-xs font-bold text-slate-500">${esc(r.display_tag)}${r.role_track ? ` · <span class="text-amber-400">${esc(r.role_track)}</span>` : ''}</p>${a ? badge(a.classification) : ''}</div>
             <p>${esc(r.body)}</p>
             ${a ? `<p class="text-xs text-slate-400 italic">${esc(a.rationale)}</p>` : ''}
           </div>`;
