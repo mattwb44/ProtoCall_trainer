@@ -1,9 +1,13 @@
 # TODO
 
 ## Open
-- **Implement v7 (PRD-v7.md)** — scenario detail page, solo play (guest + saved runs),
-  model-answer gating, role tracks, taxonomy/academies, stages. Then the 20-scenario
-  content sprint (AI-drafted in dev sessions, owner-reviewed, incl. Georgetown Academy).
+- **Implement v7 (PRD-v7.md)** — remaining: role self-select in live sessions,
+  taxonomy (learning objectives + coverage view), academies, stages. Then the
+  20-scenario content sprint (AI-drafted in dev sessions, owner-reviewed, incl.
+  Georgetown Academy).
+  - ✅ Model-answer gating on full submission, product-wide; session end unlocks
+    (owner call 2026-07-10). ✅ Scenario detail page. ✅ Solo play: guest stateless
+    runs + persisted library runs with role-track filtering.
 - **v7 deferred follow-ups (from PRD-v7 Out of Scope):** advanced question mechanics
   (branching, drawing, pump-calc, map); in-app AI authoring assistant; per-user
   scenario sharing (Google-Docs style); host-assigned roles in live sessions.
