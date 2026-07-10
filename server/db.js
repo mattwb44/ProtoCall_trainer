@@ -149,6 +149,8 @@ function migrate(db) {
   addColumn('scenarios', 'department_id', 'department_id TEXT REFERENCES departments(id)');
   addColumn('scenarios', 'is_official', 'is_official INTEGER NOT NULL DEFAULT 0');
   addColumn('users', 'email_verified_at', 'email_verified_at TEXT');
+  addColumn('live_sessions', 'mode', "mode TEXT NOT NULL DEFAULT 'live'");
+  addColumn('participants', 'role_track', "role_track TEXT NOT NULL DEFAULT ''");
 
   // System user owns pre-v2 content; the seed scenario becomes public.
   db.prepare(`INSERT OR IGNORE INTO users (id, email, password_hash, display_name)

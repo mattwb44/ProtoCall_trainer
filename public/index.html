@@ -76,6 +76,8 @@ const routes = {
   'me': renderMe,
   'public': renderPublic,
   'session': id => renderSessionDetail(id),
+  'scenario': id => renderScenarioDetail(id),
+  'solo': id => renderSolo(id),
   'department': renderDepartment,
   'moderation': renderModeration,
 };
@@ -818,8 +820,9 @@ async function renderMe() {
         <div class="flex items-center justify-between gap-3">
           <div class="min-w-0">
             <p class="font-bold truncate">${esc(s.title)}</p>
-            <p class="text-sm text-slate-400">${esc(s.started_at)} · room ${esc(s.room_code)} · ${s.hosted ? 'hosted by you' : 'participated'}</p>
+            <p class="text-sm text-slate-400">${esc(s.started_at)} · ${s.mode === 'solo' ? 'solo run' : `room ${esc(s.room_code)} · ${s.hosted ? 'hosted by you' : 'participated'}`}</p>
           </div>
+          ${s.mode === 'solo' ? `<span class="text-xs font-semibold px-2.5 py-1 rounded-full bg-rose-900/60 text-rose-300">SOLO</span>` : ''}
           <span class="text-xs font-semibold px-2.5 py-1 rounded-full ${s.status === 'live' ? 'bg-emerald-900/60 text-emerald-300' : 'bg-slate-700 text-slate-300'}">${s.status}</span>
         </div>
       </a>`).join('') || '<p class="text-sm text-slate-500 italic">No sessions yet.</p>'}
@@ -865,16 +868,17 @@ async function renderPublic() {
     </div>
     ${list.map(s => `
     <div class="bg-slate-800 rounded-2xl p-4 space-y-3">
-      <div>
-        <p class="font-bold">${esc(s.title)}</p>
+      <a href="#/scenario/${s.id}" class="block">
+        <p class="font-bold hover:underline">${esc(s.title)}</p>
         <p class="text-sm text-slate-400">${esc(s.category)} · ${esc(s.subcategory)} · ${s.question_count} questions · by ${esc(s.author_name ?? 'unknown')}</p>
-      </div>
+      </a>
       <div class="flex items-center gap-2 flex-wrap">
         <button data-vote="${s.id}" class="tap flex items-center gap-1.5 text-sm px-4 py-2.5 rounded-xl ${s.my_vote ? 'bg-amber-600 font-semibold' : 'bg-slate-700 hover:bg-slate-600'}">
           <i data-lucide="arrow-big-up" class="w-4 h-4"></i><span data-votecount="${s.id}">${s.votes}</span></button>
         <button data-clone="${s.id}" class="tap flex items-center gap-1.5 text-sm bg-slate-700 hover:bg-slate-600 px-4 py-2.5 rounded-xl"><i data-lucide="copy-plus" class="w-4 h-4"></i>Clone</button>
         <button data-report="${s.id}" class="tap flex items-center gap-1.5 text-sm text-slate-400 hover:text-rose-400 px-3 py-2.5" title="Report"><i data-lucide="flag" class="w-4 h-4"></i></button>
-        <button data-launch="${s.id}" class="tap flex items-center gap-1.5 text-sm bg-emerald-600 hover:bg-emerald-500 px-4 py-2.5 rounded-xl font-bold ml-auto"><i data-lucide="radio-tower" class="w-4 h-4"></i>Launch Live</button>
+        <a href="#/scenario/${s.id}" class="tap flex items-center gap-1.5 text-sm bg-rose-600 hover:bg-rose-500 px-4 py-2.5 rounded-xl font-bold ml-auto"><i data-lucide="user" class="w-4 h-4"></i>Try Solo</a>
+        <button data-launch="${s.id}" class="tap flex items-center gap-1.5 text-sm bg-emerald-600 hover:bg-emerald-500 px-4 py-2.5 rounded-xl font-bold"><i data-lucide="radio-tower" class="w-4 h-4"></i>Launch Live</button>
       </div>
     </div>`).join('') || '<p class="text-sm text-slate-500 italic">No public scenarios match.</p>'}
   </main>`;
@@ -912,6 +916,148 @@ async function renderPublic() {
   bindLaunchButtons();
 }
 
+/* ═══ v7: Scenario detail page + solo play ═══ */
+async function renderScenarioDetail(id) {
+  const res = await fetch(`/api/scenarios/${id}`);
+  if (!res.ok) { toast('Scenario not found', 'bg-rose-600'); location.hash = '#/public'; return; }
+  const s = await res.json();
+  const tracks = [...new Set(s.questions.map(q => q.role_track).filter(Boolean))];
+  const common = s.questions.filter(q => !q.role_track).length;
+  const countFor = t => common + s.questions.filter(q => q.role_track === t).length;
+  app.innerHTML = `
+  <main class="max-w-2xl mx-auto p-4 sm:p-6 space-y-5 anim-in">
+    ${s.image_url ? `<img src="${esc(s.image_url)}" class="w-full max-h-64 object-cover rounded-2xl">` : ''}
+    <div>
+      <h1 class="text-2xl font-bold leading-tight">${esc(s.title)}</h1>
+      <p class="text-sm text-slate-400 mt-1">${esc(s.category)} · ${esc(s.subcategory)} · by ${esc(s.author_name ?? 'unknown')}</p>
+    </div>
+    <p class="text-sm text-slate-300 whitespace-pre-wrap">${esc(s.description)}</p>
+    ${s.media?.length ? `<div class="flex gap-2 overflow-x-auto">${s.media.map(m =>
+      `<img src="${esc(m.url)}" class="h-24 rounded-xl">`).join('')}</div>` : ''}
+    <div class="bg-slate-800 rounded-2xl p-4 space-y-2">
+      <p class="text-xs font-bold text-slate-500">WHAT YOU'LL FACE</p>
+      ${tracks.length
+        ? tracks.map(t => `<p class="text-sm"><span class="text-amber-400 font-semibold">${esc(t)}</span> · ${countFor(t)} questions</p>`).join('')
+        : `<p class="text-sm">${s.questions.length} questions</p>`}
+      <p class="text-xs text-slate-500">Question prompts and official answers are revealed by playing — answers unlock only after you submit every question.</p>
+    </div>
+    ${!me ? `<div class="bg-amber-500/10 border border-amber-500/40 rounded-2xl px-4 py-3 text-sm text-amber-200 flex items-start gap-2">
+      <i data-lucide="info" class="w-4 h-4 shrink-0 mt-0.5"></i>
+      <span>You can try this solo without an account — but your run <b>won't be saved</b>. <a href="#/signup" class="underline font-semibold">Sign up</a> to keep your runs in a library.</span></div>` : ''}
+    <div class="space-y-3">
+      ${tracks.length ? `
+      <div><label class="text-xs font-semibold text-slate-400">Play as</label>
+        <select id="sd-role" class="tap mt-1 w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2.5 text-sm">
+          ${tracks.map(t => `<option>${esc(t)}</option>`).join('')}
+          <option value="">All roles</option>
+        </select></div>` : ''}
+      <div class="flex items-center gap-2 flex-wrap">
+        <button id="sd-solo" class="tap flex items-center gap-1.5 bg-rose-600 hover:bg-rose-500 rounded-xl px-5 py-3 font-bold text-sm"><i data-lucide="user" class="w-4 h-4"></i>Try Solo</button>
+        <button data-launch="${s.id}" class="tap flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-500 rounded-xl px-5 py-3 font-bold text-sm"><i data-lucide="radio-tower" class="w-4 h-4"></i>Host Live</button>
+        <button id="sd-clone" class="tap flex items-center gap-1.5 bg-slate-700 hover:bg-slate-600 rounded-xl px-4 py-3 text-sm"><i data-lucide="copy-plus" class="w-4 h-4"></i>Clone</button>
+      </div>
+    </div>
+  </main>`;
+  icons();
+  bindLaunchButtons();
+  $('#sd-solo').onclick = () => {
+    const role = $('#sd-role')?.value ?? '';
+    location.hash = `#/solo/${s.id}?role=${encodeURIComponent(role)}`;
+  };
+  $('#sd-clone').onclick = async () => {
+    if (!me) { sessionStorage.authNext = location.hash; location.hash = '#/login'; return; }
+    const r = await fetch(`/api/scenarios/${s.id}/clone`, { method: 'POST' });
+    if (r.ok) { toast('Cloned to your private library'); location.hash = '#/me'; }
+    else toast('Clone failed', 'bg-rose-600');
+  };
+}
+
+async function renderSolo(scenarioId) {
+  const params = new URLSearchParams(location.hash.split('?')[1] || '');
+  const role = params.get('role') || '';
+  const res = await fetch(`/api/scenarios/${scenarioId}`);
+  if (!res.ok) { toast('Scenario not found', 'bg-rose-600'); location.hash = '#/public'; return; }
+  const s = await res.json();
+  const qs = s.questions.filter(q => !role || !q.role_track || q.role_track === role);
+  if (!qs.length) { toast('No questions for this role', 'bg-amber-500'); location.hash = `#/scenario/${scenarioId}`; return; }
+  app.innerHTML = `
+  <main class="max-w-md mx-auto p-4 pb-24 space-y-4 anim-in">
+    <header>
+      <p class="text-xs font-bold text-rose-400 flex items-center gap-1.5"><i data-lucide="user" class="w-3.5 h-3.5"></i>SOLO RUN${role ? ` · <span class="text-amber-400">${esc(role)}</span>` : ''}</p>
+      <h1 class="text-xl font-bold leading-tight">${esc(s.title)}</h1>
+    </header>
+    <p class="text-sm text-slate-300 whitespace-pre-wrap">${esc(s.description)}</p>
+    ${!me ? `<div class="bg-amber-500/10 border border-amber-500/40 rounded-2xl px-4 py-3 text-xs text-amber-200">Playing as a guest — this run <b>won't be saved</b>.</div>` : ''}
+    <div id="solo-cards" class="space-y-4">
+    ${qs.map((q, i) => `
+      <div class="bg-slate-800 rounded-2xl p-4 space-y-3">
+        <p class="font-semibold text-sm leading-snug"><span class="text-rose-400 font-bold">Q${i + 1}.</span> ${q.role_track ? `<span class="text-amber-400">${esc(q.role_track)}</span> · ` : ''}${esc(q.prompt)}</p>
+        ${q.kind === 'multiple_choice'
+          ? `<div class="space-y-2">${(q.choices || []).map(c => `
+              <label class="tap flex items-center gap-3 bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 cursor-pointer has-[:checked]:border-amber-500">
+                <input type="radio" name="solo-${q.id}" value="${esc(c)}" class="accent-rose-600 w-5 h-5"><span class="text-sm">${esc(c)}</span></label>`).join('')}</div>`
+          : `<textarea data-solo="${q.id}" rows="3" placeholder="Type your answer…" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-sm focus:border-amber-500 focus:outline-none"></textarea>`}
+        <div class="flex items-center gap-2 text-xs text-slate-500"><i data-lucide="lock" class="w-3.5 h-3.5"></i>Official answer unlocks when you submit the full run</div>
+      </div>`).join('')}
+    </div>
+    <button id="solo-submit" class="tap w-full bg-rose-600 hover:bg-rose-500 rounded-xl py-3.5 font-bold">Submit Run — Reveal Official Answers</button>
+  </main>`;
+  icons();
+  const answerOf = q => q.kind === 'multiple_choice'
+    ? app.querySelector(`input[name="solo-${q.id}"]:checked`)?.value ?? ''
+    : app.querySelector(`[data-solo="${q.id}"]`).value.trim();
+  $('#solo-submit').onclick = async () => {
+    const answers = Object.fromEntries(qs.map(q => [q.id, answerOf(q)]));
+    if (qs.some(q => !answers[q.id])) return toast('Answer every question first — no partial reveals', 'bg-amber-500');
+    const btn = $('#solo-submit'); btn.disabled = true; btn.textContent = 'Submitting…';
+    if (me) {
+      const run = await fetch('/api/solo/runs', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ scenario_id: s.id, role_track: role }),
+      }).then(r => r.ok ? r.json() : null);
+      let last = null;
+      if (run) for (const q of qs) {
+        last = await fetch(`/api/solo/runs/${run.run_id}/answers`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ question_id: q.id, body: answers[q.id] }),
+        }).then(r => r.ok ? r.json() : null);
+      }
+      if (!run || !last?.complete) { toast('Could not save the run', 'bg-rose-600'); btn.disabled = false; btn.textContent = 'Submit Run — Reveal Official Answers'; return; }
+      toast('Run saved to your library');
+      location.hash = `#/session/${run.run_id}`;
+      return;
+    }
+    const r = await fetch(`/api/scenarios/${s.id}/solo-reveal`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ answers, role_track: role }),
+    });
+    if (!r.ok) { toast('Submit failed', 'bg-rose-600'); btn.disabled = false; btn.textContent = 'Submit Run — Reveal Official Answers'; return; }
+    const { official_answers } = await r.json();
+    soloReveal(s, qs, answers, official_answers, role);
+  };
+}
+
+function soloReveal(s, qs, answers, official, role) {
+  app.innerHTML = `
+  <main class="max-w-md mx-auto p-4 pb-24 space-y-4 anim-in">
+    <header>
+      <p class="text-xs font-bold text-emerald-400 flex items-center gap-1.5"><i data-lucide="shield-check" class="w-3.5 h-3.5"></i>RUN COMPLETE${role ? ` · <span class="text-amber-400">${esc(role)}</span>` : ''}</p>
+      <h1 class="text-xl font-bold leading-tight">${esc(s.title)}</h1>
+    </header>
+    <div class="bg-amber-500/10 border border-amber-500/40 rounded-2xl px-4 py-3 text-sm text-amber-200 flex items-start gap-2">
+      <i data-lucide="info" class="w-4 h-4 shrink-0 mt-0.5"></i>
+      <span>This run isn't saved. <a href="#/signup" class="underline font-semibold">Create a free account</a> and future solo runs land in your library.</span></div>
+    ${qs.map((q, i) => `
+    <div class="bg-slate-800 rounded-2xl p-4 space-y-3">
+      <p class="font-semibold text-sm leading-snug"><span class="text-rose-400 font-bold">Q${i + 1}.</span> ${q.role_track ? `<span class="text-amber-400">${esc(q.role_track)}</span> · ` : ''}${esc(q.prompt)}</p>
+      <div class="bg-slate-900 rounded-xl px-4 py-3 text-sm"><p class="text-xs font-bold text-slate-500 mb-1">YOUR ANSWER</p>${esc(answers[q.id])}</div>
+      <div class="bg-emerald-950/40 border border-emerald-900 rounded-xl px-4 py-3 text-sm text-emerald-100"><p class="text-xs font-bold text-emerald-400 mb-1">OFFICIAL ANSWER</p>${esc(official[q.id])}</div>
+    </div>`).join('')}
+    <a href="#/scenario/${esc(s.id)}" class="tap block text-center bg-slate-800 hover:bg-slate-700 rounded-xl py-3 font-semibold text-sm">Back to scenario</a>
+  </main>`;
+  icons();
+}
+
 async function renderSessionDetail(id) {
   if (!me) { sessionStorage.authNext = `#/session/${id}`; location.hash = '#/login'; return; }
   const res = await fetch(`/api/me/sessions/${id}`);
@@ -931,7 +1077,7 @@ async function renderSessionDetail(id) {
     <div class="bg-slate-800 rounded-2xl p-5 flex items-start justify-between gap-3 flex-wrap">
       <div class="min-w-0">
         <h1 class="font-bold text-lg">${esc(session.title)}</h1>
-        <p class="text-sm text-slate-400 mt-1">${esc(session.category)} · ${esc(session.subcategory)} · room ${esc(session.room_code)} · ${esc(session.started_at)}</p>
+        <p class="text-sm text-slate-400 mt-1">${esc(session.category)} · ${esc(session.subcategory)} · ${session.mode === 'solo' ? '<span class="text-rose-400 font-semibold">solo run</span>' : `room ${esc(session.room_code)}`} · ${esc(session.started_at)}</p>
       </div>
       <a href="/api/me/sessions/${esc(session.id)}/pdf" class="tap flex items-center gap-2 bg-rose-600 hover:bg-rose-500 rounded-xl px-4 py-2.5 font-bold text-sm shrink-0">
         <i data-lucide="file-down" class="w-4 h-4"></i>Download PDF</a>

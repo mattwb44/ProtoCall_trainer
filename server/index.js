@@ -474,7 +474,9 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
   });
 
   app.get('/api/scenarios/:id', (req, reply) => {
-    const s = db.prepare('SELECT * FROM scenarios WHERE id=?').get(req.params.id);
+    const s = db.prepare(
+      `SELECT s.*, u.display_name AS author_name FROM scenarios s
+       LEFT JOIN users u ON u.id=s.author_id WHERE s.id=?`).get(req.params.id);
     const user = currentUser(req);
     if (!s || !canSee(s, user) || (s.deleted_at && s.author_id !== user?.id))
       return reply.code(404).send({ error: 'not found' });
@@ -607,14 +609,80 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
   app.get('/api/me/sessions', (req, reply) => {
     const user = requireUser(req, reply); if (!user) return;
     return db.prepare(
-      `SELECT DISTINCT ls.id, ls.room_code, ls.status, ls.started_at, ls.ended_at,
+      `SELECT DISTINCT ls.id, ls.room_code, ls.status, ls.started_at, ls.ended_at, ls.mode,
               sc.title, sc.category, sc.subcategory,
-              (ls.host_id=?) AS hosted
+              COALESCE(ls.host_id=?, 0) AS hosted
        FROM live_sessions ls
        JOIN scenarios sc ON sc.id=ls.scenario_id
        LEFT JOIN participants p ON p.session_id=ls.id AND p.user_id=?
        WHERE ls.host_id=? OR p.id IS NOT NULL
        ORDER BY ls.started_at DESC`).all(user.id, user.id, user.id);
+  });
+
+  // ── v7: solo runs (PRD-v7) ──
+  // Solo play reuses the session/response model with mode='solo': no room
+  // code flow, no sockets, no host. Guests run statelessly via solo-reveal;
+  // signed-in players' runs persist to their library.
+  const trackQuestions = (scenarioId, roleTrack = '') =>
+    db.prepare(`SELECT * FROM questions WHERE scenario_id=? AND deleted=0
+                ${roleTrack ? "AND (role_track='' OR role_track=?)" : ''} ORDER BY sort_order`)
+      .all(...(roleTrack ? [scenarioId, roleTrack] : [scenarioId]))
+      .map(q => ({ ...q, choices: q.choices ? JSON.parse(q.choices) : null }));
+
+  const officialFor = qs => Object.fromEntries(qs.map(q => [q.id, q.instructor_answer ?? '']));
+
+  // Guest (or any) stateless solo run: submit every answer at once, get every
+  // model answer back. Nothing is stored — "won't be saved" is literal.
+  app.post('/api/scenarios/:id/solo-reveal', (req, reply) => {
+    const s = db.prepare('SELECT * FROM scenarios WHERE id=?').get(req.params.id);
+    const user = currentUser(req);
+    if (!s || !canSee(s, user) || s.deleted_at) return reply.code(404).send({ error: 'not found' });
+    const { answers = {}, role_track = '' } = req.body ?? {};
+    const qs = trackQuestions(s.id, role_track);
+    if (!qs.length) return reply.code(400).send({ error: 'no questions for this role' });
+    const missing = qs.filter(q => !String(answers[q.id] ?? '').trim()).length;
+    if (missing) return reply.code(400).send({ error: 'answer every question first', missing });
+    return { official_answers: officialFor(qs) };
+  });
+
+  app.post('/api/solo/runs', (req, reply) => {
+    const user = requireUser(req, reply); if (!user) return;
+    const { scenario_id, role_track = '' } = req.body ?? {};
+    const s = scenario_id && db.prepare('SELECT * FROM scenarios WHERE id=?').get(scenario_id);
+    if (!s || !canLaunch(s, user)) return reply.code(404).send({ error: 'not found' });
+    const qs = trackQuestions(s.id, role_track);
+    if (!qs.length) return reply.code(400).send({ error: 'no questions for this role' });
+    const id = uuid();
+    db.transaction(() => {
+      db.prepare(`INSERT INTO live_sessions (id, room_code, scenario_id, host_id, mode)
+                  VALUES (?,?,?,NULL,'solo')`).run(id, 'SOLO-' + id, s.id);
+      db.prepare(`INSERT INTO participants (id, session_id, token, display_tag, user_id, role_track)
+                  VALUES (?,?,?,?,?,?)`).run(uuid(), id, uuid(), 'You', user.id, role_track);
+    })();
+    reply.code(201);
+    return { run_id: id, questions: qs.map(q => ({ ...q, instructor_answer: undefined })) };
+  });
+
+  app.post('/api/solo/runs/:id/answers', (req, reply) => {
+    const user = requireUser(req, reply); if (!user) return;
+    const ls = db.prepare(`SELECT * FROM live_sessions WHERE id=? AND mode='solo'`).get(req.params.id);
+    const me = ls && db.prepare('SELECT * FROM participants WHERE session_id=? AND user_id=?').get(ls.id, user.id);
+    if (!ls || !me) return reply.code(404).send({ error: 'not found' });
+    if (ls.status !== 'live') return reply.code(400).send({ error: 'run already submitted' });
+    const { question_id, body } = req.body ?? {};
+    const qs = trackQuestions(ls.scenario_id, me.role_track);
+    if (!body?.trim() || !qs.some(q => q.id === question_id))
+      return reply.code(400).send({ error: 'invalid question or empty answer' });
+    if (db.prepare('SELECT 1 FROM responses WHERE session_id=? AND participant_id=? AND question_id=?')
+      .get(ls.id, me.id, question_id))
+      return reply.code(409).send({ error: 'already answered' });
+    rooms.submitResponse(ls.id, question_id, me.id, body.trim());
+    const done = db.prepare(
+      'SELECT COUNT(DISTINCT question_id) n FROM responses WHERE session_id=? AND participant_id=?')
+      .get(ls.id, me.id).n;
+    if (done < qs.length) return { ok: true, complete: false };
+    rooms.endSession(ls.id); // full submission = the run's debrief moment
+    return { ok: true, complete: true, official_answers: officialFor(qs) };
   });
 
   // Shared by the JSON detail view and the PDF download. Returns null if not permitted.
@@ -629,8 +697,11 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
     const revealAnswers = ls.host_id === user.id || ls.status !== 'live'
       || (me && rooms.hasAnsweredAll(ls.id, me.id));
     // Include soft-deleted questions: the session happened with them.
+    // Solo runs with a role only ever contained the common + role questions.
     const questions = db.prepare('SELECT * FROM questions WHERE scenario_id=? ORDER BY sort_order')
-      .all(ls.scenario_id).map(q => ({
+      .all(ls.scenario_id)
+      .filter(q => !(ls.mode === 'solo' && me?.role_track) || !q.role_track || q.role_track === me.role_track)
+      .map(q => ({
         ...q,
         choices: q.choices ? JSON.parse(q.choices) : null,
         instructor_answer: revealAnswers ? q.instructor_answer : undefined,
@@ -791,7 +862,7 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
 
     socket.on('join_room', ({ code, token, role }, ack) => {
       const room = rooms.getByCode(code);
-      if (!room) return ack?.({ error: 'Room not found' });
+      if (!room || room.session.mode === 'solo') return ack?.({ error: 'Room not found' });
       if (role === 'host' && (!socketUser || room.session.host_id !== socketUser.id))
         return ack?.({ error: 'Only the session host can open the control room' });
       code = room.session.room_code;
