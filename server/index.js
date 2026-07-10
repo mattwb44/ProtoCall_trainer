@@ -542,6 +542,110 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
     return { objectives, categories, grid };
   });
 
+  // ── v7 academies: curated ordered collections (PRD-v7) ──
+  // Global academies (department_id NULL) belong to site admins; department
+  // academies to dept admins. Entries are draft (owner-only) or published;
+  // publishing requires the scenario to be at least department-visible —
+  // public, for a global academy.
+  const canSeeAcademy = (a, user) =>
+    a.department_id === null
+    || (user && a.owner_id === user.id)
+    || (user?.department_id && a.department_id === user.department_id);
+
+  app.get('/api/academies', req => {
+    const user = currentUser(req);
+    return db.prepare(
+      `SELECT a.*, u.display_name AS owner_name, d.name AS department_name,
+              (SELECT COUNT(*) FROM academy_entries e
+                 JOIN scenarios s ON s.id=e.scenario_id
+                 WHERE e.academy_id=a.id AND e.published=1 AND s.deleted_at IS NULL) AS scenario_count
+       FROM academies a
+       JOIN users u ON u.id=a.owner_id
+       LEFT JOIN departments d ON d.id=a.department_id
+       WHERE a.department_id IS NULL OR a.owner_id=? OR a.department_id=?
+       ORDER BY a.department_id IS NOT NULL, a.created_at`)
+      .all(user?.id ?? '', user?.department_id ?? '')
+      .map(a => ({ ...a, mine: !!user && a.owner_id === user.id }));
+  });
+
+  app.post('/api/academies', (req, reply) => {
+    const user = requireUser(req, reply); if (!user) return;
+    const global = user.role === 'site_admin';
+    const dept = isChiefOf(user, user.department_id) && deptVerified(user.department_id);
+    if (!global && !dept)
+      return reply.code(403).send({ error: 'site admins create global academies; department admins create department academies' });
+    const name = req.body?.name?.trim();
+    if (!name) return reply.code(400).send({ error: 'name required' });
+    const id = uuid();
+    const departmentId = global ? null : user.department_id;
+    db.prepare('INSERT INTO academies (id, name, description, owner_id, department_id) VALUES (?,?,?,?,?)')
+      .run(id, name, req.body?.description ?? '', user.id, departmentId);
+    reply.code(201);
+    return { id, name, department_id: departmentId };
+  });
+
+  app.get('/api/academies/:id', (req, reply) => {
+    const user = currentUser(req);
+    const a = db.prepare(
+      `SELECT a.*, u.display_name AS owner_name, d.name AS department_name
+       FROM academies a JOIN users u ON u.id=a.owner_id
+       LEFT JOIN departments d ON d.id=a.department_id WHERE a.id=?`).get(req.params.id);
+    if (!a || !canSeeAcademy(a, user)) return reply.code(404).send({ error: 'not found' });
+    const mine = !!user && a.owner_id === user.id;
+    // Drafts are owner-only; soft-deleted scenarios drop out rather than crash.
+    const entries = db.prepare(
+      `SELECT e.id AS entry_id, e.published, e.sort_order, s.id, s.title, s.description,
+              s.category, s.subcategory, s.visibility, s.department_id, s.author_id, s.difficulty, s.duration_min,
+              s.objective_primary, s.objective_secondary, s.deleted_at,
+              (SELECT COUNT(*) FROM questions q WHERE q.scenario_id=s.id AND q.deleted=0) AS question_count
+       FROM academy_entries e JOIN scenarios s ON s.id=e.scenario_id
+       WHERE e.academy_id=? ORDER BY e.sort_order`).all(a.id)
+      .filter(e => mine ? !e.deleted_at : (e.published && !e.deleted_at && canSee(e, user)))
+      .map(({ deleted_at, ...e }) => e);
+    return { ...a, entries, mine };
+  });
+
+  app.put('/api/academies/:id', (req, reply) => {
+    const user = requireUser(req, reply); if (!user) return;
+    const a = db.prepare('SELECT * FROM academies WHERE id=?').get(req.params.id);
+    if (!a || a.owner_id !== user.id) return reply.code(404).send({ error: 'not found' });
+    const name = req.body?.name?.trim();
+    if (!name) return reply.code(400).send({ error: 'name required' });
+    const entries = req.body?.entries ?? [];
+    const seen = new Set();
+    for (const e of entries) {
+      const s = e?.scenario_id && db.prepare('SELECT * FROM scenarios WHERE id=? AND deleted_at IS NULL').get(e.scenario_id);
+      if (!s || seen.has(s.id)) return reply.code(400).send({ error: 'invalid or duplicate scenario entry' });
+      seen.add(s.id);
+      if (!canSee(s, user)) return reply.code(400).send({ error: 'you cannot stage a scenario you cannot see' });
+      if (e.published) {
+        const visibleEnough = a.department_id === null
+          ? s.visibility === 'public'
+          : (s.visibility === 'public' || (s.visibility === 'department' && s.department_id === a.department_id));
+        if (!visibleEnough)
+          return reply.code(400).send({ error: `"${s.title}" must be ${a.department_id ? 'department-visible' : 'public'} before publishing` });
+      }
+    }
+    const tx = db.transaction(() => {
+      db.prepare('UPDATE academies SET name=?, description=? WHERE id=?')
+        .run(name, req.body?.description ?? a.description, a.id);
+      db.prepare('DELETE FROM academy_entries WHERE academy_id=?').run(a.id);
+      const ins = db.prepare('INSERT INTO academy_entries (id, academy_id, scenario_id, published, sort_order) VALUES (?,?,?,?,?)');
+      entries.forEach((e, i) => ins.run(uuid(), a.id, e.scenario_id, e.published ? 1 : 0, i));
+    });
+    tx();
+    return { id: a.id };
+  });
+
+  app.delete('/api/academies/:id', (req, reply) => {
+    const user = requireUser(req, reply); if (!user) return;
+    const a = db.prepare('SELECT * FROM academies WHERE id=?').get(req.params.id);
+    if (!a || (a.owner_id !== user.id && user.role !== 'site_admin'))
+      return reply.code(404).send({ error: 'not found' });
+    db.prepare('DELETE FROM academies WHERE id=?').run(a.id);
+    return { ok: true };
+  });
+
   app.post('/api/scenarios', (req, reply) => {
     const user = requireUser(req, reply); if (!user) return;
     const { title, description = '', category, subcategory, image_url = '', visibility = 'private', questions = [] } = req.body ?? {};

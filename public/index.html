@@ -79,6 +79,8 @@ const routes = {
   'scenario': id => renderScenarioDetail(id),
   'solo': id => renderSolo(id),
   'coverage': renderCoverage,
+  'academies': renderAcademies,
+  'academy': id => renderAcademy(id),
   'department': renderDepartment,
   'moderation': renderModeration,
 };
@@ -919,7 +921,10 @@ async function renderPublic() {
   <main class="max-w-2xl mx-auto p-4 sm:p-6 space-y-4 anim-in">
     <div class="flex items-center justify-between">
       <h1 class="text-2xl font-bold">Community Library</h1>
-      <a href="#/coverage" class="tap flex items-center gap-1.5 text-sm text-slate-300 hover:text-white px-3 py-2"><i data-lucide="grid-3x3" class="w-4 h-4"></i>Coverage</a>
+      <div class="flex items-center">
+        <a href="#/academies" class="tap flex items-center gap-1.5 text-sm text-slate-300 hover:text-white px-3 py-2"><i data-lucide="graduation-cap" class="w-4 h-4"></i>Academies</a>
+        <a href="#/coverage" class="tap flex items-center gap-1.5 text-sm text-slate-300 hover:text-white px-3 py-2"><i data-lucide="grid-3x3" class="w-4 h-4"></i>Coverage</a>
+      </div>
     </div>
     <div class="flex gap-2">
       <select id="f-cat" class="tap flex-1 bg-slate-900 border border-slate-700 rounded-xl px-3 py-2.5 text-sm">
@@ -1013,6 +1018,149 @@ async function renderCoverage() {
     ${categories.length ? '' : '<p class="text-sm text-slate-500 italic">No public scenarios carry objectives yet.</p>'}
   </main>`;
   icons();
+}
+
+/* ═══ v7: Academies — curated ordered collections ═══ */
+async function renderAcademies() {
+  const list = await fetch('/api/academies').then(r => r.json());
+  const canCreate = me && (me.role === 'site_admin' || (me.role === 'dept_admin' && me.department?.verified_at));
+  app.innerHTML = `
+  <main class="max-w-2xl mx-auto p-4 sm:p-6 space-y-4 anim-in">
+    <div class="flex items-center justify-between">
+      <h1 class="text-2xl font-bold">Academies</h1>
+      ${canCreate ? `<button id="ac-new" class="tap flex items-center gap-1.5 text-sm bg-rose-600 hover:bg-rose-500 px-4 py-2.5 rounded-xl font-medium"><i data-lucide="plus" class="w-4 h-4"></i>New Academy</button>` : ''}
+    </div>
+    <p class="text-sm text-slate-400">Curated scenario collections — work through them in order.</p>
+    ${list.map(a => `
+    <a href="#/academy/${a.id}" class="block bg-slate-800 hover:bg-slate-700 rounded-2xl p-5">
+      <p class="font-bold flex items-center gap-2 flex-wrap">${esc(a.name)}
+        ${a.department_id
+          ? `<span class="text-[10px] font-bold tracking-wider bg-slate-700 text-emerald-300 px-2 py-0.5 rounded-full">${esc((a.department_name || 'DEPARTMENT').toUpperCase())}</span>`
+          : '<span class="text-[10px] font-bold tracking-wider bg-indigo-900/70 text-indigo-300 px-2 py-0.5 rounded-full">GLOBAL</span>'}
+        ${a.mine ? '<span class="text-[10px] font-bold tracking-wider bg-amber-600/80 px-2 py-0.5 rounded-full">YOURS</span>' : ''}</p>
+      ${a.description ? `<p class="text-sm text-slate-400 mt-1">${esc(a.description)}</p>` : ''}
+      <p class="text-xs text-slate-500 mt-1.5">${a.scenario_count} scenario${a.scenario_count === 1 ? '' : 's'} · curated by ${esc(a.owner_name)}</p>
+    </a>`).join('') || '<p class="text-slate-500 italic">No academies yet.</p>'}
+  </main>`;
+  icons();
+  const newBtn = $('#ac-new');
+  if (newBtn) newBtn.onclick = async () => {
+    const name = prompt('Academy name');
+    if (!name?.trim()) return;
+    const r = await fetch('/api/academies', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) });
+    if (r.ok) { const { id } = await r.json(); location.hash = `#/academy/${id}`; }
+    else toast((await r.json()).error, 'bg-rose-600');
+  };
+}
+
+async function renderAcademy(id) {
+  const res = await fetch(`/api/academies/${id}`);
+  if (!res.ok) { toast('Academy not found', 'bg-rose-600'); location.hash = '#/academies'; return; }
+  const a = await res.json();
+
+  const entryCard = (e, i, mine) => `
+    <div class="bg-slate-800 rounded-2xl p-4 flex items-center gap-3 ${!e.published && mine ? 'opacity-70 ring-1 ring-amber-700/50' : ''}">
+      <span class="text-lg font-black text-slate-600 w-7 text-center shrink-0">${i + 1}</span>
+      <div class="flex-1 min-w-0">
+        <a href="#/scenario/${e.id}" class="font-bold hover:underline">${esc(e.title)}</a>
+        ${mine && !e.published ? '<span class="ml-2 text-[10px] font-bold tracking-wider bg-amber-700/70 px-2 py-0.5 rounded-full">DRAFT</span>' : ''}
+        <p class="text-sm text-slate-400 truncate">${esc(e.category)} · ${esc(e.subcategory)} · ${e.question_count} questions${e.difficulty ? ' · ' + esc(e.difficulty) : ''}</p>
+      </div>
+      ${mine ? `
+      <div class="flex items-center gap-1 shrink-0">
+        <button data-up="${i}" class="tap p-2 text-slate-400 hover:text-white" title="Move up"><i data-lucide="chevron-up" class="w-4 h-4"></i></button>
+        <button data-down="${i}" class="tap p-2 text-slate-400 hover:text-white" title="Move down"><i data-lucide="chevron-down" class="w-4 h-4"></i></button>
+        <button data-pub="${i}" class="tap p-2 ${e.published ? 'text-emerald-400' : 'text-amber-400'}" title="${e.published ? 'Unpublish (back to draft)' : 'Publish to members'}"><i data-lucide="${e.published ? 'eye' : 'eye-off'}" class="w-4 h-4"></i></button>
+        <button data-rm="${i}" class="tap p-2 text-slate-400 hover:text-rose-400" title="Remove"><i data-lucide="x" class="w-4 h-4"></i></button>
+      </div>` : ''}
+    </div>`;
+
+  app.innerHTML = `
+  <main class="max-w-2xl mx-auto p-4 sm:p-6 space-y-4 anim-in">
+    <a href="#/academies" class="text-sm text-slate-400 hover:text-white flex items-center gap-1"><i data-lucide="arrow-left" class="w-4 h-4"></i>Academies</a>
+    <div>
+      <h1 class="text-2xl font-bold flex items-center gap-2 flex-wrap">${esc(a.name)}
+        ${a.department_id
+          ? `<span class="text-[10px] font-bold tracking-wider bg-slate-700 text-emerald-300 px-2 py-0.5 rounded-full">${esc((a.department_name || 'DEPARTMENT').toUpperCase())}</span>`
+          : '<span class="text-[10px] font-bold tracking-wider bg-indigo-900/70 text-indigo-300 px-2 py-0.5 rounded-full">GLOBAL</span>'}</h1>
+      ${a.description ? `<p class="text-sm text-slate-300 mt-1 whitespace-pre-wrap">${esc(a.description)}</p>` : ''}
+      <p class="text-xs text-slate-500 mt-1">Curated by ${esc(a.owner_name)}</p>
+    </div>
+    <div id="ac-entries" class="space-y-3">
+      ${a.entries.map((e, i) => entryCard(e, i, a.mine)).join('') || '<p class="text-slate-500 italic">No scenarios in this academy yet.</p>'}
+    </div>
+    ${a.mine ? `
+    <div class="bg-slate-800 rounded-2xl p-4 space-y-3">
+      <p class="text-xs font-bold text-slate-500">CURATE</p>
+      <div class="flex gap-2">
+        <select id="ac-add" class="tap flex-1 bg-slate-900 border border-slate-700 rounded-xl px-3 py-2.5 text-sm"><option value="">Add a scenario…</option></select>
+        <button id="ac-add-btn" class="tap bg-slate-700 hover:bg-slate-600 rounded-xl px-4 text-sm font-semibold">Add</button>
+      </div>
+      <p class="text-xs text-slate-500">New entries start as drafts only you see. Publishing requires the scenario to be ${a.department_id ? 'department-visible or public' : 'public'}.</p>
+      <div class="space-y-2">
+        <input id="ac-name" value="${esc(a.name)}" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2.5 text-sm" placeholder="Academy name">
+        <textarea id="ac-desc" rows="2" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2.5 text-sm" placeholder="Description">${esc(a.description ?? '')}</textarea>
+      </div>
+      <div class="flex items-center gap-2">
+        <button id="ac-save" class="tap bg-emerald-600 hover:bg-emerald-500 rounded-xl px-5 py-2.5 font-bold text-sm">Save changes</button>
+        <button id="ac-del" class="tap text-sm text-slate-400 hover:text-rose-400 px-3 py-2.5 ml-auto">Delete academy</button>
+      </div>
+    </div>` : ''}
+  </main>`;
+  icons();
+  if (!a.mine) return;
+
+  // Local curation state; one PUT persists name/description/entries in order.
+  let entries = a.entries.map(e => ({ scenario_id: e.id, published: !!e.published }));
+  const save = async (silent) => {
+    const r = await fetch(`/api/academies/${a.id}`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: $('#ac-name').value, description: $('#ac-desc').value, entries }),
+    });
+    if (r.ok) { if (!silent) toast('Academy saved'); renderAcademy(a.id); }
+    else toast((await r.json()).error, 'bg-rose-600');
+  };
+
+  // Populate the picker with scenarios the owner can see that aren't in yet.
+  fetch('/api/scenarios').then(r => r.json()).then(list => {
+    const inAcademy = new Set(entries.map(e => e.scenario_id));
+    const sel = $('#ac-add');
+    if (!sel) return;
+    list.filter(s => !s.deleted_at && !inAcademy.has(s.id)).forEach(s => {
+      const o = document.createElement('option');
+      o.value = s.id; o.textContent = `${s.title} (${s.visibility})`;
+      sel.appendChild(o);
+    });
+  });
+
+  $('#ac-add-btn').onclick = () => {
+    const sid = $('#ac-add').value;
+    if (!sid) return;
+    entries.push({ scenario_id: sid, published: false });
+    save(true);
+  };
+  $('#ac-save').onclick = () => save();
+  $('#ac-del').onclick = async () => {
+    if (!confirm(`Delete "${a.name}"? Scenarios themselves are untouched.`)) return;
+    const r = await fetch(`/api/academies/${a.id}`, { method: 'DELETE' });
+    if (r.ok) { toast('Academy deleted'); location.hash = '#/academies'; }
+    else toast('Delete failed', 'bg-rose-600');
+  };
+  app.querySelectorAll('[data-up]').forEach(b => b.onclick = () => {
+    const i = +b.dataset.up; if (!i) return;
+    [entries[i - 1], entries[i]] = [entries[i], entries[i - 1]]; save(true);
+  });
+  app.querySelectorAll('[data-down]').forEach(b => b.onclick = () => {
+    const i = +b.dataset.down; if (i >= entries.length - 1) return;
+    [entries[i + 1], entries[i]] = [entries[i], entries[i + 1]]; save(true);
+  });
+  app.querySelectorAll('[data-pub]').forEach(b => b.onclick = () => {
+    const i = +b.dataset.pub; entries[i].published = !entries[i].published; save(true);
+  });
+  app.querySelectorAll('[data-rm]').forEach(b => b.onclick = () => {
+    entries.splice(+b.dataset.rm, 1); save(true);
+  });
 }
 
 /* ═══ v7: Scenario detail page + solo play ═══ */

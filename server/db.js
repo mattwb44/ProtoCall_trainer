@@ -125,6 +125,22 @@ export function createDb(file = process.env.DB_PATH || path.join(__dirname, '..'
     name TEXT UNIQUE NOT NULL COLLATE NOCASE,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
+  CREATE TABLE IF NOT EXISTS academies (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    description TEXT DEFAULT '',
+    owner_id TEXT NOT NULL REFERENCES users(id),
+    department_id TEXT REFERENCES departments(id) ON DELETE CASCADE, -- NULL = global (site admin)
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE TABLE IF NOT EXISTS academy_entries (
+    id TEXT PRIMARY KEY,
+    academy_id TEXT NOT NULL REFERENCES academies(id) ON DELETE CASCADE,
+    scenario_id TEXT NOT NULL REFERENCES scenarios(id) ON DELETE CASCADE,
+    published INTEGER NOT NULL DEFAULT 0,  -- 0 = draft, visible only to the academy owner
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    UNIQUE(academy_id, scenario_id)
+  );
   CREATE TABLE IF NOT EXISTS scenario_media (
     id TEXT PRIMARY KEY,
     scenario_id TEXT NOT NULL REFERENCES scenarios(id) ON DELETE CASCADE,

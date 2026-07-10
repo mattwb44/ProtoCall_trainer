@@ -1,10 +1,14 @@
 # TODO
 
 ## Open
-- **Implement v7 (PRD-v7.md)** — remaining: academies, stages (with per-stage
+- **Implement v7 (PRD-v7.md)** — remaining: stages (with per-stage
   answer reveal, owner decision 2026-07-10). Then the
   20-scenario content sprint (AI-drafted in dev sessions, owner-reviewed, incl.
   Georgetown Academy).
+  - ✅ Academies: global (site-admin) and department-scoped (dept-admin) curated
+    ordered collections at #/academies; draft/publish entries (drafts owner-only,
+    publishing enforces ≥ department visibility, public for global); scenario
+    soft-delete drops entries without orphan-crashing.
   - ✅ Model-answer gating on full submission, product-wide; session end unlocks
     (owner call 2026-07-10). ✅ Scenario detail page. ✅ Solo play: guest stateless
     runs + persisted library runs with role-track filtering. ✅ Live role select:
