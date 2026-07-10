@@ -78,6 +78,7 @@ const routes = {
   'session': id => renderSessionDetail(id),
   'scenario': id => renderScenarioDetail(id),
   'solo': id => renderSolo(id),
+  'coverage': renderCoverage,
   'department': renderDepartment,
   'moderation': renderModeration,
 };
@@ -167,6 +168,7 @@ async function renderCreator(id) {
   draftQs = [{ prompt: '', kind: 'text', choices: null, instructor_answer: '', role_track: '' }];
   draftMedia = [];
   let existing = null;
+  const objectives = await fetch('/api/objectives').then(r => r.json()).catch(() => []);
   if (editingId) {
     const res = await fetch(`/api/scenarios/${editingId}`);
     existing = res.ok ? await res.json() : null;
@@ -188,6 +190,23 @@ async function renderCreator(id) {
             ${Object.keys(SUBCATS).map(c => `<option>${c}</option>`).join('')}</select></div>
         <div><label class="text-sm font-medium text-slate-300">Subcategory</label>
           <select id="c-sub" class="mt-1 w-full tap bg-slate-900 border border-slate-700 rounded-xl px-4 py-3"></select></div>
+      </div>
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div><label class="text-sm font-medium text-slate-300">Primary learning objective</label>
+          <select id="c-obj1" class="mt-1 w-full tap bg-slate-900 border border-slate-700 rounded-xl px-4 py-3">
+            <option value="">— none —</option>${objectives.map(o => `<option>${esc(o)}</option>`).join('')}</select></div>
+        <div><label class="text-sm font-medium text-slate-300">Secondary objective <span class="text-slate-500">(optional)</span></label>
+          <select id="c-obj2" class="mt-1 w-full tap bg-slate-900 border border-slate-700 rounded-xl px-4 py-3">
+            <option value="">— none —</option>${objectives.map(o => `<option>${esc(o)}</option>`).join('')}</select></div>
+      </div>
+      <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <div><label class="text-sm font-medium text-slate-300">Difficulty</label>
+          <select id="c-diff" class="mt-1 w-full tap bg-slate-900 border border-slate-700 rounded-xl px-4 py-3">
+            <option value="">— unset —</option><option>Introductory</option><option>Standard</option><option>Advanced</option></select></div>
+        <div><label class="text-sm font-medium text-slate-300">Duration <span class="text-slate-500">(min)</span></label>
+          <input id="c-dur" type="number" min="1" class="mt-1 w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 focus:border-rose-500 focus:outline-none"></div>
+        <div><label class="text-sm font-medium text-slate-300">Building type</label>
+          <input id="c-bldg" placeholder="e.g. Strip mall" class="mt-1 w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 focus:border-rose-500 focus:outline-none"></div>
       </div>
       <div>
         <label class="text-sm font-medium text-slate-300">Media <span class="text-slate-500">(photo · EKG strip · map)</span></label>
@@ -222,6 +241,11 @@ async function renderCreator(id) {
     $('#c-desc').value = existing.description;
     $('#c-cat').value = existing.category; fillSub();
     $('#c-sub').value = existing.subcategory;
+    $('#c-obj1').value = existing.objective_primary ?? '';
+    $('#c-obj2').value = existing.objective_secondary ?? '';
+    $('#c-diff').value = existing.difficulty ?? '';
+    $('#c-dur').value = existing.duration_min ?? '';
+    $('#c-bldg').value = existing.building_type ?? '';
   }
   $('#c-addq').onclick = () => { draftQs.push({ prompt: '', kind: 'text', choices: null, instructor_answer: '', role_track: '' }); drawQs(); };
   const VIS = [
@@ -299,10 +323,18 @@ async function saveScenario() {
     title: $('#c-title').value.trim(), description: $('#c-desc').value.trim(),
     category: $('#c-cat').value, subcategory: $('#c-sub').value,
     visibility: draftVis,
+    objective_primary: $('#c-obj1').value, objective_secondary: $('#c-obj2').value,
+    difficulty: $('#c-diff').value,
+    duration_min: $('#c-dur').value ? parseInt($('#c-dur').value, 10) : null,
+    building_type: $('#c-bldg').value.trim(),
     questions: draftQs.filter(q => q.prompt.trim()),
     media: draftMedia,
   };
   if (!body.title) return toast('Title is required', 'bg-amber-500');
+  if (body.objective_secondary && !body.objective_primary)
+    return toast('Pick a primary objective first', 'bg-amber-500');
+  if (body.objective_secondary && body.objective_secondary === body.objective_primary)
+    return toast('Objectives must differ', 'bg-amber-500');
   const res = await fetch(editingId ? `/api/scenarios/${editingId}` : '/api/scenarios', {
     method: editingId ? 'PUT' : 'POST',
     headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
@@ -885,7 +917,10 @@ async function renderPublic() {
   const list = await fetch(`/api/public/scenarios?category=${encodeURIComponent(cat)}&subcategory=${encodeURIComponent(sub)}`).then(r => r.json());
   app.innerHTML = `
   <main class="max-w-2xl mx-auto p-4 sm:p-6 space-y-4 anim-in">
-    <h1 class="text-2xl font-bold">Community Library</h1>
+    <div class="flex items-center justify-between">
+      <h1 class="text-2xl font-bold">Community Library</h1>
+      <a href="#/coverage" class="tap flex items-center gap-1.5 text-sm text-slate-300 hover:text-white px-3 py-2"><i data-lucide="grid-3x3" class="w-4 h-4"></i>Coverage</a>
+    </div>
     <div class="flex gap-2">
       <select id="f-cat" class="tap flex-1 bg-slate-900 border border-slate-700 rounded-xl px-3 py-2.5 text-sm">
         <option value="">All categories</option>
@@ -946,6 +981,40 @@ async function renderPublic() {
   bindLaunchButtons();
 }
 
+/* ═══ v7: Curriculum coverage grid ═══ */
+async function renderCoverage() {
+  const { objectives, categories, grid } = await fetch('/api/coverage').then(r => r.json());
+  app.innerHTML = `
+  <main class="max-w-2xl mx-auto p-4 sm:p-6 space-y-4 anim-in">
+    <div>
+      <h1 class="text-2xl font-bold">Curriculum Coverage</h1>
+      <p class="text-sm text-slate-400 mt-1">Public scenarios per learning objective and category. The gaps are the roadmap.</p>
+    </div>
+    <div class="overflow-x-auto bg-slate-800 rounded-2xl p-4">
+      <table class="w-full text-sm">
+        <thead><tr class="text-left text-xs text-slate-500">
+          <th class="pb-2 pr-3 font-bold">OBJECTIVE</th>
+          ${categories.map(c => `<th class="pb-2 px-2 font-bold">${esc(c.toUpperCase())}</th>`).join('')}
+        </tr></thead>
+        <tbody>
+        ${objectives.map(o => `
+          <tr class="border-t border-slate-700/60">
+            <td class="py-2 pr-3 font-semibold">${esc(o)}</td>
+            ${categories.map(c => {
+              const n = grid[o]?.[c] ?? 0;
+              return `<td class="py-2 px-2">${n
+                ? `<span class="inline-block min-w-7 text-center text-xs font-bold px-2 py-1 rounded-full bg-emerald-900/60 text-emerald-300">${n}</span>`
+                : `<span class="inline-block min-w-7 text-center text-xs font-bold px-2 py-1 rounded-full bg-slate-900 text-slate-600">—</span>`}</td>`;
+            }).join('')}
+          </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>
+    ${categories.length ? '' : '<p class="text-sm text-slate-500 italic">No public scenarios carry objectives yet.</p>'}
+  </main>`;
+  icons();
+}
+
 /* ═══ v7: Scenario detail page + solo play ═══ */
 async function renderScenarioDetail(id) {
   const res = await fetch(`/api/scenarios/${id}`);
@@ -960,6 +1029,15 @@ async function renderScenarioDetail(id) {
     <div>
       <h1 class="text-2xl font-bold leading-tight">${esc(s.title)}</h1>
       <p class="text-sm text-slate-400 mt-1">${esc(s.category)} · ${esc(s.subcategory)} · by ${esc(s.author_name ?? 'unknown')}</p>
+      ${[s.objective_primary, s.objective_secondary, s.difficulty,
+         s.duration_min ? `~${s.duration_min} min` : '', s.building_type].some(Boolean) ? `
+      <div class="flex items-center gap-2 flex-wrap mt-2">
+        ${s.objective_primary ? `<span class="text-xs font-semibold px-2.5 py-1 rounded-full bg-indigo-900/60 text-indigo-300">${esc(s.objective_primary)}</span>` : ''}
+        ${s.objective_secondary ? `<span class="text-xs font-semibold px-2.5 py-1 rounded-full bg-indigo-950/60 text-indigo-400">${esc(s.objective_secondary)}</span>` : ''}
+        ${s.difficulty ? `<span class="text-xs font-semibold px-2.5 py-1 rounded-full bg-slate-700 text-slate-300">${esc(s.difficulty)}</span>` : ''}
+        ${s.duration_min ? `<span class="text-xs font-semibold px-2.5 py-1 rounded-full bg-slate-700 text-slate-300">~${s.duration_min} min</span>` : ''}
+        ${s.building_type ? `<span class="text-xs font-semibold px-2.5 py-1 rounded-full bg-slate-700 text-slate-300">${esc(s.building_type)}</span>` : ''}
+      </div>` : ''}
     </div>
     <p class="text-sm text-slate-300 whitespace-pre-wrap">${esc(s.description)}</p>
     ${s.media?.length ? `<div class="flex gap-2 overflow-x-auto">${s.media.map(m =>
@@ -1365,6 +1443,15 @@ async function renderModeration() {
   <main class="max-w-2xl mx-auto p-4 sm:p-6 space-y-4 anim-in">
     <h1 class="text-2xl font-bold flex items-center gap-2"><i data-lucide="shield-alert" class="w-6 h-6 text-rose-400"></i>Moderation Queue</h1>
 
+    <h2 class="font-semibold flex items-center gap-2 pt-1"><i data-lucide="graduation-cap" class="w-4 h-4 text-indigo-400"></i>Learning Objectives</h2>
+    <div class="bg-slate-800 rounded-2xl p-4 space-y-2">
+      <p class="text-sm text-slate-400">The controlled vocabulary authors tag scenarios with. Additions are permanent — keep it curated.</p>
+      <div class="flex gap-2">
+        <input id="obj-name" placeholder="New objective, e.g. Salvage & Overhaul" class="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-sm focus:border-indigo-500 focus:outline-none">
+        <button id="obj-add" class="tap text-sm bg-indigo-600 hover:bg-indigo-500 rounded-xl px-4 py-2.5 font-semibold">Add</button>
+      </div>
+    </div>
+
     <h2 class="font-semibold flex items-center gap-2 pt-1"><i data-lucide="building-2" class="w-4 h-4 text-amber-400"></i>Pending Departments</h2>
     ${pendingDepts.map(d => `
     <div class="bg-slate-800 rounded-2xl p-4 space-y-2">
@@ -1395,6 +1482,15 @@ async function renderModeration() {
     </div>`).join('') || '<p class="text-slate-500 italic">Queue is empty. All quiet.</p>'}
   </main>`;
   icons();
+  $('#obj-add').onclick = async () => {
+    const name = $('#obj-name').value.trim();
+    if (!name) return toast('Type an objective name first', 'bg-amber-500');
+    const r = await fetch('/api/objectives', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }),
+    });
+    if (r.ok) { toast(`"${name}" added to the vocabulary`); $('#obj-name').value = ''; }
+    else toast('Could not add objective', 'bg-rose-600');
+  };
   app.querySelectorAll('[data-resolve]').forEach(btn => btn.onclick = async () => {
     await fetch(`/api/moderation/reports/${btn.dataset.resolve}/resolve`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },

@@ -492,6 +492,56 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
     return { ...s, questions, media: mediaFor(s.id), mine };
   });
 
+  // ── v7 taxonomy: controlled learning objectives + filter labels ──
+  const DIFFICULTIES = ['Introductory', 'Standard', 'Advanced'];
+  const objectiveNames = () =>
+    db.prepare('SELECT name FROM learning_objectives ORDER BY name').all().map(o => o.name);
+
+  // Extracts and validates the taxonomy fields; returns {error} or {values}.
+  const taxonomyOf = (body = {}) => {
+    const t = {
+      objective_primary: body.objective_primary ?? '',
+      objective_secondary: body.objective_secondary ?? '',
+      difficulty: body.difficulty ?? '',
+      duration_min: body.duration_min ?? null,
+      building_type: body.building_type ?? '',
+    };
+    const list = objectiveNames();
+    if (t.objective_primary && !list.includes(t.objective_primary)) return { error: 'unknown primary objective' };
+    if (t.objective_secondary && !list.includes(t.objective_secondary)) return { error: 'unknown secondary objective' };
+    if (t.objective_secondary && !t.objective_primary) return { error: 'secondary objective requires a primary' };
+    if (t.objective_secondary && t.objective_secondary === t.objective_primary) return { error: 'objectives must differ' };
+    if (t.difficulty && !DIFFICULTIES.includes(t.difficulty)) return { error: 'unknown difficulty' };
+    if (t.duration_min != null && !(Number.isInteger(t.duration_min) && t.duration_min > 0))
+      return { error: 'duration_min must be a positive integer' };
+    return { values: t };
+  };
+
+  app.get('/api/objectives', () => objectiveNames());
+
+  app.post('/api/objectives', (req, reply) => {
+    if (!requireSiteAdmin(req, reply)) return;
+    const name = req.body?.name?.trim();
+    if (!name) return reply.code(400).send({ error: 'name required' });
+    db.prepare('INSERT OR IGNORE INTO learning_objectives (id, name) VALUES (?,?)').run(uuid(), name);
+    reply.code(201);
+    return { name };
+  });
+
+  // Coverage grid: objectives × categories over the public library — the
+  // "measurable curriculum, visible gaps" view from the PRD.
+  app.get('/api/coverage', () => {
+    const objectives = objectiveNames();
+    const rows = db.prepare(
+      `SELECT category, objective_primary, objective_secondary FROM scenarios
+       WHERE visibility='public' AND deleted_at IS NULL`).all();
+    const categories = [...new Set(rows.map(r => r.category))].sort();
+    const grid = Object.fromEntries(objectives.map(o => [o, Object.fromEntries(categories.map(c => [c, 0]))]));
+    for (const r of rows) for (const o of [r.objective_primary, r.objective_secondary])
+      if (o && grid[o]) grid[o][r.category] += 1;
+    return { objectives, categories, grid };
+  });
+
   app.post('/api/scenarios', (req, reply) => {
     const user = requireUser(req, reply); if (!user) return;
     const { title, description = '', category, subcategory, image_url = '', visibility = 'private', questions = [] } = req.body ?? {};
@@ -501,11 +551,16 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
       return reply.code(400).send({ error: 'join a department first' });
     if (visibility === 'department' && !deptVerified(user.department_id))
       return reply.code(400).send({ error: 'your department is awaiting site approval' });
+    const tax = taxonomyOf(req.body);
+    if (tax.error) return reply.code(400).send({ error: tax.error });
+    const t = tax.values;
     const id = uuid();
     const tx = db.transaction(() => {
-      db.prepare(`INSERT INTO scenarios (id, title, description, category, subcategory, image_url, visibility, author_id, department_id)
-                  VALUES (?,?,?,?,?,?,?,?,?)`).run(id, title, description, category, subcategory, image_url, visibility, user.id,
-                    visibility === 'department' ? user.department_id : null);
+      db.prepare(`INSERT INTO scenarios (id, title, description, category, subcategory, image_url, visibility, author_id, department_id,
+                    objective_primary, objective_secondary, difficulty, duration_min, building_type)
+                  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(id, title, description, category, subcategory, image_url, visibility, user.id,
+                    visibility === 'department' ? user.department_id : null,
+                    t.objective_primary, t.objective_secondary, t.difficulty, t.duration_min, t.building_type);
       const ins = db.prepare(`INSERT INTO questions (id, scenario_id, prompt, kind, choices, instructor_answer, role_track, sort_order)
                               VALUES (?,?,?,?,?,?,?,?)`);
       questions.forEach((q, i) => ins.run(uuid(), id, q.prompt, q.kind ?? 'text',
@@ -528,14 +583,19 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
       return reply.code(400).send({ error: 'join a department first' });
     if (visibility === 'department' && !deptVerified(user.department_id))
       return reply.code(400).send({ error: 'your department is awaiting site approval' });
+    const tax = taxonomyOf(req.body);
+    if (tax.error) return reply.code(400).send({ error: tax.error });
+    const t = tax.values;
     const existing = db.prepare('SELECT id FROM questions WHERE scenario_id=? AND deleted=0').all(s.id).map(q => q.id);
     const keptIds = new Set(questions.filter(q => q.id).map(q => q.id));
     const tx = db.transaction(() => {
       // leaving department scope clears the department link and any official badge
       db.prepare(`UPDATE scenarios SET title=?, description=?, category=?, subcategory=?, image_url=?, visibility=?,
-                  department_id=?, is_official=CASE WHEN ?='department' THEN is_official ELSE 0 END WHERE id=?`)
+                  department_id=?, is_official=CASE WHEN ?='department' THEN is_official ELSE 0 END,
+                  objective_primary=?, objective_secondary=?, difficulty=?, duration_min=?, building_type=? WHERE id=?`)
         .run(title, description, category, subcategory, image_url, visibility,
-             visibility === 'department' ? user.department_id : null, visibility, s.id);
+             visibility === 'department' ? user.department_id : null, visibility,
+             t.objective_primary, t.objective_secondary, t.difficulty, t.duration_min, t.building_type, s.id);
       // Reconcile questions: update kept, insert new, soft-delete removed (responses may reference them).
       const upd = db.prepare(`UPDATE questions SET prompt=?, kind=?, choices=?, instructor_answer=?, role_track=?, sort_order=? WHERE id=? AND scenario_id=?`);
       const ins = db.prepare(`INSERT INTO questions (id, scenario_id, prompt, kind, choices, instructor_answer, role_track, sort_order)

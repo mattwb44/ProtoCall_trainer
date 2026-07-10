@@ -120,6 +120,11 @@ export function createDb(file = process.env.DB_PATH || path.join(__dirname, '..'
     resolved_at TEXT,
     resolution TEXT CHECK (resolution IN ('dismissed','unlisted') OR resolution IS NULL)
   );
+  CREATE TABLE IF NOT EXISTS learning_objectives (
+    id TEXT PRIMARY KEY,
+    name TEXT UNIQUE NOT NULL COLLATE NOCASE,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
   CREATE TABLE IF NOT EXISTS scenario_media (
     id TEXT PRIMARY KEY,
     scenario_id TEXT NOT NULL REFERENCES scenarios(id) ON DELETE CASCADE,
@@ -151,6 +156,19 @@ function migrate(db) {
   addColumn('users', 'email_verified_at', 'email_verified_at TEXT');
   addColumn('live_sessions', 'mode', "mode TEXT NOT NULL DEFAULT 'live'");
   addColumn('participants', 'role_track', "role_track TEXT NOT NULL DEFAULT ''");
+  // v7 taxonomy: controlled learning objectives + filter labels (PRD-v7)
+  addColumn('scenarios', 'objective_primary', "objective_primary TEXT NOT NULL DEFAULT ''");
+  addColumn('scenarios', 'objective_secondary', "objective_secondary TEXT NOT NULL DEFAULT ''");
+  addColumn('scenarios', 'difficulty', "difficulty TEXT NOT NULL DEFAULT ''");
+  addColumn('scenarios', 'duration_min', 'duration_min INTEGER');
+  addColumn('scenarios', 'building_type', "building_type TEXT NOT NULL DEFAULT ''");
+
+  // Seed the controlled vocabulary (PRD-v7); site admins extend it in-app.
+  const seedObjectives = ['Reading Smoke', 'Water Application', 'Search', 'VEIS', 'Ventilation',
+    'Fire Attack', 'Apparatus Placement', 'Air Management', 'Building Construction',
+    'Fire Dynamics', 'Command Presence', 'Resource Management'];
+  const insObj = db.prepare('INSERT OR IGNORE INTO learning_objectives (id, name) VALUES (?,?)');
+  seedObjectives.forEach(name => insObj.run(randomUUID(), name));
 
   // System user owns pre-v2 content; the seed scenario becomes public.
   db.prepare(`INSERT OR IGNORE INTO users (id, email, password_hash, display_name)
