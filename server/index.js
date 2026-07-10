@@ -578,7 +578,7 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
     if (!site && !chief) return reply.code(403).send({ error: 'reviewers only' });
     const scope = site ? '' : `AND (s.department_id=@dept OR u.department_id=@dept)`;
     return db.prepare(
-      `SELECT s.id, s.title, s.category, s.subcategory, s.visibility, s.difficulty,
+      `SELECT s.id, s.title, s.description, s.category, s.subcategory, s.visibility, s.difficulty,
               s.objective_primary, s.submitted_at, s.author_id, u.display_name AS author_name,
               (SELECT COUNT(*) FROM questions q WHERE q.scenario_id=s.id AND q.deleted=0) AS question_count
        FROM scenarios s LEFT JOIN users u ON u.id=s.author_id

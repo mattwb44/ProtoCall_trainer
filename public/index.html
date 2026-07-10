@@ -27,36 +27,43 @@
 
   /* ── v9 light theme: remaps the dark slate utilities under html[data-theme=light].
      The single colored text-white (toast) and colored buttons are untouched. ── */
-  html[data-theme=light]{background:#eef2f7}
-  html[data-theme=light] body{background-color:#eef2f7;color:#0f172a}
-  html[data-theme=light] .bg-slate-950{background-color:#eef2f7}
-  html[data-theme=light] .bg-slate-900{background-color:#f8fafc}
-  html[data-theme=light] .bg-slate-800{background-color:#ffffff}
-  html[data-theme=light] .bg-slate-700{background-color:#e2e8f0}
-  html[data-theme=light] .bg-slate-600{background-color:#cbd5e1}
-  html[data-theme=light] .bg-slate-500{background-color:#94a3b8}
-  html[data-theme=light] .bg-slate-900\/95{background-color:rgba(248,250,252,.95)}
-  html[data-theme=light] .bg-slate-950\/95{background-color:rgba(238,242,247,.95)}
-  html[data-theme=light] .bg-slate-950\/80{background-color:rgba(238,242,247,.8)}
-  html[data-theme=light] .bg-slate-800\/90{background-color:rgba(255,255,255,.9)}
-  html[data-theme=light] .bg-slate-800\/60{background-color:rgba(255,255,255,.6)}
-  html[data-theme=light] .bg-slate-600\/50{background-color:rgba(203,213,225,.5)}
-  html[data-theme=light] .hover\:bg-slate-600:hover{background-color:#cbd5e1}
-  html[data-theme=light] .hover\:bg-slate-700:hover{background-color:#e2e8f0}
-  html[data-theme=light] .hover\:bg-slate-800:hover{background-color:#f1f5f9}
-  html[data-theme=light] .hover\:bg-slate-950:hover{background-color:#e2e8f0}
-  html[data-theme=light] .text-slate-100{color:#0f172a}
-  html[data-theme=light] .text-slate-200{color:#1e293b}
-  html[data-theme=light] .text-slate-300{color:#334155}
-  html[data-theme=light] .text-slate-400{color:#475569}
-  html[data-theme=light] .text-slate-500{color:#64748b}
-  html[data-theme=light] .text-slate-600{color:#94a3b8}
-  html[data-theme=light] .hover\:text-white:hover{color:#0f172a}
-  html[data-theme=light] .border-slate-500{border-color:#94a3b8}
-  html[data-theme=light] .border-slate-600{border-color:#cbd5e1}
-  html[data-theme=light] .border-slate-700{border-color:#d7dee8}
-  html[data-theme=light] .border-slate-800{border-color:#e2e8f0}
-  html[data-theme=light] ::-webkit-scrollbar-thumb{background:#cbd5e1}
+  /* Soft, low-glare light theme: warm-cool neutral surfaces, no pure white,
+     gentle borders + a faint card shadow for depth instead of hard contrast. */
+  html[data-theme=light]{background:#e8ebf1}
+  html[data-theme=light] body{background-color:#e8ebf1;color:#293241}
+  html[data-theme=light] .bg-slate-950{background-color:#e8ebf1}
+  html[data-theme=light] .bg-slate-900{background-color:#eef1f6}
+  html[data-theme=light] .bg-slate-800{background-color:#f7f8fb;box-shadow:0 1px 2px rgba(15,23,42,.04)}
+  html[data-theme=light] .bg-slate-700{background-color:#e0e5ee}
+  html[data-theme=light] .bg-slate-600{background-color:#ccd3df}
+  html[data-theme=light] .bg-slate-500{background-color:#9aa6b8}
+  html[data-theme=light] .bg-slate-900\/95{background-color:rgba(238,241,246,.95)}
+  html[data-theme=light] .bg-slate-950\/95{background-color:rgba(232,235,241,.95)}
+  html[data-theme=light] .bg-slate-950\/80{background-color:rgba(232,235,241,.8)}
+  html[data-theme=light] .bg-slate-800\/90{background-color:rgba(247,248,251,.9)}
+  html[data-theme=light] .bg-slate-800\/60{background-color:rgba(247,248,251,.6)}
+  html[data-theme=light] .bg-slate-600\/50{background-color:rgba(204,211,223,.5)}
+  html[data-theme=light] .hover\:bg-slate-600:hover{background-color:#ccd3df}
+  html[data-theme=light] .hover\:bg-slate-700:hover{background-color:#e0e5ee}
+  html[data-theme=light] .hover\:bg-slate-800:hover{background-color:#eef1f6}
+  html[data-theme=light] .hover\:bg-slate-950:hover{background-color:#dfe4ec}
+  html[data-theme=light] .text-slate-100{color:#293241}
+  html[data-theme=light] .text-slate-200{color:#334155}
+  html[data-theme=light] .text-slate-300{color:#3d4a5d}
+  html[data-theme=light] .text-slate-400{color:#5a6779}
+  html[data-theme=light] .text-slate-500{color:#71809a}
+  html[data-theme=light] .text-slate-600{color:#93a0b4}
+  html[data-theme=light] .hover\:text-white:hover{color:#1f2937}
+  html[data-theme=light] .border-slate-500{border-color:#aab4c4}
+  html[data-theme=light] .border-slate-600{border-color:#d3dae4}
+  html[data-theme=light] .border-slate-700{border-color:#dde3ec}
+  html[data-theme=light] .border-slate-800{border-color:#e4e8f0}
+  html[data-theme=light] ::-webkit-scrollbar-thumb{background:#ccd3df}
+  /* soften the saturated brand colors a touch so they don't glare on light */
+  html[data-theme=light] .text-sky-400{color:#0284c7}
+  html[data-theme=light] .text-rose-400,html[data-theme=light] .text-rose-300{color:#e11d48}
+  html[data-theme=light] .text-emerald-400{color:#059669}
+  html[data-theme=light] .text-amber-400{color:#d97706}
   /* saturated buttons keep white text in light mode (they otherwise inherit
      the dark body color); amber-500 chips set their own dark text and win */
   html[data-theme=light] .bg-rose-600,html[data-theme=light] .bg-emerald-600,
@@ -303,7 +310,7 @@ async function renderLibrary() {
     <div class="flex items-center justify-between mb-4">
       <div><h1 class="text-2xl font-bold">Library</h1>
         <p class="text-sm text-slate-400">Everything you can launch or train on — public, department, and your own.</p></div>
-      ${me ? '<a href="#/create" class="tap hidden sm:flex items-center gap-1.5 text-sm bg-rose-600 hover:bg-rose-500 px-4 py-2.5 rounded-xl font-medium"><i data-lucide="plus" class="w-4 h-4"></i>New</a>' : ''}
+      ${me ? '<a href="#/create" class="tap flex md:hidden items-center gap-1.5 text-sm bg-rose-600 hover:bg-rose-500 px-4 py-2.5 rounded-xl font-medium"><i data-lucide="plus" class="w-4 h-4"></i>New</a>' : ''}
     </div>
     ${me ? '' : `<div class="bg-amber-950/40 border border-amber-800/50 rounded-xl p-4 mb-4 text-sm text-amber-100 flex items-center gap-3">
       <i data-lucide="log-in" class="w-5 h-5 text-amber-400 shrink-0"></i>
@@ -1989,14 +1996,20 @@ async function renderReview() {
       </div>
     </div>
     ${queue.map(s => `
-    <div class="bg-slate-800 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center gap-3">
-      <div class="flex-1 min-w-0">
-        <p class="font-bold truncate">${esc(s.title)}</p>
-        <p class="text-sm text-slate-400">${esc(s.category)} · ${esc(s.subcategory)}${s.difficulty ? ' · ' + esc(s.difficulty) : ''}${s.objective_primary ? ' · ' + esc(s.objective_primary) : ''}</p>
-        <p class="text-xs text-slate-500 mt-0.5">by ${esc(s.author_name ?? 'unknown')} · ${s.question_count} questions · submitted ${new Date(s.submitted_at + 'Z').toLocaleDateString()}</p>
+    <div class="bg-slate-800 rounded-2xl p-4 space-y-3">
+      <div class="flex items-start gap-3">
+        <div class="flex-1 min-w-0">
+          <p class="font-bold">${esc(s.title)}</p>
+          <p class="text-sm text-slate-400">${esc(s.category)} · ${esc(s.subcategory)}${s.difficulty ? ' · ' + esc(s.difficulty) : ''}${s.objective_primary ? ' · ' + esc(s.objective_primary) : ''}</p>
+        </div>
+        <span class="text-xs font-semibold px-2.5 py-1 rounded-full bg-slate-700 text-slate-300 shrink-0">${esc(s.visibility)}</span>
       </div>
-      <span class="text-xs font-semibold px-2.5 py-1 rounded-full bg-slate-700 text-slate-300 self-start sm:self-auto">${esc(s.visibility)}</span>
-      <a href="#/create/${s.id}" class="tap bg-sky-600 hover:bg-sky-500 rounded-xl px-4 py-2.5 font-bold text-sm text-center shrink-0">Review &amp; Edit</a>
+      ${s.description ? `<p class="text-sm text-slate-300 leading-relaxed line-clamp-3">${esc(s.description)}</p>`
+        : `<p class="text-sm text-amber-400/80 italic">No dispatch description — add one in Review &amp; Edit.</p>`}
+      <div class="flex items-center justify-between gap-3 pt-1">
+        <p class="text-xs text-slate-500 min-w-0 truncate">by ${esc(s.author_name ?? 'unknown')} · ${s.question_count} questions · ${new Date(s.submitted_at + 'Z').toLocaleDateString()}</p>
+        <a href="#/create/${s.id}" class="tap bg-sky-600 hover:bg-sky-500 rounded-xl px-4 py-2 font-bold text-sm shrink-0">Review &amp; Edit</a>
+      </div>
     </div>`).join('') || `
     <div class="bg-slate-800 rounded-2xl p-8 text-center space-y-2">
       <i data-lucide="check-circle-2" class="w-8 h-8 text-emerald-400 mx-auto"></i>
