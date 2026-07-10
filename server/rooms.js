@@ -88,6 +88,29 @@ export class Rooms {
     return id;
   }
 
+  // PRD-v7: model answers are gated on full submission — these two power
+  // the "has this participant earned the reveal yet?" checks everywhere.
+  hasAnsweredAll(sessionId, participantId) {
+    const total = this.db.prepare(
+      `SELECT COUNT(*) n FROM questions q
+       JOIN live_sessions ls ON ls.scenario_id = q.scenario_id
+       WHERE ls.id=? AND q.deleted=0`).get(sessionId).n;
+    if (!total) return false;
+    const mine = this.db.prepare(
+      `SELECT COUNT(DISTINCT r.question_id) n FROM responses r
+       JOIN questions q ON q.id = r.question_id AND q.deleted=0
+       WHERE r.session_id=? AND r.participant_id=?`).get(sessionId, participantId).n;
+    return mine >= total;
+  }
+
+  officialAnswers(sessionId) {
+    const rows = this.db.prepare(
+      `SELECT q.id, q.instructor_answer FROM questions q
+       JOIN live_sessions ls ON ls.scenario_id = q.scenario_id
+       WHERE ls.id=? AND q.deleted=0`).all(sessionId);
+    return Object.fromEntries(rows.map(q => [q.id, q.instructor_answer ?? '']));
+  }
+
   endSession(sessionId) {
     this.db.prepare("UPDATE live_sessions SET status='ended', ended_at=datetime('now') WHERE id=?")
       .run(sessionId);

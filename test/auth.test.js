@@ -73,7 +73,8 @@ test('guest completes a session, signs up, and claims it; second claim is a no-o
   assert.equal(detail.responses.length, 1);
   assert.equal(detail.responses[0].body, 'pull the crosslay');
   assert.equal(detail.notes.length, 1);
-  assert.ok(detail.questions.find(q => q.id === qid).instructor_answer.length > 0);
+  // answered only 1 of the scenario's questions — model answers stay gated (PRD-v7)
+  assert.equal(detail.questions.find(q => q.id === qid).instructor_answer, undefined);
 
   // another account claiming the same token gets nothing
   const second = await signup(base, { email: 'poacher@dept.test', guest_token: 'guest-tok-9' });

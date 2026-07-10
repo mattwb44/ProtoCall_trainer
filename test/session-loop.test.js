@@ -66,7 +66,9 @@ test('full live-session loop: create → join → submit → push → end → pe
     const qid = crewJoin.state.questions[0].id;
     const incoming = once(host, 'response_incoming');
     const subRes = await emit(crew, 'submit_response', { question_id: qid, body: 'VEIS the bedroom window' });
-    assert.ok(subRes.official_answer.length > 0, 'official answer unlocks on submit');
+    assert.equal(subRes.ok, true);
+    assert.equal(subRes.complete, false, 'PRD-v7: no reveal until every question is answered');
+    assert.equal(subRes.official_answers, undefined);
     const hostSaw = await incoming;
     assert.equal(hostSaw.body, 'VEIS the bedroom window');
     assert.equal(hostSaw.display_tag, 'P1');
@@ -96,7 +98,8 @@ test('full live-session loop: create → join → submit → push → end → pe
       const rejoin = await emit(crew2, 'join_room', { code: room_code, token: 'tok-1', role: 'participant' });
       assert.equal(rejoin.participant.display_tag, 'P1');
       const q0 = rejoin.state.questions.find(q => q.id === qid);
-      assert.ok(q0.instructor_answer.length > 0);
+      // answered 1 of 12 questions — still gated, even after session end (PRD-v7)
+      assert.equal(q0.instructor_answer, undefined);
     } finally { crew2.close(); }
   } finally {
     host.close(); crew.close();

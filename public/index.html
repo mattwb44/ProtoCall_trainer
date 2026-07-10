@@ -393,7 +393,8 @@ function drawMatrix() {
 
 /* ═══ Participant ═══ */
 let pState = null, myId = null;
-const answered = new Map(); // question_id -> official answer
+const answered = new Set(); // question_ids this participant submitted
+const official = new Map(); // question_id -> model answer, filled only after full submission (PRD-v7)
 function renderJoin(code) {
   const s = getSocket();
   ['answer_pushed','session_ended','disconnect'].forEach(ev => s.off(ev));
@@ -425,11 +426,9 @@ function renderJoin(code) {
     if (error) { toast(error, 'bg-rose-600'); location.hash = '#/'; return; }
     joinedOnce = true;
     pState = state; myId = participant.id;
-    answered.clear();
-    state.responses.filter(r => r.participant_id === myId).forEach(r => {
-      const q = state.questions.find(x => x.id === r.question_id);
-      answered.set(r.question_id, q?.instructor_answer ?? '');
-    });
+    answered.clear(); official.clear();
+    state.responses.filter(r => r.participant_id === myId).forEach(r => answered.add(r.question_id));
+    if (state.answers_revealed) state.questions.forEach(q => official.set(q.id, q.instructor_answer ?? ''));
     drawParticipant();
     flushQueue();
   });
@@ -517,10 +516,10 @@ function qCard(q, i, responses) {
     ${inQueue ? `<div class="flex items-center gap-2 bg-amber-950/40 border border-amber-800/50 rounded-xl px-4 py-3 text-sm text-amber-200"><i data-lucide="cloud-off" class="w-4 h-4 shrink-0"></i>Queued — sends automatically when you're back online</div>` : ''}
     ${locked ? '' : `<button data-submit="${q.id}" class="tap w-full bg-rose-600 hover:bg-rose-500 rounded-xl py-3 font-bold text-sm">Submit Answer</button>`}
     <div class="border border-slate-700 rounded-xl overflow-hidden">
-      <button data-acc="${q.id}" class="tap w-full flex items-center justify-between px-4 py-3 text-sm font-semibold ${done ? 'text-emerald-400' : 'text-slate-500'}">
-        <span class="flex items-center gap-2"><i data-lucide="${done ? 'shield-check' : 'lock'}" class="w-4 h-4"></i>Official Answer</span>
+      <button data-acc="${q.id}" class="tap w-full flex items-center justify-between px-4 py-3 text-sm font-semibold ${official.has(q.id) ? 'text-emerald-400' : 'text-slate-500'}">
+        <span class="flex items-center gap-2"><i data-lucide="${official.has(q.id) ? 'shield-check' : 'lock'}" class="w-4 h-4"></i>Official Answer${official.has(q.id) ? '' : ' — unlocks after all questions'}</span>
         <i data-lucide="chevron-down" class="w-4 h-4"></i></button>
-      <div id="acc-${q.id}" class="hidden px-4 pb-4 text-sm text-emerald-100 bg-emerald-950/40 pt-3 border-t border-emerald-900">${esc(answered.get(q.id) ?? '')}</div>
+      <div id="acc-${q.id}" class="hidden px-4 pb-4 text-sm text-emerald-100 bg-emerald-950/40 pt-3 border-t border-emerald-900">${esc(official.get(q.id) ?? '')}</div>
     </div>
     ${done ? `<div><label class="text-xs font-semibold text-amber-400 flex items-center gap-1"><i data-lucide="pencil-line" class="w-3.5 h-3.5"></i>Your Notes</label>
       <textarea data-note="${q.id}" rows="2" placeholder="Tactical notes — saved automatically" class="mt-1 w-full bg-amber-950/30 border border-amber-800/50 rounded-xl px-4 py-3 text-sm focus:border-amber-500 focus:outline-none"></textarea></div>` : ''}
@@ -543,10 +542,13 @@ function queueRemove(code, qid) {
   queuedAnswers.delete(qid);
 }
 
-function applySubmitSuccess(qid, body, officialAnswer) {
-  answered.set(qid, officialAnswer);
+function applySubmitSuccess(qid, body, res) {
+  answered.add(qid);
   pState.responses.push({ id: 'local-' + qid, question_id: qid, participant_id: myId, body, is_pushed: 0 });
+  if (res?.complete && res.official_answers)
+    Object.entries(res.official_answers).forEach(([id, a]) => official.set(id, a));
   drawParticipant();
+  return !!res?.complete;
 }
 
 function sendResponse(qid, val) {
@@ -559,8 +561,8 @@ function sendResponse(qid, val) {
       return;
     }
     if (res?.error) return toast('Submit failed', 'bg-rose-600');
-    applySubmitSuccess(qid, val, res.official_answer);
-    toast('Submitted — Official Answer unlocked');
+    const complete = applySubmitSuccess(qid, val, res);
+    toast(complete ? 'All answered — Official Answers unlocked' : 'Submitted');
   });
 }
 
@@ -578,7 +580,7 @@ function flushQueue() {
     getSocket().timeout(5000).emit('submit_response', { question_id: it.question_id, body: it.body }, (err, res) => {
       if (err || res?.error) return; // still offline — stays queued for next rejoin
       queueRemove(code, it.question_id);
-      applySubmitSuccess(it.question_id, it.body, res.official_answer);
+      applySubmitSuccess(it.question_id, it.body, res);
       toast('Queued answer delivered');
     });
   });
@@ -600,7 +602,7 @@ function bindCards() {
   });
   app.querySelectorAll('[data-acc]').forEach(btn => btn.onclick = () => {
     const qid = btn.dataset.acc;
-    if (!answered.has(qid)) return toast('Locked until you submit your answer', 'bg-amber-500');
+    if (!official.has(qid)) return toast('Locked until you answer every question', 'bg-amber-500');
     document.getElementById('acc-' + qid).classList.toggle('hidden');
   });
   app.querySelectorAll('[data-note]').forEach(ta => {
@@ -980,7 +982,7 @@ async function renderSessionDetail(id) {
           </div>`;
         }).join('') : ''}
         ${pushed.map(p => `<div class="bg-slate-900 border-l-4 border-rose-500 rounded-lg px-3 py-2.5 text-sm"><p class="text-xs font-bold text-rose-400 mb-0.5">PUSHED · ${esc(p.display_tag)}</p>${esc(p.body)}</div>`).join('')}
-        <div class="bg-emerald-950/40 border border-emerald-900 rounded-xl px-4 py-3 text-sm text-emerald-100"><p class="text-xs font-bold text-emerald-400 mb-1">OFFICIAL ANSWER</p>${esc(qn.instructor_answer)}</div>
+        ${qn.instructor_answer != null ? `<div class="bg-emerald-950/40 border border-emerald-900 rounded-xl px-4 py-3 text-sm text-emerald-100"><p class="text-xs font-bold text-emerald-400 mb-1">OFFICIAL ANSWER</p>${esc(qn.instructor_answer)}</div>` : ''}
         ${note ? `<div class="bg-amber-950/30 border border-amber-800/50 rounded-xl px-4 py-3 text-sm"><p class="text-xs font-bold text-amber-400 mb-1">YOUR NOTES</p>${esc(note.body)}</div>` : ''}
       </div>`;
     }).join('')}

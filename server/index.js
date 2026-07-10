@@ -478,9 +478,16 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
     const user = currentUser(req);
     if (!s || !canSee(s, user) || (s.deleted_at && s.author_id !== user?.id))
       return reply.code(404).send({ error: 'not found' });
+    const mine = s.author_id === user?.id;
+    // PRD-v7: model answers are gated on full submission — only the author
+    // (who needs them to edit) gets instructor_answer over REST.
     const questions = db.prepare('SELECT * FROM questions WHERE scenario_id=? AND deleted=0 ORDER BY sort_order')
-      .all(s.id).map(q => ({ ...q, choices: q.choices ? JSON.parse(q.choices) : null }));
-    return { ...s, questions, media: mediaFor(s.id), mine: s.author_id === user?.id };
+      .all(s.id).map(q => ({
+        ...q,
+        choices: q.choices ? JSON.parse(q.choices) : null,
+        instructor_answer: mine ? q.instructor_answer : undefined,
+      }));
+    return { ...s, questions, media: mediaFor(s.id), mine };
   });
 
   app.post('/api/scenarios', (req, reply) => {
@@ -617,9 +624,16 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
        FROM live_sessions ls JOIN scenarios sc ON sc.id=ls.scenario_id WHERE ls.id=?`).get(sessionId);
     const me = ls && db.prepare('SELECT * FROM participants WHERE session_id=? AND user_id=?').get(ls.id, user.id);
     if (!ls || (ls.host_id !== user.id && !me)) return null;
+    // PRD-v7 gating: the host always sees model answers; a participant only
+    // once they answered every (non-deleted) question of the session.
+    const revealAnswers = ls.host_id === user.id || (me && rooms.hasAnsweredAll(ls.id, me.id));
     // Include soft-deleted questions: the session happened with them.
     const questions = db.prepare('SELECT * FROM questions WHERE scenario_id=? ORDER BY sort_order')
-      .all(ls.scenario_id).map(q => ({ ...q, choices: q.choices ? JSON.parse(q.choices) : null }));
+      .all(ls.scenario_id).map(q => ({
+        ...q,
+        choices: q.choices ? JSON.parse(q.choices) : null,
+        instructor_answer: revealAnswers ? q.instructor_answer : undefined,
+      }));
     const responses = db.prepare(
       `SELECT r.*, p.display_tag, p.user_id FROM responses r
        JOIN participants p ON p.id=r.participant_id WHERE r.session_id=?`).all(ls.id);
@@ -793,12 +807,14 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
 
       const state = rooms.roomState(code, { includeAnswers: role === 'host' });
       if (role !== 'host') {
-        // reveal instructor answers only for questions this participant already answered
-        const answered = new Set(state.responses
-          .filter(r => r.participant_id === participant.id).map(r => r.question_id));
-        state.questions = state.questions.map(q => answered.has(q.id)
-          ? { ...q, instructor_answer: room.questions.find(x => x.id === q.id).instructor_answer }
-          : q);
+        // PRD-v7: no partial reveals — instructor answers appear only once
+        // this participant has answered every question, then all at once.
+        const revealed = rooms.hasAnsweredAll(room.session.id, participant.id);
+        if (revealed) {
+          const answers = rooms.officialAnswers(room.session.id);
+          state.questions = state.questions.map(q => ({ ...q, instructor_answer: answers[q.id] }));
+        }
+        state.answers_revealed = revealed;
       }
       io.to(`room:${code}`).emit('participant_count', counts(code));
       ack?.({ state, participant });
@@ -809,8 +825,11 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
       if (!sessionId || !participantId || !body?.trim()) return ack?.({ error: 'invalid' });
       const resp = rooms.submitResponse(sessionId, question_id, participantId, body.trim());
       io.to(`room:${code}:host`).emit('response_incoming', resp);
-      const q = rooms.getByCode(code).questions.find(x => x.id === question_id);
-      ack?.({ ok: true, official_answer: q?.instructor_answer ?? '' });
+      // PRD-v7: answers reveal only when this submission completes the set.
+      const complete = rooms.hasAnsweredAll(sessionId, participantId);
+      ack?.(complete
+        ? { ok: true, complete, official_answers: rooms.officialAnswers(sessionId) }
+        : { ok: true, complete });
     });
 
     socket.on('push_answer', ({ response_id }) => {
