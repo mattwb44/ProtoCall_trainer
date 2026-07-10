@@ -14,11 +14,11 @@ Built with the Engineering OS at `~/engineering-os` (see `ENGINEERING_OS.md`). T
 each version follows: PRD → architecture review → implement (TDD) → integration tests →
 browser verification → deploy → journal entry.
 
-## Current state: v7 is ~60% shipped (2026-07-10 session)
+## Current state: v7 features complete; content sprint remains (2026-07-10, part 4)
 - **Live URL:** https://protocall-trainer-production.up.railway.app —
   ⚠️ **v6 + v7 work is committed locally but NOT yet deployed.** Deploy with
   `npx railway up --service protocall-trainer --detach`, then poll `/healthz`.
-- **Tests:** 50 integration tests, all green (`npm test`).
+- **Tests:** 60 integration tests, all green (`npm test`).
 - **Git:** clean tree, all committed to local `main` (no GitHub remote).
 
 ### Shipped this session (PRD-v7.md, in commit order)
@@ -46,27 +46,36 @@ browser verification → deploy → journal entry.
    `#/coverage` (`GET /api/coverage`): objectives × categories over public scenarios,
    secondary counts too, gaps visible.
 
+### Also shipped this session (part 4, in commit order)
+5. **Academies** (`74525af`): `academies` + `academy_entries` tables; site-admin =
+   global, dept-admin = department-scoped (verified dept required); ordered entries
+   with draft/publish staging — drafts owner-only, publishing requires the scenario
+   ≥ department-visible (public for global academies); soft-deleted scenarios drop
+   out of academy views without crashing. REST: GET/POST `/api/academies`,
+   GET/PUT/DELETE `/api/academies/:id` (PUT replaces the entry list wholesale).
+   UI: `#/academies` list (+ create for eligible roles), `#/academy/:id` with owner
+   curation (add / reorder / publish-toggle / remove, one PUT per action).
+6. **Stages** (`4cfa40a`): `questions.stage` (blank inherits the previous question's
+   stage — `rooms.resolveStages`), `live_sessions.stage_index`. Live: participants
+   only see questions up to the current stage; host has a stage panel + "Advance"
+   button → `advance_stage` socket event → `stage_advanced` broadcast → clients
+   rejoin (same pattern as `session_ended`). Solo: sequential stage-by-stage UI.
+   **Reveal is per-stage** via `rooms.revealedAnswers(sessionId, participantId)` —
+   used by socket join/submit, solo answers, and `sessionDetailFor` (archive).
+   Stageless scenarios keep whole-scenario gating, bit-for-bit.
+
 ### Remaining in v7 (next session starts here)
-1. **Academies** — curated ordered collections: owner, name, description, ordered
-   scenario entries; site-admin = global, dept-admin = department-scoped; entries have
-   draft/publish staging (publishing requires the scenario to be ≥ department-visible);
-   deleting a scenario must not orphan-crash academies. Georgetown is just the first
-   dept academy — nothing hard-coded.
-2. **Stages** — optional named stage headers over the question list; host advances
-   stages live; solo advances as the player submits. **Reveal is per-stage (owner
-   decision 2026-07-10, recorded in PRD-v7.md):** finishing a stage's questions unlocks
-   that stage's model answers; stageless scenarios keep whole-scenario gating.
-   Per-question reveal was explicitly rejected (anchoring).
-3. **Content sprint** — 20 scenarios, AI-drafted in dev sessions, owner reviews each,
+1. **Content sprint** — 20 scenarios, AI-drafted in dev sessions, owner reviews each,
    tagged with objectives at authoring time; the coverage grid is the progress meter.
    Historical-incident policy in PRD-v7 is a hard constraint. No generation code in-app.
+   Stages + role tracks + taxonomy are all live now — author scenarios to use them.
 
 ## v7 implementation notes (for whoever continues)
-- **Gating helpers:** `rooms.hasAnsweredAll(sessionId, participantId)` is track-aware
-  (reads the participant's `role_track`); `rooms.officialAnswers(sessionId, roleTrack)`
-  filters to the track set. Archive-side reveal lives in `sessionDetailFor` (index.js).
-  Stages will change "all questions" to "all questions in the current stage" in these
-  same spots.
+- **Gating helpers:** `rooms.revealedAnswers(sessionId, participantId)` is the single
+  source of truth for what a participant may see — track-aware and stage-aware
+  (per-stage groups; stageless = one all-or-nothing group; session end reveals all).
+  `hasAnsweredAll`/`officialAnswers` still exist for full-completion checks.
+  Archive-side reveal lives in `sessionDetailFor` (index.js).
 - **Schema added by v7** (idempotent addColumn migrations in `db.js`):
   `live_sessions.mode` ('live'|'solo'), `participants.role_track`, scenarios'
   `objective_primary/objective_secondary/difficulty/duration_min/building_type`,
