@@ -1,10 +1,12 @@
 # TODO
 
 ## Open
-- **Implement v7 (PRD-v7.md)** — remaining: stages (with per-stage
-  answer reveal, owner decision 2026-07-10). Then the
-  20-scenario content sprint (AI-drafted in dev sessions, owner-reviewed, incl.
-  Georgetown Academy).
+- **Implement v7 (PRD-v7.md)** — remaining: the 20-scenario content sprint
+  (AI-drafted in dev sessions, owner-reviewed, incl. Georgetown Academy).
+  - ✅ Stages: optional named stage headers per question (blank inherits the
+    previous); host advances live (participants only see stages so far); solo
+    advances stage-by-stage; per-stage answer reveal (owner decision
+    2026-07-10); stageless scenarios byte-stable.
   - ✅ Academies: global (site-admin) and department-scoped (dept-admin) curated
     ordered collections at #/academies; draft/publish entries (drafts owner-only,
     publishing enforces ≥ department visibility, public for global); scenario

@@ -665,10 +665,10 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(id, title, description, category, subcategory, image_url, visibility, user.id,
                     visibility === 'department' ? user.department_id : null,
                     t.objective_primary, t.objective_secondary, t.difficulty, t.duration_min, t.building_type);
-      const ins = db.prepare(`INSERT INTO questions (id, scenario_id, prompt, kind, choices, instructor_answer, role_track, sort_order)
-                              VALUES (?,?,?,?,?,?,?,?)`);
+      const ins = db.prepare(`INSERT INTO questions (id, scenario_id, prompt, kind, choices, instructor_answer, role_track, stage, sort_order)
+                              VALUES (?,?,?,?,?,?,?,?,?)`);
       questions.forEach((q, i) => ins.run(uuid(), id, q.prompt, q.kind ?? 'text',
-        q.choices ? JSON.stringify(q.choices) : null, q.instructor_answer ?? '', q.role_track ?? '', i));
+        q.choices ? JSON.stringify(q.choices) : null, q.instructor_answer ?? '', q.role_track ?? '', q.stage ?? '', i));
       replaceMedia(id, req.body.media);
     });
     tx();
@@ -701,15 +701,15 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
              visibility === 'department' ? user.department_id : null, visibility,
              t.objective_primary, t.objective_secondary, t.difficulty, t.duration_min, t.building_type, s.id);
       // Reconcile questions: update kept, insert new, soft-delete removed (responses may reference them).
-      const upd = db.prepare(`UPDATE questions SET prompt=?, kind=?, choices=?, instructor_answer=?, role_track=?, sort_order=? WHERE id=? AND scenario_id=?`);
-      const ins = db.prepare(`INSERT INTO questions (id, scenario_id, prompt, kind, choices, instructor_answer, role_track, sort_order)
-                              VALUES (?,?,?,?,?,?,?,?)`);
+      const upd = db.prepare(`UPDATE questions SET prompt=?, kind=?, choices=?, instructor_answer=?, role_track=?, stage=?, sort_order=? WHERE id=? AND scenario_id=?`);
+      const ins = db.prepare(`INSERT INTO questions (id, scenario_id, prompt, kind, choices, instructor_answer, role_track, stage, sort_order)
+                              VALUES (?,?,?,?,?,?,?,?,?)`);
       questions.forEach((q, i) => {
         const choices = q.choices ? JSON.stringify(q.choices) : null;
         if (q.id && existing.includes(q.id))
-          upd.run(q.prompt, q.kind ?? 'text', choices, q.instructor_answer ?? '', q.role_track ?? '', i, q.id, s.id);
+          upd.run(q.prompt, q.kind ?? 'text', choices, q.instructor_answer ?? '', q.role_track ?? '', q.stage ?? '', i, q.id, s.id);
         else
-          ins.run(uuid(), s.id, q.prompt, q.kind ?? 'text', choices, q.instructor_answer ?? '', q.role_track ?? '', i);
+          ins.run(uuid(), s.id, q.prompt, q.kind ?? 'text', choices, q.instructor_answer ?? '', q.role_track ?? '', q.stage ?? '', i);
       });
       const gone = existing.filter(id => !keptIds.has(id));
       if (gone.length) {
@@ -748,9 +748,9 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
                   VALUES (?,?,?,?,?,?,'private',?,?)`)
         .run(id, src.title, src.description, src.category, src.subcategory, src.image_url, user.id, src.id);
       const qs = db.prepare('SELECT * FROM questions WHERE scenario_id=? AND deleted=0 ORDER BY sort_order').all(src.id);
-      const ins = db.prepare(`INSERT INTO questions (id, scenario_id, prompt, kind, choices, instructor_answer, role_track, sort_order)
-                              VALUES (?,?,?,?,?,?,?,?)`);
-      qs.forEach(q => ins.run(uuid(), id, q.prompt, q.kind, q.choices, q.instructor_answer, q.role_track, q.sort_order));
+      const ins = db.prepare(`INSERT INTO questions (id, scenario_id, prompt, kind, choices, instructor_answer, role_track, stage, sort_order)
+                              VALUES (?,?,?,?,?,?,?,?,?)`);
+      qs.forEach(q => ins.run(uuid(), id, q.prompt, q.kind, q.choices, q.instructor_answer, q.role_track, q.stage, q.sort_order));
       replaceMedia(id, mediaFor(src.id));
     });
     tx();
@@ -787,11 +787,13 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
   // Solo play reuses the session/response model with mode='solo': no room
   // code flow, no sockets, no host. Guests run statelessly via solo-reveal;
   // signed-in players' runs persist to their library.
-  const trackQuestions = (scenarioId, roleTrack = '') =>
-    db.prepare(`SELECT * FROM questions WHERE scenario_id=? AND deleted=0
-                ${roleTrack ? "AND (role_track='' OR role_track=?)" : ''} ORDER BY sort_order`)
-      .all(...(roleTrack ? [scenarioId, roleTrack] : [scenarioId]))
+  const trackQuestions = (scenarioId, roleTrack = '') => {
+    const all = db.prepare('SELECT * FROM questions WHERE scenario_id=? AND deleted=0 ORDER BY sort_order')
+      .all(scenarioId);
+    rooms.resolveStages(all); // blanks inherit the previous question's stage
+    return all.filter(q => !roleTrack || !q.role_track || q.role_track === roleTrack)
       .map(q => ({ ...q, choices: q.choices ? JSON.parse(q.choices) : null }));
+  };
 
   const officialFor = qs => Object.fromEntries(qs.map(q => [q.id, q.instructor_answer ?? '']));
 
@@ -841,12 +843,12 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
       .get(ls.id, me.id, question_id))
       return reply.code(409).send({ error: 'already answered' });
     rooms.submitResponse(ls.id, question_id, me.id, body.trim());
-    const done = db.prepare(
-      'SELECT COUNT(DISTINCT question_id) n FROM responses WHERE session_id=? AND participant_id=?')
-      .get(ls.id, me.id).n;
-    if (done < qs.length) return { ok: true, complete: false };
-    rooms.endSession(ls.id); // full submission = the run's debrief moment
-    return { ok: true, complete: true, official_answers: officialFor(qs) };
+    // v7 stages: solo advances stage-by-stage — each completed stage reveals
+    // its model answers; completing the whole set ends the run (the debrief).
+    const { answers, complete } = rooms.revealedAnswers(ls.id, me.id);
+    if (complete) rooms.endSession(ls.id);
+    return { ok: true, complete,
+             ...(Object.keys(answers).length ? { official_answers: answers } : {}) };
   });
 
   // Shared by the JSON detail view and the PDF download. Returns null if not permitted.
@@ -856,10 +858,11 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
        FROM live_sessions ls JOIN scenarios sc ON sc.id=ls.scenario_id WHERE ls.id=?`).get(sessionId);
     const me = ls && db.prepare('SELECT * FROM participants WHERE session_id=? AND user_id=?').get(ls.id, user.id);
     if (!ls || (ls.host_id !== user.id && !me)) return null;
-    // PRD-v7 gating: the host always sees model answers; a participant once
-    // they answered every question — or once the session has ended (debrief).
-    const revealAnswers = ls.host_id === user.id || ls.status !== 'live'
-      || (me && rooms.hasAnsweredAll(ls.id, me.id));
+    // PRD-v7 gating: the host always sees model answers; while live, a
+    // participant sees answers per completed stage (whole scenario if
+    // stageless); session end unlocks everything for the debrief.
+    const revealAll = ls.host_id === user.id || ls.status !== 'live';
+    const revealMap = !revealAll && me ? rooms.revealedAnswers(ls.id, me.id).answers : {};
     // Include soft-deleted questions: the session happened with them.
     // A participant who played a role only ever saw common + role questions;
     // the host's archive keeps every track.
@@ -870,7 +873,7 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
       .map(q => ({
         ...q,
         choices: q.choices ? JSON.parse(q.choices) : null,
-        instructor_answer: revealAnswers ? q.instructor_answer : undefined,
+        instructor_answer: revealAll || q.id in revealMap ? q.instructor_answer : undefined,
       }));
     const responses = db.prepare(
       `SELECT r.*, p.display_tag, p.user_id, p.role_track FROM responses r
@@ -1052,16 +1055,17 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
         // v7 role overlay: a participant with a role sees common + role questions.
         if (participant.role_track)
           state.questions = state.questions.filter(q => !q.role_track || q.role_track === participant.role_track);
-        // PRD-v7: no partial reveals — instructor answers appear only once
-        // this participant has answered every question in their track (or the
-        // session has ended and everyone moves to debrief), then all at once.
-        const revealed = room.session.status !== 'live'
-          || rooms.hasAnsweredAll(room.session.id, participant.id);
-        if (revealed) {
-          const answers = rooms.officialAnswers(room.session.id, participant.role_track);
-          state.questions = state.questions.map(q => ({ ...q, instructor_answer: answers[q.id] }));
-        }
-        state.answers_revealed = revealed;
+        // v7 stages: participants only see questions up to the host's current
+        // stage — later stages can't anchor because they aren't visible yet.
+        if (state.session.stages.length)
+          state.questions = state.questions.filter(q =>
+            rooms.stageIndexOf(q, state.session.stages) <= state.session.stage_index);
+        // PRD-v7 reveal: per completed stage when stages exist, whole-scenario
+        // otherwise; session end unlocks everything.
+        const { answers, complete } = rooms.revealedAnswers(room.session.id, participant.id);
+        state.questions = state.questions.map(q =>
+          q.id in answers ? { ...q, instructor_answer: answers[q.id] } : q);
+        state.answers_revealed = complete || room.session.status !== 'live';
       }
       io.to(`room:${code}`).emit('participant_count', counts(code));
       ack?.({ state, participant });
@@ -1075,11 +1079,21 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
         return ack?.({ error: 'invalid' }); // not this participant's track
       const resp = rooms.submitResponse(sessionId, question_id, participantId, body.trim());
       io.to(`room:${code}:host`).emit('response_incoming', resp);
-      // PRD-v7: answers reveal only when this submission completes the track set.
-      const complete = rooms.hasAnsweredAll(sessionId, participantId);
-      ack?.(complete
-        ? { ok: true, complete, official_answers: rooms.officialAnswers(sessionId, roleTrack) }
+      // PRD-v7: answers reveal per completed stage (whole scenario if stageless).
+      const { answers, complete } = rooms.revealedAnswers(sessionId, participantId);
+      ack?.(Object.keys(answers).length
+        ? { ok: true, complete, official_answers: answers }
         : { ok: true, complete });
+    });
+
+    // v7 stages: the host advances the room to the next stage; clients rejoin
+    // to pick up the newly visible questions (same pattern as session_ended).
+    socket.on('advance_stage', (_payload, ack) => {
+      const { code, role, sessionId } = socket.data ?? {};
+      if (role !== 'host' || !code) return ack?.({ error: 'host only' });
+      const stage_index = rooms.advanceStage(sessionId);
+      io.to(`room:${code}`).emit('stage_advanced', { stage_index });
+      ack?.({ ok: true, stage_index });
     });
 
     socket.on('push_answer', ({ response_id }) => {

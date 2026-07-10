@@ -100,6 +100,73 @@ export class Rooms {
     return id;
   }
 
+  // v7 stages: resolve each question's stage in place (a blank stage inherits
+  // the previous question's) and return the ordered stage names. An empty
+  // array means the scenario is stageless and behaves exactly as before.
+  // Questions before the first named stage resolve to '' and count as part
+  // of the first stage for visibility and reveal.
+  resolveStages(questions) {
+    let cur = '';
+    const names = [];
+    for (const q of questions) {
+      if (q.stage) cur = q.stage;
+      q.stage = cur;
+      if (cur && !names.includes(cur)) names.push(cur);
+    }
+    return names;
+  }
+
+  stageIndexOf(q, names) {
+    const i = names.indexOf(q.stage);
+    return i < 0 ? 0 : i;
+  }
+
+  // Per-stage reveal (owner decision 2026-07-10): finishing all of a stage's
+  // questions (in the participant's track) unlocks that stage's model answers.
+  // Stageless scenarios keep whole-scenario gating. Session end unlocks all.
+  // Returns { answers, complete } — answers is question_id → instructor_answer
+  // for every stage this participant has earned; complete = the whole set.
+  revealedAnswers(sessionId, participantId) {
+    const session = this.db.prepare('SELECT * FROM live_sessions WHERE id=?').get(sessionId);
+    const track = this.db.prepare('SELECT role_track FROM participants WHERE id=?')
+      .get(participantId)?.role_track ?? '';
+    const all = this.db.prepare(
+      'SELECT * FROM questions WHERE scenario_id=? AND deleted=0 ORDER BY sort_order').all(session.scenario_id);
+    const names = this.resolveStages(all); // resolve on the full list so blanks inherit across tracks
+    const qs = track ? all.filter(q => !q.role_track || q.role_track === track) : all;
+    const answered = new Set(this.db.prepare(
+      'SELECT DISTINCT question_id FROM responses WHERE session_id=? AND participant_id=?')
+      .all(sessionId, participantId).map(r => r.question_id));
+    const ended = session.status !== 'live';
+    const answers = {};
+    const reveal = group => group.forEach(q => { answers[q.id] = q.instructor_answer ?? ''; });
+    let complete = qs.length > 0;
+    if (!names.length) {
+      complete = complete && qs.every(q => answered.has(q.id));
+      if (complete || ended) reveal(qs);
+      return { answers, complete };
+    }
+    for (let i = 0; i < names.length; i++) {
+      const group = qs.filter(q => this.stageIndexOf(q, names) === i);
+      if (!group.length) continue; // this track has no questions in the stage
+      const done = group.every(q => answered.has(q.id));
+      if (done || ended) reveal(group);
+      if (!done) complete = false;
+    }
+    return { answers, complete };
+  }
+
+  advanceStage(sessionId) {
+    const session = this.db.prepare('SELECT * FROM live_sessions WHERE id=?').get(sessionId);
+    if (!session) return null;
+    const qs = this.db.prepare(
+      'SELECT * FROM questions WHERE scenario_id=? AND deleted=0 ORDER BY sort_order').all(session.scenario_id);
+    const names = this.resolveStages(qs);
+    const next = Math.min(session.stage_index + 1, Math.max(names.length - 1, 0));
+    this.db.prepare('UPDATE live_sessions SET stage_index=? WHERE id=?').run(next, sessionId);
+    return next;
+  }
+
   // PRD-v7: model answers are gated on full submission — these two power
   // the "has this participant earned the reveal yet?" checks everywhere.
   // A participant's question set is the common track plus their role's track
@@ -145,12 +212,14 @@ export class Rooms {
       `SELECT r.id, r.question_id, r.body, r.is_pushed, r.participant_id, p.display_tag, p.role_track
        FROM responses r JOIN participants p ON p.id = r.participant_id
        WHERE r.session_id=? ORDER BY r.submitted_at`).all(room.session.id);
+    const stages = this.resolveStages(room.questions);
     const questions = room.questions.map(q =>
       includeAnswers ? q : { ...q, instructor_answer: undefined });
     return {
       session: {
         id: room.session.id, room_code: room.session.room_code, host_id: room.session.host_id,
         status: room.session.status, title: room.session.title,
+        stages, stage_index: room.session.stage_index,
         description: room.session.description, category: room.session.category,
         subcategory: room.session.subcategory, image_url: room.session.image_url,
       },

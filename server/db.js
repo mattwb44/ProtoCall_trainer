@@ -178,6 +178,11 @@ function migrate(db) {
   addColumn('scenarios', 'difficulty', "difficulty TEXT NOT NULL DEFAULT ''");
   addColumn('scenarios', 'duration_min', 'duration_min INTEGER');
   addColumn('scenarios', 'building_type', "building_type TEXT NOT NULL DEFAULT ''");
+  // v7 stages: optional named stage headers over the question list; a blank
+  // stage inherits the previous question's stage. Sessions track the host's
+  // (or solo player's) current stage index.
+  addColumn('questions', 'stage', "stage TEXT NOT NULL DEFAULT ''");
+  addColumn('live_sessions', 'stage_index', 'stage_index INTEGER NOT NULL DEFAULT 0');
 
   // Seed the controlled vocabulary (PRD-v7); site admins extend it in-app.
   const seedObjectives = ['Reading Smoke', 'Water Application', 'Search', 'VEIS', 'Ventilation',

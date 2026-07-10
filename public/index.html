@@ -167,7 +167,7 @@ let draftQs = [], draftVis = 'private', draftMedia = [], editingId = null;
 async function renderCreator(id) {
   if (!me) { sessionStorage.authNext = location.hash; location.hash = '#/login'; return; }
   editingId = id || null;
-  draftQs = [{ prompt: '', kind: 'text', choices: null, instructor_answer: '', role_track: '' }];
+  draftQs = [{ prompt: '', kind: 'text', choices: null, instructor_answer: '', role_track: '', stage: '' }];
   draftMedia = [];
   let existing = null;
   const objectives = await fetch('/api/objectives').then(r => r.json()).catch(() => []);
@@ -175,7 +175,7 @@ async function renderCreator(id) {
     const res = await fetch(`/api/scenarios/${editingId}`);
     existing = res.ok ? await res.json() : null;
     if (!existing?.mine) { toast('Scenario not found', 'bg-rose-600'); location.hash = '#/me'; return; }
-    draftQs = existing.questions.map(q => ({ id: q.id, prompt: q.prompt, kind: q.kind, choices: q.choices, instructor_answer: q.instructor_answer, role_track: q.role_track }));
+    draftQs = existing.questions.map(q => ({ id: q.id, prompt: q.prompt, kind: q.kind, choices: q.choices, instructor_answer: q.instructor_answer, role_track: q.role_track, stage: q.stage ?? '' }));
     draftMedia = existing.media.map(m => ({ kind: m.kind, url: m.url }));
   }
   app.innerHTML = `
@@ -249,7 +249,7 @@ async function renderCreator(id) {
     $('#c-dur').value = existing.duration_min ?? '';
     $('#c-bldg').value = existing.building_type ?? '';
   }
-  $('#c-addq').onclick = () => { draftQs.push({ prompt: '', kind: 'text', choices: null, instructor_answer: '', role_track: '' }); drawQs(); };
+  $('#c-addq').onclick = () => { draftQs.push({ prompt: '', kind: 'text', choices: null, instructor_answer: '', role_track: '', stage: '' }); drawQs(); };
   const VIS = [
     ['private', 'Private', 'Only you can see and launch it'],
     ...(me?.department ? [['department', 'Department', `Every member of ${me.department.name} can train on it; your chief can mark it Official Protocol`]] : []),
@@ -299,7 +299,10 @@ function drawQs() {
   $('#c-qs').innerHTML = draftQs.map((q, i) => `
   <div class="bg-slate-900 border border-slate-700 rounded-xl p-4 space-y-3">
     <div class="flex items-center justify-between gap-2 flex-wrap">
-      <input data-f="role_track" data-i="${i}" value="${esc(q.role_track)}" placeholder="Role track (e.g. Firefighter)" class="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-xs w-52">
+      <div class="flex items-center gap-2 flex-wrap">
+        <input data-f="stage" data-i="${i}" value="${esc(q.stage ?? '')}" placeholder="Stage (e.g. Dispatch — optional)" class="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-xs w-52" title="Optional stage header. Blank continues the previous stage.">
+        <input data-f="role_track" data-i="${i}" value="${esc(q.role_track)}" placeholder="Role track (e.g. Firefighter)" class="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-xs w-52">
+      </div>
       <div class="flex items-center gap-1 bg-slate-800 rounded-lg p-1 text-xs">
         <button data-kind="text" data-i="${i}" class="px-3 py-1.5 rounded-md ${q.kind==='text'?'bg-amber-600 font-semibold':''}">Text Box</button>
         <button data-kind="multiple_choice" data-i="${i}" class="px-3 py-1.5 rounded-md ${q.kind==='multiple_choice'?'bg-amber-600 font-semibold':''}">Multiple Choice</button>
@@ -386,6 +389,14 @@ function drawHost(state) {
             <span class="text-slate-300 font-medium">Participants</span></div>
           <span id="pcount" class="text-3xl font-black text-emerald-400">0</span>
         </div>
+        ${session.stages?.length ? `
+        <div class="bg-slate-800 rounded-2xl p-5 space-y-3">
+          <p class="text-sm text-slate-400">Stage <span id="stage-num" class="font-bold text-amber-400">${session.stage_index + 1}</span> of ${session.stages.length}</p>
+          <p id="stage-name" class="font-bold text-lg text-amber-400">${esc(session.stages[session.stage_index])}</p>
+          <button id="advance-btn" class="tap w-full bg-amber-600 hover:bg-amber-500 rounded-xl py-3 font-bold text-sm flex items-center justify-center gap-2 ${session.stage_index >= session.stages.length - 1 ? 'hidden' : ''}">
+            <i data-lucide="fast-forward" class="w-4 h-4"></i>Advance to “${esc(session.stages[session.stage_index + 1] ?? '')}”</button>
+          <p class="text-xs text-slate-500">Participants only see questions up to the current stage; each stage they finish reveals its official answers.</p>
+        </div>` : ''}
       </aside>
       <section class="lg:w-[70%] space-y-4 pb-24">
         <h2 class="font-bold text-lg flex items-center gap-2"><i data-lucide="layout-grid" class="w-5 h-5 text-amber-400"></i>Aggregation Matrix <span class="text-xs font-normal text-slate-400">— live anonymous responses</span></h2>
@@ -398,6 +409,13 @@ function drawHost(state) {
     </div>
   </main>`;
   drawMatrix(); icons();
+  const adv = $('#advance-btn');
+  if (adv) adv.onclick = () => getSocket().emit('advance_stage', {}, res => {
+    if (res?.error) return toast(res.error, 'bg-rose-600');
+    hostState.session.stage_index = res.stage_index;
+    drawHost(hostState);
+    toast(`Advanced to “${hostState.session.stages[res.stage_index]}”`);
+  });
   $('#end-btn').onclick = () => {
     if (!confirm('End this session for all participants? The session will be archived to the database.')) return;
     getSocket().emit('end_session', {}, () => {
@@ -409,7 +427,9 @@ function drawHost(state) {
 }
 function drawMatrix() {
   if (!hostState) return;
-  $('#matrix').innerHTML = hostState.questions.map(q => {
+  const hqs = hostState.questions;
+  $('#matrix').innerHTML = hqs.map((q, qi) => (q.stage && q.stage !== hqs[qi - 1]?.stage
+    ? `<div class="flex items-center gap-3 pt-2"><span class="text-xs font-black tracking-widest ${hostState.session.stages?.indexOf(q.stage) > hostState.session.stage_index ? 'text-slate-600' : 'text-amber-400'}">${esc(q.stage.toUpperCase())}${hostState.session.stages?.indexOf(q.stage) > hostState.session.stage_index ? ' — NOT YET VISIBLE' : ''}</span><span class="flex-1 h-px bg-slate-700"></span></div>` : '') + (q0 => {
     const rows = hostState.responses.filter(r => r.question_id === q.id).map(r => `
       <div class="flex items-start gap-3 bg-slate-900 rounded-xl p-3 anim-in ${r.is_pushed ? 'ring-2 ring-rose-500' : ''}">
         <span class="shrink-0 w-8 h-8 rounded-full bg-slate-700 text-xs font-bold flex items-center justify-center text-slate-300" title="${esc(r.role_track || '')}">${esc(r.display_tag)}</span>
@@ -421,7 +441,7 @@ function drawMatrix() {
       <p class="text-xs text-emerald-400 mb-3 flex items-center gap-1"><i data-lucide="shield-check" class="w-3.5 h-3.5"></i>${esc(q.instructor_answer)}</p>
       <div class="space-y-2">${rows || '<p class="text-sm text-slate-500 italic">Waiting for responses…</p>'}</div>
     </div>`;
-  }).join('');
+  })(q)).join('');
   $('#matrix').querySelectorAll('[data-push]').forEach(btn =>
     btn.onclick = () => getSocket().emit('push_answer', { response_id: btn.dataset.push }));
   icons();
@@ -456,7 +476,11 @@ const answered = new Set(); // question_ids this participant submitted
 const official = new Map(); // question_id -> model answer, filled only after full submission (PRD-v7)
 function renderJoin(code) {
   const s = getSocket();
-  ['answer_pushed','session_ended','disconnect'].forEach(ev => s.off(ev));
+  ['answer_pushed','session_ended','stage_advanced','disconnect'].forEach(ev => s.off(ev));
+  s.on('stage_advanced', () => {
+    toast('The instructor advanced the scenario', 'bg-amber-500');
+    renderJoin(code); // rejoin picks up the newly visible stage
+  });
   s.on('answer_pushed', r => {
       const slot = document.getElementById('pushed-' + r.question_id);
       if (!slot || slot.querySelector(`[data-rid="${r.id}"]`)) return;
@@ -495,7 +519,7 @@ function renderJoin(code) {
     pState = state; myId = participant.id; myRole = participant.role_track;
     answered.clear(); official.clear();
     state.responses.filter(r => r.participant_id === myId).forEach(r => answered.add(r.question_id));
-    if (state.answers_revealed) state.questions.forEach(q => official.set(q.id, q.instructor_answer ?? ''));
+    state.questions.forEach(q => { if (q.instructor_answer !== undefined) official.set(q.id, q.instructor_answer ?? ''); });
     drawParticipant();
     flushQueue();
   });
@@ -519,7 +543,11 @@ function drawParticipant() {
       </div>
     </div>
     <div id="q-stream" class="px-4 pt-4 space-y-4">
-      ${questions.map((q, i) => qCard(q, i, responses)).join('')}
+      ${questions.map((q, i) => (q.stage && q.stage !== questions[i - 1]?.stage
+        ? `<div class="flex items-center gap-3 pt-2"><span class="text-xs font-black tracking-widest text-amber-400">${esc(q.stage.toUpperCase())}</span><span class="flex-1 h-px bg-slate-700"></span></div>` : '')
+        + qCard(q, i, responses)).join('')}
+      ${(session.stages?.length && session.stage_index < session.stages.length - 1 && !ended)
+        ? `<div class="flex items-center gap-2 bg-slate-800/60 border border-dashed border-slate-700 rounded-2xl px-4 py-3 text-sm text-slate-400"><i data-lucide="hourglass" class="w-4 h-4"></i>More to come — the instructor will advance the scenario.</div>` : ''}
     </div>
     <div id="guest-drawer" class="fixed bottom-0 inset-x-0 z-30 max-w-md mx-auto bg-slate-800 border-t-2 border-amber-500 rounded-t-2xl p-4 shadow-2xl hidden anim-in">
       <p class="font-bold flex items-center gap-2"><i data-lucide="bookmark" class="w-5 h-5 text-amber-400"></i>Don't lose tonight's training.</p>
@@ -584,7 +612,7 @@ function qCard(q, i, responses) {
     ${locked ? '' : `<button data-submit="${q.id}" class="tap w-full bg-rose-600 hover:bg-rose-500 rounded-xl py-3 font-bold text-sm">Submit Answer</button>`}
     <div class="border border-slate-700 rounded-xl overflow-hidden">
       <button data-acc="${q.id}" class="tap w-full flex items-center justify-between px-4 py-3 text-sm font-semibold ${official.has(q.id) ? 'text-emerald-400' : 'text-slate-500'}">
-        <span class="flex items-center gap-2"><i data-lucide="${official.has(q.id) ? 'shield-check' : 'lock'}" class="w-4 h-4"></i>Official Answer${official.has(q.id) ? '' : ' — unlocks after all questions'}</span>
+        <span class="flex items-center gap-2"><i data-lucide="${official.has(q.id) ? 'shield-check' : 'lock'}" class="w-4 h-4"></i>Official Answer${official.has(q.id) ? '' : (pState.session.stages?.length ? ' — unlocks when you finish this stage' : ' — unlocks after all questions')}</span>
         <i data-lucide="chevron-down" class="w-4 h-4"></i></button>
       <div id="acc-${q.id}" class="hidden px-4 pb-4 text-sm text-emerald-100 bg-emerald-950/40 pt-3 border-t border-emerald-900">${esc(official.get(q.id) ?? '')}</div>
     </div>
@@ -612,7 +640,7 @@ function queueRemove(code, qid) {
 function applySubmitSuccess(qid, body, res) {
   answered.add(qid);
   pState.responses.push({ id: 'local-' + qid, question_id: qid, participant_id: myId, body, is_pushed: 0 });
-  if (res?.complete && res.official_answers)
+  if (res?.official_answers)
     Object.entries(res.official_answers).forEach(([id, a]) => official.set(id, a));
   drawParticipant();
   return !!res?.complete;
@@ -629,7 +657,8 @@ function sendResponse(qid, val) {
     }
     if (res?.error) return toast('Submit failed', 'bg-rose-600');
     const complete = applySubmitSuccess(qid, val, res);
-    toast(complete ? 'All answered — Official Answers unlocked' : 'Submitted');
+    toast(complete ? 'All answered — Official Answers unlocked'
+      : res?.official_answers ? 'Stage complete — its Official Answers unlocked' : 'Submitted');
   });
 }
 
@@ -669,7 +698,7 @@ function bindCards() {
   });
   app.querySelectorAll('[data-acc]').forEach(btn => btn.onclick = () => {
     const qid = btn.dataset.acc;
-    if (!official.has(qid)) return toast('Locked until you answer every question', 'bg-amber-500');
+    if (!official.has(qid)) return toast(pState.session.stages?.length ? 'Locked until you finish this stage' : 'Locked until you answer every question', 'bg-amber-500');
     document.getElementById('acc-' + qid).classList.toggle('hidden');
   });
   app.querySelectorAll('[data-note]').forEach(ta => {
@@ -1234,8 +1263,20 @@ async function renderSolo(scenarioId) {
   const res = await fetch(`/api/scenarios/${scenarioId}`);
   if (!res.ok) { toast('Scenario not found', 'bg-rose-600'); location.hash = '#/public'; return; }
   const s = await res.json();
+  // v7 stages: resolve blank stages (inherit previous) on the full list, then track-filter.
+  let curStage = '';
+  s.questions.forEach(q => { if (q.stage) curStage = q.stage; q.stage = curStage; });
+  const stageNames = [...new Set(s.questions.map(q => q.stage).filter(Boolean))];
   const qs = s.questions.filter(q => !role || !q.role_track || q.role_track === role);
   if (!qs.length) { toast('No questions for this role', 'bg-amber-500'); location.hash = `#/scenario/${scenarioId}`; return; }
+  // Solo advances stage-by-stage: later stages stay hidden until the player
+  // finishes the current one (stageless scenarios show everything at once).
+  const stageOf = q => Math.max(0, stageNames.indexOf(q.stage));
+  const saved = {}; // question_id -> answer, held across stage re-renders
+  let soloStage = 0;
+  const lastStage = stageNames.length ? stageNames.length - 1 : 0;
+  const draw = () => {
+  const visible = stageNames.length ? qs.filter(q => stageOf(q) <= soloStage) : qs;
   app.innerHTML = `
   <main class="max-w-md mx-auto p-4 pb-24 space-y-4 anim-in">
     <header>
@@ -1245,26 +1286,35 @@ async function renderSolo(scenarioId) {
     <p class="text-sm text-slate-300 whitespace-pre-wrap">${esc(s.description)}</p>
     ${!me ? `<div class="bg-amber-500/10 border border-amber-500/40 rounded-2xl px-4 py-3 text-xs text-amber-200">Playing as a guest — this run <b>won't be saved</b>.</div>` : ''}
     <div id="solo-cards" class="space-y-4">
-    ${qs.map((q, i) => `
+    ${visible.map((q, i) => {
+      const locked = stageNames.length && stageOf(q) < soloStage; // earlier stage, already committed
+      return (q.stage && q.stage !== visible[i - 1]?.stage
+        ? `<div class="flex items-center gap-3 pt-2"><span class="text-xs font-black tracking-widest text-amber-400">${esc(q.stage.toUpperCase())}</span><span class="flex-1 h-px bg-slate-700"></span></div>` : '')
+      + `
       <div class="bg-slate-800 rounded-2xl p-4 space-y-3">
         <p class="font-semibold text-sm leading-snug"><span class="text-rose-400 font-bold">Q${i + 1}.</span> ${q.role_track ? `<span class="text-amber-400">${esc(q.role_track)}</span> · ` : ''}${esc(q.prompt)}</p>
         ${q.kind === 'multiple_choice'
           ? `<div class="space-y-2">${(q.choices || []).map(c => `
-              <label class="tap flex items-center gap-3 bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 cursor-pointer has-[:checked]:border-amber-500">
-                <input type="radio" name="solo-${q.id}" value="${esc(c)}" class="accent-rose-600 w-5 h-5"><span class="text-sm">${esc(c)}</span></label>`).join('')}</div>`
-          : `<textarea data-solo="${q.id}" rows="3" placeholder="Type your answer…" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-sm focus:border-amber-500 focus:outline-none"></textarea>`}
+              <label class="tap flex items-center gap-3 bg-slate-900 border ${saved[q.id] === c ? 'border-amber-500' : 'border-slate-700'} rounded-xl px-4 py-3 cursor-pointer has-[:checked]:border-amber-500">
+                <input type="radio" name="solo-${q.id}" value="${esc(c)}" ${locked ? 'disabled' : ''} ${saved[q.id] === c ? 'checked' : ''} class="accent-rose-600 w-5 h-5"><span class="text-sm">${esc(c)}</span></label>`).join('')}</div>`
+          : `<textarea data-solo="${q.id}" rows="3" ${locked ? 'disabled' : ''} placeholder="Type your answer…" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-sm focus:border-amber-500 focus:outline-none disabled:opacity-60">${esc(saved[q.id] ?? '')}</textarea>`}
         <div class="flex items-center gap-2 text-xs text-slate-500"><i data-lucide="lock" class="w-3.5 h-3.5"></i>Official answer unlocks when you submit the full run</div>
-      </div>`).join('')}
+      </div>`;
+    }).join('')}
     </div>
-    <button id="solo-submit" class="tap w-full bg-rose-600 hover:bg-rose-500 rounded-xl py-3.5 font-bold">Submit Run — Reveal Official Answers</button>
+    <button id="solo-submit" class="tap w-full bg-rose-600 hover:bg-rose-500 rounded-xl py-3.5 font-bold">${stageNames.length && soloStage < lastStage
+      ? `Continue — next stage: “${esc(stageNames[soloStage + 1])}”` : 'Submit Run — Reveal Official Answers'}</button>
   </main>`;
   icons();
   const answerOf = q => q.kind === 'multiple_choice'
     ? app.querySelector(`input[name="solo-${q.id}"]:checked`)?.value ?? ''
-    : app.querySelector(`[data-solo="${q.id}"]`).value.trim();
+    : app.querySelector(`[data-solo="${q.id}"]`)?.value.trim() ?? '';
   $('#solo-submit').onclick = async () => {
-    const answers = Object.fromEntries(qs.map(q => [q.id, answerOf(q)]));
-    if (qs.some(q => !answers[q.id])) return toast('Answer every question first — no partial reveals', 'bg-amber-500');
+    visible.filter(q => stageOf(q) === soloStage || !stageNames.length).forEach(q => { saved[q.id] = answerOf(q); });
+    const current = stageNames.length ? qs.filter(q => stageOf(q) === soloStage) : qs;
+    if (current.some(q => !saved[q.id])) return toast(stageNames.length ? 'Answer every question in this stage first' : 'Answer every question first — no partial reveals', 'bg-amber-500');
+    if (stageNames.length && soloStage < lastStage) { soloStage++; draw(); window.scrollTo(0, document.body.scrollHeight); return; }
+    const answers = Object.fromEntries(qs.map(q => [q.id, saved[q.id]]));
     const btn = $('#solo-submit'); btn.disabled = true; btn.textContent = 'Submitting…';
     if (me) {
       const run = await fetch('/api/solo/runs', {
@@ -1291,6 +1341,8 @@ async function renderSolo(scenarioId) {
     const { official_answers } = await r.json();
     soloReveal(s, qs, answers, official_answers, role);
   };
+  }; // draw
+  draw();
 }
 
 function soloReveal(s, qs, answers, official, role) {
