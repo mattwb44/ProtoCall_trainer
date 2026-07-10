@@ -424,10 +424,23 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
   });
 
   // ── Scenario library ──
+  // v8 review scope: site admin reviews everything; a dept chief reviews
+  // scenarios authored by members of their (verified) department.
+  const isReviewerOf = (user, s) => {
+    if (!user) return false;
+    if (user.role === 'site_admin') return true;
+    if (user.role !== 'dept_admin' || !user.department_id || !deptVerified(user.department_id)) return false;
+    if (s.department_id && s.department_id === user.department_id) return true;
+    const author = s.author_id && db.prepare('SELECT department_id FROM users WHERE id=?').get(s.author_id);
+    return !!author && author.department_id === user.department_id;
+  };
+
   const canSee = (s, user) =>
     s.visibility === 'public'
     || (user && s.author_id === user.id)
-    || (s.visibility === 'department' && user?.department_id && s.department_id === user.department_id);
+    || (s.visibility === 'department' && user?.department_id && s.department_id === user.department_id)
+    // reviewers can read a scenario that is (or was) in their review pipeline
+    || (s.review_status !== '' && isReviewerOf(user, s));
   const canLaunch = (s, user) => !s.deleted_at && canSee(s, user);
 
   const mediaFor = id => db.prepare(
@@ -483,13 +496,15 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
     const mine = s.author_id === user?.id;
     // PRD-v7: model answers are gated on full submission — only the author
     // (who needs them to edit) gets instructor_answer over REST.
+    // PRD-v8: an in-scope reviewer of a submitted scenario gets them too.
+    const reviewer = s.review_status !== '' && isReviewerOf(user, s);
     const questions = db.prepare('SELECT * FROM questions WHERE scenario_id=? AND deleted=0 ORDER BY sort_order')
       .all(s.id).map(q => ({
         ...q,
         choices: q.choices ? JSON.parse(q.choices) : null,
-        instructor_answer: mine ? q.instructor_answer : undefined,
+        instructor_answer: mine || reviewer ? q.instructor_answer : undefined,
       }));
-    return { ...s, questions, media: mediaFor(s.id), mine };
+    return { ...s, questions, media: mediaFor(s.id), mine, can_review: reviewer };
   });
 
   // ── v7 taxonomy: controlled learning objectives + filter labels ──
@@ -518,6 +533,58 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
   };
 
   app.get('/api/objectives', () => objectiveNames());
+
+  // ── v8 scenario review workflow (PRD-v8) ──
+  // Author submits → pending; chief/site admin queue → edit in-place → approve
+  // (grants the official badge) or request changes (note goes back to author).
+  app.post('/api/scenarios/:id/submit-review', (req, reply) => {
+    const user = requireUser(req, reply); if (!user) return;
+    const s = db.prepare('SELECT * FROM scenarios WHERE id=? AND deleted_at IS NULL').get(req.params.id);
+    if (!s || s.author_id !== user.id) return reply.code(404).send({ error: 'not found' });
+    if (s.review_status === 'pending') return reply.code(409).send({ error: 'already awaiting review' });
+    if (s.review_status === 'approved') return reply.code(409).send({ error: 'already approved' });
+    const qCount = db.prepare('SELECT COUNT(*) c FROM questions WHERE scenario_id=? AND deleted=0').get(s.id).c;
+    if (!qCount) return reply.code(400).send({ error: 'add at least one question first' });
+    db.prepare(`UPDATE scenarios SET review_status='pending', review_note='', submitted_at=datetime('now') WHERE id=?`)
+      .run(s.id);
+    return { review_status: 'pending' };
+  });
+
+  app.get('/api/review/queue', (req, reply) => {
+    const user = requireUser(req, reply); if (!user) return;
+    const site = user.role === 'site_admin';
+    const chief = user.role === 'dept_admin' && user.department_id && deptVerified(user.department_id);
+    if (!site && !chief) return reply.code(403).send({ error: 'reviewers only' });
+    const scope = site ? '' : `AND (s.department_id=@dept OR u.department_id=@dept)`;
+    return db.prepare(
+      `SELECT s.id, s.title, s.category, s.subcategory, s.visibility, s.difficulty,
+              s.objective_primary, s.submitted_at, s.author_id, u.display_name AS author_name,
+              (SELECT COUNT(*) FROM questions q WHERE q.scenario_id=s.id AND q.deleted=0) AS question_count
+       FROM scenarios s LEFT JOIN users u ON u.id=s.author_id
+       WHERE s.review_status='pending' AND s.deleted_at IS NULL ${scope}
+       ORDER BY s.submitted_at ASC`)
+      .all(site ? {} : { dept: user.department_id });
+  });
+
+  app.post('/api/scenarios/:id/review', (req, reply) => {
+    const user = requireUser(req, reply); if (!user) return;
+    const s = db.prepare('SELECT * FROM scenarios WHERE id=? AND deleted_at IS NULL').get(req.params.id);
+    if (!s || s.review_status === '') return reply.code(404).send({ error: 'not found' });
+    if (!isReviewerOf(user, s)) return reply.code(403).send({ error: 'not your review queue' });
+    const { action, note = '' } = req.body ?? {};
+    if (action === 'approve') {
+      db.prepare(`UPDATE scenarios SET review_status='approved', review_note=?, is_official=1 WHERE id=?`)
+        .run(String(note).trim(), s.id);
+      return { review_status: 'approved', is_official: 1 };
+    }
+    if (action === 'request_changes') {
+      if (!String(note).trim()) return reply.code(400).send({ error: 'a note telling the author what to change is required' });
+      db.prepare(`UPDATE scenarios SET review_status='changes_requested', review_note=? WHERE id=?`)
+        .run(String(note).trim(), s.id);
+      return { review_status: 'changes_requested' };
+    }
+    return reply.code(400).send({ error: 'action must be approve or request_changes' });
+  });
 
   app.post('/api/objectives', (req, reply) => {
     if (!requireSiteAdmin(req, reply)) return;
@@ -679,26 +746,36 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
   app.put('/api/scenarios/:id', (req, reply) => {
     const user = requireUser(req, reply); if (!user) return;
     const s = db.prepare('SELECT * FROM scenarios WHERE id=?').get(req.params.id);
-    if (!s || s.author_id !== user.id) return reply.code(404).send({ error: 'not found' });
-    const { title, description = '', category, subcategory, image_url = '', visibility = 'private', questions = [], media: mediaList } = req.body ?? {};
+    // v8: an in-scope reviewer may edit a submitted scenario (content only).
+    const asReviewer = !!s && s.author_id !== user.id && s.review_status !== '' && isReviewerOf(user, s);
+    if (!s || (s.author_id !== user.id && !asReviewer)) return reply.code(404).send({ error: 'not found' });
+    let { title, description = '', category, subcategory, image_url = '', visibility = 'private', questions = [], media: mediaList } = req.body ?? {};
+    if (asReviewer) visibility = s.visibility; // reviewers can't publish/unpublish for the author
     if (!title || !category || !subcategory) return reply.code(400).send({ error: 'title, category, subcategory required' });
     if (!['private', 'department', 'public'].includes(visibility)) return reply.code(400).send({ error: 'bad visibility' });
-    if (visibility === 'department' && !user.department_id)
+    if (!asReviewer && visibility === 'department' && !user.department_id)
       return reply.code(400).send({ error: 'join a department first' });
-    if (visibility === 'department' && !deptVerified(user.department_id))
+    if (!asReviewer && visibility === 'department' && !deptVerified(user.department_id))
       return reply.code(400).send({ error: 'your department is awaiting site approval' });
     const tax = taxonomyOf(req.body);
     if (tax.error) return reply.code(400).send({ error: tax.error });
     const t = tax.values;
     const existing = db.prepare('SELECT id FROM questions WHERE scenario_id=? AND deleted=0').all(s.id).map(q => q.id);
     const keptIds = new Set(questions.filter(q => q.id).map(q => q.id));
+    // Reviewer edits leave scope/badge/status untouched. Author edits: leaving
+    // department scope clears the department link and any official badge, and
+    // (v8) editing an approved scenario voids the approval — no silent edits
+    // behind the OFFICIAL badge; the author must resubmit.
+    const dept = asReviewer ? s.department_id : (visibility === 'department' ? user.department_id : null);
+    const official = asReviewer ? s.is_official
+      : (s.review_status === 'approved' ? 0 : (visibility === 'department' ? s.is_official : 0));
+    const status = asReviewer ? s.review_status : (s.review_status === 'approved' ? '' : s.review_status);
     const tx = db.transaction(() => {
-      // leaving department scope clears the department link and any official badge
       db.prepare(`UPDATE scenarios SET title=?, description=?, category=?, subcategory=?, image_url=?, visibility=?,
-                  department_id=?, is_official=CASE WHEN ?='department' THEN is_official ELSE 0 END,
+                  department_id=?, is_official=?, review_status=?,
                   objective_primary=?, objective_secondary=?, difficulty=?, duration_min=?, building_type=? WHERE id=?`)
         .run(title, description, category, subcategory, image_url, visibility,
-             visibility === 'department' ? user.department_id : null, visibility,
+             dept, official, status,
              t.objective_primary, t.objective_secondary, t.difficulty, t.duration_min, t.building_type, s.id);
       // Reconcile questions: update kept, insert new, soft-delete removed (responses may reference them).
       const upd = db.prepare(`UPDATE questions SET prompt=?, kind=?, choices=?, instructor_answer=?, role_track=?, stage=?, sort_order=? WHERE id=? AND scenario_id=?`);

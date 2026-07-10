@@ -2,7 +2,10 @@
 // Seed approved content drafts into a running ProtoCall instance via the API.
 //
 // Usage:
-//   SEED_EMAIL=you@example.com SEED_PASSWORD=... node scripts/seed-content.js [--dry-run] [--base URL] [dir]
+//   SEED_EMAIL=you@example.com SEED_PASSWORD=... node scripts/seed-content.js [--dry-run] [--base URL] [--submit] [dir]
+//
+// --submit: after creating each scenario, submit it for official review so it
+// lands in the in-app review queue (#/review) — the PRD-v8 content-intake flow.
 //
 // Defaults: dir = content/approved, base = http://localhost:3000.
 // Parses the draft markdown format defined in
@@ -17,6 +20,7 @@ import path from 'node:path';
 
 const args = process.argv.slice(2);
 const dryRun = args.includes('--dry-run');
+const submit = args.includes('--submit');
 const baseIx = args.indexOf('--base');
 const BASE = baseIx >= 0 ? args[baseIx + 1] : 'http://localhost:3000';
 const dir = args.filter(a => !a.startsWith('--') && a !== BASE).pop() ?? 'content/approved';
@@ -84,7 +88,8 @@ function parseDraft(file) {
     description: meta.description ?? '',
     category: meta.category,
     subcategory: meta.subcategory,
-    visibility: 'public',
+    visibility: process.env.SEED_VISIBILITY ?? 'private', // review first, publish after approval
+
     objective_primary: meta.objective_primary ?? '',
     objective_secondary: meta.objective_secondary ?? '',
     difficulty: meta.difficulty ?? '',
@@ -129,8 +134,13 @@ async function main() {
       method: 'POST', headers: { 'content-type': 'application/json', cookie },
       body: JSON.stringify(d.data),
     });
-    if (res.ok) console.log(`seeded: ${d.data.title}`);
-    else console.error(`FAILED ${d.file}: ${res.status} ${await res.text()}`);
+    if (!res.ok) { console.error(`FAILED ${d.file}: ${res.status} ${await res.text()}`); continue; }
+    const { id } = await res.json();
+    if (submit) {
+      const sub = await fetch(`${BASE}/api/scenarios/${id}/submit-review`, { method: 'POST', headers: { cookie } });
+      console.log(sub.ok ? `seeded + submitted for review: ${d.data.title}`
+        : `seeded (submit failed ${sub.status}): ${d.data.title}`);
+    } else console.log(`seeded: ${d.data.title}`);
   }
 }
 

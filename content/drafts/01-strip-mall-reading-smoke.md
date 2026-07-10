@@ -19,9 +19,9 @@ the door seams of three adjacent units.
    none of them heavy, none of them fast. What is this smoke telling you about the fire's
    location and stage, and what do you announce?
    > Model answer: Smoke from multiple units with no clear point of origin at a strip
-   > mall says cockloft — the fire is likely above the ceiling in the common attic space,
+   > mall says the fire is likely above the ceiling in the common attic space,
    > not in any one occupancy. Lazy, light smoke means early-stage or oxygen-limited.
-   > Announce a working fire with possible cockloft involvement so incoming companies
+   > Announce a working fire with possible attic involvement so incoming companies
    > think roof and exposures, not a single-room job.
 
 2. [Officer] (text) Do you commit crews to an interior investigation now, or hold at the

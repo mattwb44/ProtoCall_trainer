@@ -83,6 +83,7 @@ const routes = {
   'academy': id => renderAcademy(id),
   'department': renderDepartment,
   'moderation': renderModeration,
+  'review': renderReview,
 };
 function route() {
   leaveSocket();
@@ -163,10 +164,11 @@ const SUBCATS = {
   'EMS': ['Cardiac','Trauma','Pediatric','Medical'],
   'Motor Vehicle Accidents': ['Extrication','Rollover','Hazardous Materials'],
 };
-let draftQs = [], draftVis = 'private', draftMedia = [], editingId = null;
+let draftQs = [], draftVis = 'private', draftMedia = [], editingId = null, editingAsReviewer = false;
 async function renderCreator(id) {
   if (!me) { sessionStorage.authNext = location.hash; location.hash = '#/login'; return; }
   editingId = id || null;
+  editingAsReviewer = false;
   draftQs = [{ prompt: '', kind: 'text', choices: null, instructor_answer: '', role_track: '', stage: '' }];
   draftMedia = [];
   let existing = null;
@@ -174,13 +176,40 @@ async function renderCreator(id) {
   if (editingId) {
     const res = await fetch(`/api/scenarios/${editingId}`);
     existing = res.ok ? await res.json() : null;
-    if (!existing?.mine) { toast('Scenario not found', 'bg-rose-600'); location.hash = '#/me'; return; }
+    if (!existing || (!existing.mine && !existing.can_review)) { toast('Scenario not found', 'bg-rose-600'); location.hash = '#/me'; return; }
+    editingAsReviewer = !existing.mine && existing.can_review;
     draftQs = existing.questions.map(q => ({ id: q.id, prompt: q.prompt, kind: q.kind, choices: q.choices, instructor_answer: q.instructor_answer, role_track: q.role_track, stage: q.stage ?? '' }));
     draftMedia = existing.media.map(m => ({ kind: m.kind, url: m.url }));
   }
+  // v8 review banner: author sees status + submit/resubmit; reviewer sees
+  // approve / request-changes actions on a pending scenario.
+  const reviewBanner = () => {
+    if (!existing) return '';
+    const st = existing.review_status;
+    const canAct = existing.can_review && st === 'pending';
+    const chip = st === 'pending' ? '<span class="text-xs font-bold bg-sky-600 px-2.5 py-1 rounded-full">AWAITING REVIEW</span>'
+      : st === 'approved' ? '<span class="text-xs font-bold bg-emerald-600 px-2.5 py-1 rounded-full flex items-center gap-1"><i data-lucide="shield-check" class="w-3 h-3"></i>OFFICIAL</span>'
+      : st === 'changes_requested' ? '<span class="text-xs font-bold bg-amber-500 text-slate-900 px-2.5 py-1 rounded-full">CHANGES REQUESTED</span>' : '';
+    if (!st && !existing.mine) return '';
+    return `
+    <section class="bg-slate-800 rounded-2xl p-4 space-y-3 border ${st === 'changes_requested' ? 'border-amber-500/50' : st === 'pending' ? 'border-sky-500/50' : st === 'approved' ? 'border-emerald-500/50' : 'border-slate-700'}">
+      <div class="flex items-center gap-3 flex-wrap">
+        <p class="font-semibold text-sm flex-1">Official review</p>${chip}
+        ${existing.mine && !st ? '<button id="rv-submit" class="tap text-sm font-bold bg-sky-600 hover:bg-sky-500 rounded-xl px-4 py-2">Submit for review</button>' : ''}
+        ${existing.mine && st === 'changes_requested' ? '<button id="rv-submit" class="tap text-sm font-bold bg-sky-600 hover:bg-sky-500 rounded-xl px-4 py-2">Resubmit</button>' : ''}
+        ${canAct ? `<button id="rv-approve" class="tap text-sm font-bold bg-emerald-600 hover:bg-emerald-500 rounded-xl px-4 py-2 flex items-center gap-1.5"><i data-lucide="shield-check" class="w-4 h-4"></i>Approve as Official</button>
+        <button id="rv-changes" class="tap text-sm font-bold bg-amber-500 hover:bg-amber-400 text-slate-900 rounded-xl px-4 py-2">Request changes</button>` : ''}
+      </div>
+      ${st === 'changes_requested' && existing.review_note ? `<p class="text-sm text-amber-200 bg-amber-500/10 rounded-xl p-3"><span class="font-semibold">Reviewer:</span> ${esc(existing.review_note)}</p>` : ''}
+      ${st === 'pending' && existing.mine ? '<p class="text-xs text-slate-400">Your reviewer can edit this scenario while it\'s in the queue. Save your own edits before they pick it up.</p>' : ''}
+      ${st === '' && existing.mine ? '<p class="text-xs text-slate-400">Send this scenario to your Training Chief (or the site admin) to be reviewed and badged Official Protocol.</p>' : ''}
+      ${canAct ? '<div id="rv-note-wrap" class="hidden"><textarea id="rv-note" rows="2" placeholder="What should the author change?" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-sm focus:border-amber-500 focus:outline-none"></textarea><button id="rv-changes-send" class="tap mt-2 text-sm font-bold bg-amber-500 hover:bg-amber-400 text-slate-900 rounded-xl px-4 py-2">Send back to author</button></div>' : ''}
+    </section>`;
+  };
   app.innerHTML = `
   <main class="max-w-3xl mx-auto p-4 sm:p-6 space-y-5 anim-in">
-    <h1 class="text-2xl font-bold">${editingId ? 'Edit Scenario' : 'Scenario Creator'}</h1>
+    <h1 class="text-2xl font-bold">${editingId ? (existing.can_review && !existing.mine ? 'Review Scenario' : 'Edit Scenario') : 'Scenario Creator'}</h1>
+    ${reviewBanner()}
     <section class="bg-slate-800 rounded-2xl p-4 sm:p-6 space-y-4">
       <div><label class="text-sm font-medium text-slate-300">Title</label>
         <input id="c-title" class="mt-1 w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 focus:border-rose-500 focus:outline-none"></div>
@@ -226,7 +255,7 @@ async function renderCreator(id) {
       </div>
       <div id="c-qs" class="space-y-3"></div>
     </section>
-    <section class="bg-slate-800 rounded-2xl p-4 sm:p-6 space-y-3">
+    <section class="bg-slate-800 rounded-2xl p-4 sm:p-6 space-y-3 ${editingAsReviewer ? 'hidden' : ''}">
       <div>
         <p class="font-medium">Visibility</p>
         <p class="text-sm text-slate-400" id="vis-hint"></p>
@@ -234,8 +263,34 @@ async function renderCreator(id) {
       <div id="vis-seg" class="grid ${me?.department ? 'grid-cols-3' : 'grid-cols-2'} gap-2"></div>
     </section>
     <button id="c-save" class="tap w-full bg-emerald-600 hover:bg-emerald-500 rounded-2xl py-4 font-bold text-lg flex items-center justify-center gap-2">
-      <i data-lucide="save" class="w-5 h-5"></i>Save to Library</button>
+      <i data-lucide="save" class="w-5 h-5"></i>${editingAsReviewer ? 'Save Reviewer Edits' : 'Save to Library'}</button>
   </main>`;
+  const rvAct = async (action, note) => {
+    const r = await fetch(`/api/scenarios/${editingId}/review`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action, note }),
+    });
+    if (r.ok) {
+      toast(action === 'approve' ? 'Approved — badged Official Protocol' : 'Sent back to the author');
+      location.hash = '#/review'; renderNav();
+    } else toast((await r.json()).error ?? 'Failed', 'bg-rose-600');
+  };
+  const rvSubmit = $('#rv-submit');
+  if (rvSubmit) rvSubmit.onclick = async () => {
+    const r = await fetch(`/api/scenarios/${editingId}/submit-review`, { method: 'POST' });
+    if (r.ok) { toast('Submitted for review'); renderCreator(editingId); }
+    else toast((await r.json()).error ?? 'Submit failed', 'bg-rose-600');
+  };
+  const rvApprove = $('#rv-approve');
+  if (rvApprove) rvApprove.onclick = () => rvAct('approve', '');
+  const rvChanges = $('#rv-changes');
+  if (rvChanges) rvChanges.onclick = () => { $('#rv-note-wrap').classList.toggle('hidden'); $('#rv-note').focus(); };
+  const rvSend = $('#rv-changes-send');
+  if (rvSend) rvSend.onclick = () => {
+    const note = $('#rv-note').value.trim();
+    if (!note) return toast('Tell the author what to change', 'bg-amber-500');
+    rvAct('request_changes', note);
+  };
   const fillSub = () => $('#c-sub').innerHTML = SUBCATS[$('#c-cat').value].map(s => `<option>${s}</option>`).join('');
   $('#c-cat').onchange = fillSub; fillSub();
   if (existing) {
@@ -344,8 +399,13 @@ async function saveScenario() {
     method: editingId ? 'PUT' : 'POST',
     headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
   });
-  if (res.ok) { toast(editingId ? 'Scenario updated' : 'Scenario saved'); location.hash = '#/me'; }
-  else toast('Save failed', 'bg-rose-600');
+  if (res.ok) {
+    toast(editingId ? 'Scenario updated' : 'Scenario saved');
+    // reviewers return to their queue (visibility stays the author's; the
+    // server ignores it on reviewer PUTs), authors to their library
+    location.hash = editingAsReviewer ? `#/create/${editingId}` : '#/me';
+    if (editingAsReviewer) renderCreator(editingId);
+  } else toast('Save failed', 'bg-rose-600');
 }
 
 /* ═══ Host Control Room ═══ */
@@ -715,11 +775,17 @@ function renderNav() {
     <a href="#/library" class="tap flex items-center gap-1.5 text-sm text-slate-300 hover:text-white px-3 py-2"><i data-lucide="library" class="w-4 h-4"></i><span class="hidden sm:inline">Library</span></a>
     ${me ? `
     <a href="#/department" class="tap flex items-center gap-1.5 text-sm ${me.department ? 'text-emerald-300 hover:text-emerald-200' : 'text-slate-300 hover:text-white'} px-3 py-2" title="Department"><i data-lucide="building-2" class="w-4 h-4"></i><span class="hidden md:inline">${me.department ? esc(me.department.name) : 'Department'}</span></a>
+    ${me.role === 'site_admin' || (me.role === 'dept_admin' && me.department) ? `<a href="#/review" class="tap flex items-center gap-1.5 text-sm text-sky-300 hover:text-sky-200 px-3 py-2" title="Review queue"><i data-lucide="clipboard-check" class="w-4 h-4"></i><span id="nav-review-count" class="hidden text-[10px] font-black bg-sky-600 rounded-full px-1.5 py-0.5"></span></a>` : ''}
     ${me.role === 'site_admin' ? `<a href="#/moderation" class="tap flex items-center gap-1.5 text-sm text-rose-300 hover:text-rose-200 px-3 py-2" title="Moderation"><i data-lucide="shield-alert" class="w-4 h-4"></i></a>` : ''}
     <a href="#/me" class="tap flex items-center gap-1.5 text-sm text-amber-300 hover:text-amber-200 px-3 py-2"><i data-lucide="circle-user" class="w-4 h-4"></i>${esc(me.display_name)}</a>
     <button id="nav-logout" class="tap text-sm text-slate-400 hover:text-white px-3 py-2">Log out</button>`
     : `<a href="#/login" class="tap flex items-center gap-1.5 text-sm bg-rose-600 hover:bg-rose-500 rounded-xl px-4 py-2 font-semibold"><i data-lucide="log-in" class="w-4 h-4"></i>Log in</a>`}`;
   icons();
+  if (me && (me.role === 'site_admin' || (me.role === 'dept_admin' && me.department)))
+    fetch('/api/review/queue').then(r => r.ok ? r.json() : []).then(q => {
+      const el = $('#nav-review-count');
+      if (el && q.length) { el.textContent = q.length; el.classList.remove('hidden'); }
+    }).catch(() => {});
   const lo = $('#nav-logout');
   if (lo) lo.onclick = async () => {
     await fetch('/api/logout', { method: 'POST' });
@@ -886,6 +952,9 @@ async function renderMe() {
           <p class="text-sm text-slate-400">${esc(s.category)} · ${esc(s.subcategory)} · ${s.question_count} questions
             ${s.cloned_from ? '· <span class="text-slate-500">cloned</span>' : ''}</p>
         </div>
+        ${s.review_status === 'pending' ? '<span class="text-[10px] font-bold bg-sky-600 px-2 py-0.5 rounded-full">IN REVIEW</span>'
+          : s.review_status === 'changes_requested' ? '<span class="text-[10px] font-bold bg-amber-500 text-slate-900 px-2 py-0.5 rounded-full">CHANGES</span>'
+          : s.is_official ? '<span class="text-[10px] font-bold bg-emerald-600 px-2 py-0.5 rounded-full">OFFICIAL</span>' : ''}
         <span class="text-xs font-semibold px-2.5 py-1 rounded-full ${s.visibility === 'public' ? 'bg-emerald-900/60 text-emerald-300' : 'bg-slate-700 text-slate-300'}">${s.visibility}</span>
         <a href="#/create/${s.id}" class="tap flex items-center text-slate-300 hover:text-white px-3" title="Edit"><i data-lucide="pencil" class="w-4 h-4"></i></a>
         <button data-del="${s.id}" class="tap text-slate-400 hover:text-rose-400 px-3" title="Delete"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
@@ -1633,6 +1702,40 @@ async function renderDepartment() {
 }
 
 /* ═══ Moderation (site admin) ═══ */
+/* ═══ Review queue (PRD-v8) ═══ */
+async function renderReview() {
+  if (!me) { sessionStorage.authNext = '#/review'; location.hash = '#/login'; return; }
+  const res = await fetch('/api/review/queue');
+  if (!res.ok) { toast('Reviewers only', 'bg-rose-600'); location.hash = '#/'; return; }
+  const queue = await res.json();
+  app.innerHTML = `
+  <main class="max-w-2xl mx-auto p-4 sm:p-6 space-y-5 anim-in">
+    <div class="flex items-center gap-3">
+      <i data-lucide="clipboard-check" class="w-7 h-7 text-sky-400"></i>
+      <div>
+        <h1 class="text-2xl font-bold">Review Queue</h1>
+        <p class="text-sm text-slate-400">${me.role === 'site_admin' ? 'All scenarios submitted for official review' : `Scenarios submitted by ${esc(me.department?.name ?? 'your department')} members`}</p>
+      </div>
+    </div>
+    ${queue.map(s => `
+    <div class="bg-slate-800 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center gap-3">
+      <div class="flex-1 min-w-0">
+        <p class="font-bold truncate">${esc(s.title)}</p>
+        <p class="text-sm text-slate-400">${esc(s.category)} · ${esc(s.subcategory)}${s.difficulty ? ' · ' + esc(s.difficulty) : ''}${s.objective_primary ? ' · ' + esc(s.objective_primary) : ''}</p>
+        <p class="text-xs text-slate-500 mt-0.5">by ${esc(s.author_name ?? 'unknown')} · ${s.question_count} questions · submitted ${new Date(s.submitted_at + 'Z').toLocaleDateString()}</p>
+      </div>
+      <span class="text-xs font-semibold px-2.5 py-1 rounded-full bg-slate-700 text-slate-300 self-start sm:self-auto">${esc(s.visibility)}</span>
+      <a href="#/create/${s.id}" class="tap bg-sky-600 hover:bg-sky-500 rounded-xl px-4 py-2.5 font-bold text-sm text-center shrink-0">Review &amp; Edit</a>
+    </div>`).join('') || `
+    <div class="bg-slate-800 rounded-2xl p-8 text-center space-y-2">
+      <i data-lucide="check-circle-2" class="w-8 h-8 text-emerald-400 mx-auto"></i>
+      <p class="font-semibold">Queue is clear</p>
+      <p class="text-sm text-slate-400">When an instructor submits a scenario for official review, it lands here.</p>
+    </div>`}
+  </main>`;
+  icons();
+}
+
 async function renderModeration() {
   if (!me || me.role !== 'site_admin') { location.hash = '#/'; return; }
   const [reports, pendingDepts] = await Promise.all([

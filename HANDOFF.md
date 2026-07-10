@@ -65,6 +65,18 @@ browser verification → deploy → journal entry.
    used by socket join/submit, solo answers, and `sessionDetailFor` (archive).
    Stageless scenarios keep whole-scenario gating, bit-for-bit.
 
+### v8 shipped (2026-07-10, part 5): in-app scenario review & approval (PRD-v8.md)
+Authors submit scenarios for official review (`POST /api/scenarios/:id/submit-review`);
+the author's dept chief or the site admin sees them in `#/review` (`GET
+/api/review/queue`, nav badge with count), can open them in the editor (reviewers get
+model answers + content-only PUT; visibility changes are ignored on reviewer PUTs),
+and Approve (→ `is_official=1`) or Request changes (note required, shown to the
+author). Author edits on an approved scenario void the badge (must resubmit).
+Schema: `scenarios.review_status/review_note/submitted_at` (idempotent addColumns).
+Tests: test/review.test.js (6 tests; suite now 66). Content intake:
+`node scripts/seed-content.js --submit` seeds drafts as private + pending so the
+owner reviews them entirely in-app.
+
 ### Remaining in v7 (next session starts here)
 1. **Content sprint — drafting DONE, review pending (2026-07-10, part 5).** All 20
    scenarios are drafted in `content/drafts/` (see its README for the batch table:

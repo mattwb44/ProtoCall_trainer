@@ -178,6 +178,11 @@ function migrate(db) {
   addColumn('scenarios', 'difficulty', "difficulty TEXT NOT NULL DEFAULT ''");
   addColumn('scenarios', 'duration_min', 'duration_min INTEGER');
   addColumn('scenarios', 'building_type', "building_type TEXT NOT NULL DEFAULT ''");
+  // v8 review workflow: authors submit scenarios for official review; the
+  // author's dept chief (or site admin) edits/approves in-app (PRD-v8).
+  addColumn('scenarios', 'review_status', "review_status TEXT NOT NULL DEFAULT ''");
+  addColumn('scenarios', 'review_note', "review_note TEXT NOT NULL DEFAULT ''");
+  addColumn('scenarios', 'submitted_at', 'submitted_at TEXT');
   // v7 stages: optional named stage headers over the question list; a blank
   // stage inherits the previous question's stage. Sessions track the host's
   // (or solo player's) current stage index.
