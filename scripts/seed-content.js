@@ -21,6 +21,7 @@ import path from 'node:path';
 const args = process.argv.slice(2);
 const dryRun = args.includes('--dry-run');
 const submit = args.includes('--submit');
+const update = args.includes('--update');
 const baseIx = args.indexOf('--base');
 const BASE = baseIx >= 0 ? args[baseIx + 1] : 'http://localhost:3000';
 const dir = args.filter(a => !a.startsWith('--') && a !== BASE).pop() ?? 'content/approved';
@@ -42,14 +43,19 @@ function parseDraft(file) {
   const questions = [];
   let stage = '';
   let current = null;
+  // Intro prose between the front matter and the first stage/question is the
+  // dispatch description (drafts write it as body text, not a front-matter key).
+  const introLines = [];
+  let introDone = false;
   const flush = () => { if (current) { questions.push(current); current = null; } };
 
   for (const raw of body.split('\n')) {
     const line = raw.replace(/\s+$/, '');
     const stageM = line.match(/^## Stage:\s*(.+)$/);
-    if (stageM) { flush(); stage = stageM[1].trim(); continue; }
+    if (stageM) { introDone = true; flush(); stage = stageM[1].trim(); continue; }
     const qM = line.match(/^\d+\.\s+\[(\w*)\]\s+\((\w+)\)\s+(.*)$/);
     if (qM) {
+      introDone = true;
       flush();
       current = {
         stage,
@@ -61,7 +67,10 @@ function parseDraft(file) {
       };
       continue;
     }
-    if (!current) continue;
+    if (!current) {
+      if (!introDone && line.trim()) introLines.push(line.trim());
+      continue;
+    }
     const ansM = line.match(/^\s*>\s?(.*)$/);
     if (ansM) {
       current.inAnswer = true;
@@ -85,7 +94,7 @@ function parseDraft(file) {
 
   return {
     title: meta.title,
-    description: meta.description ?? '',
+    description: meta.description ?? introLines.join(' ').trim(),
     category: meta.category,
     subcategory: meta.subcategory,
     visibility: process.env.SEED_VISIBILITY ?? 'private', // review first, publish after approval
@@ -110,7 +119,8 @@ async function main() {
   for (const d of drafts) {
     console.log(`${d.file}: "${d.data.title}" — ${d.data.questions.length} questions, ` +
       `${new Set(d.data.questions.map(q => q.stage)).size} stages, ` +
-      `tracks: ${[...new Set(d.data.questions.map(q => q.role_track || 'common'))].join('/')}`);
+      `tracks: ${[...new Set(d.data.questions.map(q => q.role_track || 'common'))].join('/')}, ` +
+      `desc: ${d.data.description ? d.data.description.length + ' chars' : 'MISSING'}`);
   }
   if (dryRun) { console.log('\n--dry-run: no requests made'); return; }
 
@@ -126,15 +136,26 @@ async function main() {
   if (!cookie) { console.error('no session cookie returned'); process.exit(1); }
 
   const existing = await (await fetch(`${BASE}/api/scenarios`, { headers: { cookie } })).json();
-  const titles = new Set((Array.isArray(existing) ? existing : existing.scenarios ?? []).map(s => s.title));
+  const byTitle = new Map((Array.isArray(existing) ? existing : existing.scenarios ?? [])
+    .filter(s => s.mine !== false)
+    .map(s => [s.title, s.id]));
 
   for (const d of drafts) {
-    if (titles.has(d.data.title)) { console.log(`skip (exists): ${d.data.title}`); continue; }
-    const res = await fetch(`${BASE}/api/scenarios`, {
-      method: 'POST', headers: { 'content-type': 'application/json', cookie },
-      body: JSON.stringify(d.data),
-    });
+    const existingId = byTitle.get(d.data.title);
+    if (existingId && !update) { console.log(`skip (exists): ${d.data.title}`); continue; }
+    // --update: PUT the parsed content over the existing scenario (overwrites
+    // questions too — re-run only before you've hand-edited in the app).
+    const res = existingId
+      ? await fetch(`${BASE}/api/scenarios/${existingId}`, {
+          method: 'PUT', headers: { 'content-type': 'application/json', cookie },
+          body: JSON.stringify(d.data),
+        })
+      : await fetch(`${BASE}/api/scenarios`, {
+          method: 'POST', headers: { 'content-type': 'application/json', cookie },
+          body: JSON.stringify(d.data),
+        });
     if (!res.ok) { console.error(`FAILED ${d.file}: ${res.status} ${await res.text()}`); continue; }
+    if (existingId) { console.log(`updated: ${d.data.title}`); continue; }
     const { id } = await res.json();
     if (submit) {
       const sub = await fetch(`${BASE}/api/scenarios/${id}/submit-review`, { method: 'POST', headers: { cookie } });
