@@ -24,19 +24,65 @@
   .anim-in{animation:slide-in .3s ease-out}
   @keyframes flash-push{0%{background:#9f1239}100%{background:#1e293b}}
   .pushed-flash{animation:flash-push 1.2s ease-out}
+
+  /* ── v9 light theme: remaps the dark slate utilities under html[data-theme=light].
+     The single colored text-white (toast) and colored buttons are untouched. ── */
+  html[data-theme=light]{background:#eef2f7}
+  html[data-theme=light] body{background-color:#eef2f7;color:#0f172a}
+  html[data-theme=light] .bg-slate-950{background-color:#eef2f7}
+  html[data-theme=light] .bg-slate-900{background-color:#f8fafc}
+  html[data-theme=light] .bg-slate-800{background-color:#ffffff}
+  html[data-theme=light] .bg-slate-700{background-color:#e2e8f0}
+  html[data-theme=light] .bg-slate-600{background-color:#cbd5e1}
+  html[data-theme=light] .bg-slate-500{background-color:#94a3b8}
+  html[data-theme=light] .bg-slate-900\/95{background-color:rgba(248,250,252,.95)}
+  html[data-theme=light] .bg-slate-950\/95{background-color:rgba(238,242,247,.95)}
+  html[data-theme=light] .bg-slate-950\/80{background-color:rgba(238,242,247,.8)}
+  html[data-theme=light] .bg-slate-800\/90{background-color:rgba(255,255,255,.9)}
+  html[data-theme=light] .bg-slate-800\/60{background-color:rgba(255,255,255,.6)}
+  html[data-theme=light] .bg-slate-600\/50{background-color:rgba(203,213,225,.5)}
+  html[data-theme=light] .hover\:bg-slate-600:hover{background-color:#cbd5e1}
+  html[data-theme=light] .hover\:bg-slate-700:hover{background-color:#e2e8f0}
+  html[data-theme=light] .hover\:bg-slate-800:hover{background-color:#f1f5f9}
+  html[data-theme=light] .hover\:bg-slate-950:hover{background-color:#e2e8f0}
+  html[data-theme=light] .text-slate-100{color:#0f172a}
+  html[data-theme=light] .text-slate-200{color:#1e293b}
+  html[data-theme=light] .text-slate-300{color:#334155}
+  html[data-theme=light] .text-slate-400{color:#475569}
+  html[data-theme=light] .text-slate-500{color:#64748b}
+  html[data-theme=light] .text-slate-600{color:#94a3b8}
+  html[data-theme=light] .hover\:text-white:hover{color:#0f172a}
+  html[data-theme=light] .border-slate-500{border-color:#94a3b8}
+  html[data-theme=light] .border-slate-600{border-color:#cbd5e1}
+  html[data-theme=light] .border-slate-700{border-color:#d7dee8}
+  html[data-theme=light] .border-slate-800{border-color:#e2e8f0}
+  html[data-theme=light] ::-webkit-scrollbar-thumb{background:#cbd5e1}
+  /* saturated buttons keep white text in light mode (they otherwise inherit
+     the dark body color); amber-500 chips set their own dark text and win */
+  html[data-theme=light] .bg-rose-600,html[data-theme=light] .bg-emerald-600,
+  html[data-theme=light] .bg-sky-600,html[data-theme=light] .bg-amber-600,
+  html[data-theme=light] .bg-rose-500,html[data-theme=light] .bg-emerald-500{color:#fff}
+  html[data-theme=light] .bg-amber-500.text-slate-900{color:#0f172a}
 </style>
 </head>
 <body class="bg-slate-950 text-slate-100 antialiased min-h-screen">
 
-<nav class="sticky top-0 z-40 bg-slate-900/95 backdrop-blur border-b border-slate-800 px-4 py-2.5 flex items-center justify-between">
-  <a href="#/" class="flex items-center gap-2">
-    <i data-lucide="flame" class="w-6 h-6 text-rose-600"></i>
-    <span class="font-bold tracking-tight">ProtoCall<span class="text-rose-500">Trainer</span></span>
-  </a>
+<nav class="sticky top-0 z-40 h-14 bg-slate-900/95 backdrop-blur border-b border-slate-800 px-3 sm:px-4 flex items-center justify-between gap-2">
+  <div class="flex items-center gap-1">
+    <button id="nav-burger" class="tap md:hidden flex items-center justify-center text-slate-300 hover:text-white" title="Menu"><i data-lucide="menu" class="w-5 h-5"></i></button>
+    <a href="#/" class="flex items-center gap-2 px-1">
+      <i data-lucide="flame" class="w-6 h-6 text-rose-600"></i>
+      <span class="font-bold tracking-tight">ProtoCall<span class="text-rose-500">Trainer</span></span>
+    </a>
+  </div>
   <div id="nav-right" class="flex items-center gap-1"></div>
 </nav>
 
-<div id="app"></div>
+<div class="flex min-h-[calc(100vh-3.5rem)]">
+  <div id="sidebar-backdrop" class="fixed inset-0 top-14 z-20 bg-slate-950/80 hidden md:hidden"></div>
+  <aside id="sidebar" class="fixed md:sticky top-14 z-30 h-[calc(100vh-3.5rem)] w-60 shrink-0 bg-slate-900 border-r border-slate-800 overflow-y-auto -translate-x-full md:translate-x-0 transition-transform duration-200"></aside>
+  <div id="app" class="flex-1 min-w-0"></div>
+</div>
 <div id="toast" class="fixed top-16 left-1/2 -translate-x-1/2 z-50 bg-emerald-600 text-white px-5 py-3 rounded-xl font-semibold shadow-xl hidden anim-in"></div>
 
 <script>
@@ -62,6 +108,59 @@ function leaveSocket() {
   if (socket) { socket.removeAllListeners(); socket.disconnect(); socket = null; }
 }
 
+/* ═══ v9 shell: theme ═══ */
+function applyTheme() {
+  const pref = localStorage.pcTheme || 'system';
+  const dark = pref === 'dark' || (pref === 'system' && matchMedia('(prefers-color-scheme: dark)').matches);
+  document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+}
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change',
+  () => { if ((localStorage.pcTheme || 'system') === 'system') applyTheme(); });
+applyTheme();
+
+/* ═══ v9 shell: left sidebar ═══ */
+const IMMERSIVE_ROUTES = new Set(['join', 'solo', 'host']); // full-focus flows: no sidebar
+const routeName = () => location.hash.replace(/^#\//, '').split('?')[0].split('/')[0];
+function openSidebar(open) {
+  $('#sidebar').classList.toggle('-translate-x-full', !open);
+  $('#sidebar-backdrop').classList.toggle('hidden', !open);
+}
+function renderSidebar() {
+  const sb = $('#sidebar');
+  const active = routeName();
+  sb.style.display = IMMERSIVE_ROUTES.has(active) ? 'none' : '';
+  const chiefOrAdmin = me && (me.role === 'site_admin' || (me.role === 'dept_admin' && me.department));
+  const item = (hash, icon, label, extra = '') => {
+    const on = active === hash.replace('#/', '') || (hash === '#/' && active === '');
+    return `<a href="${hash}" class="sb-link flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium transition
+      ${on ? 'bg-slate-800 text-slate-100' : 'text-slate-400 hover:text-white hover:bg-slate-800'}">
+      <i data-lucide="${icon}" class="w-4 h-4 shrink-0"></i><span class="flex-1">${label}</span>${extra}</a>`;
+  };
+  sb.innerHTML = `
+  <div class="p-3 space-y-1">
+    ${me ? `<a href="#/create" class="sb-link tap flex items-center justify-center gap-2 w-full bg-rose-600 hover:bg-rose-500 rounded-xl py-2.5 font-bold text-sm mb-3"><i data-lucide="plus" class="w-4 h-4"></i>New Scenario</a>` : ''}
+    ${item('#/', 'house', 'Home')}
+    ${item('#/public', 'globe', 'Community')}
+    ${item('#/library', 'library', 'Library')}
+    ${me ? item('#/me', 'history', 'My Sessions') : ''}
+    ${item('#/academies', 'graduation-cap', 'Academies')}
+    ${item('#/coverage', 'grid-3x3', 'Coverage')}
+    ${me ? item('#/department', 'building-2', me.department ? esc(me.department.name) : 'Department') : ''}
+    ${chiefOrAdmin ? `<p class="px-4 pt-4 pb-1 text-[10px] font-black tracking-wider text-slate-500">ADMIN</p>` : ''}
+    ${chiefOrAdmin ? item('#/review', 'clipboard-check', 'Review Queue', '<span id="sb-review-count" class="hidden text-[10px] font-black bg-sky-600 text-white rounded-full px-1.5 py-0.5"></span>') : ''}
+    ${me?.role === 'site_admin' ? item('#/moderation', 'shield-alert', 'Moderation') : ''}
+  </div>`;
+  icons();
+  sb.querySelectorAll('.sb-link').forEach(a => a.addEventListener('click', () => openSidebar(false)));
+  if (chiefOrAdmin)
+    fetch('/api/review/queue').then(r => r.ok ? r.json() : []).then(q => {
+      const el = $('#sb-review-count');
+      if (el && q.length) { el.textContent = q.length; el.classList.remove('hidden'); }
+    }).catch(() => {});
+}
+$('#nav-burger').onclick = () => openSidebar($('#sidebar').classList.contains('-translate-x-full'));
+$('#sidebar-backdrop').onclick = () => openSidebar(false);
+
 /* ═══ Router ═══ */
 const routes = {
   '': renderLanding,
@@ -84,9 +183,11 @@ const routes = {
   'department': renderDepartment,
   'moderation': renderModeration,
   'review': renderReview,
+  'account': renderAccount,
 };
 function route() {
   leaveSocket();
+  renderSidebar();
   const [name, arg] = location.hash.replace(/^#\//, '').split('?')[0].split('/');
   (routes[name] || renderLanding)(arg);
 }
@@ -129,33 +230,142 @@ function renderLanding() {
 }
 
 /* ═══ Library ═══ */
-async function renderLibrary() {
-  const scenarios = await fetch('/api/scenarios').then(r => r.json());
-  app.innerHTML = `
-  <main class="max-w-2xl mx-auto p-4 sm:p-6 space-y-4 anim-in">
-    <div class="flex items-center justify-between">
-      <h1 class="text-2xl font-bold">Scenario Library</h1>
-      <a href="#/create" class="tap flex items-center gap-1.5 text-sm bg-rose-600 hover:bg-rose-500 px-4 py-2.5 rounded-xl font-medium"><i data-lucide="plus" class="w-4 h-4"></i>New</a>
+/* ═══ v9 browse helpers: filter rail + square card grid (3-up on desktop) ═══ */
+const scenarioChips = s => [
+  s.is_official ? '<span class="text-[10px] font-black tracking-wider bg-emerald-600 text-white px-2 py-0.5 rounded-full inline-flex items-center gap-1"><i data-lucide="shield-check" class="w-3 h-3"></i>OFFICIAL</span>' : '',
+  s.visibility === 'department' && !s.is_official ? '<span class="text-[10px] font-bold tracking-wider bg-slate-700 text-emerald-300 px-2 py-0.5 rounded-full">DEPARTMENT</span>' : '',
+  s.mine && s.review_status === 'pending' ? '<span class="text-[10px] font-bold bg-sky-600 text-white px-2 py-0.5 rounded-full">IN REVIEW</span>' : '',
+  s.mine && s.review_status === 'changes_requested' ? '<span class="text-[10px] font-bold bg-amber-500 text-slate-900 px-2 py-0.5 rounded-full">CHANGES</span>' : '',
+  s.difficulty ? `<span class="text-[10px] font-bold bg-slate-700 text-slate-300 px-2 py-0.5 rounded-full">${esc(s.difficulty.toUpperCase())}</span>` : '',
+].filter(Boolean).join('');
+
+const scenarioCard = (s, { corner = '', footer = '' } = {}) => `
+  <div class="bg-slate-800 rounded-2xl p-4 flex flex-col gap-2 min-h-[230px] ${s.is_official ? 'ring-1 ring-emerald-600/60' : ''}">
+    <div class="flex items-start justify-between gap-2">
+      <div class="flex items-center gap-1.5 flex-wrap min-h-[20px]">${scenarioChips(s)}</div>
+      ${corner}
     </div>
-    ${me ? '' : `<div class="bg-amber-950/40 border border-amber-800/50 rounded-xl p-4 text-sm text-amber-100 flex items-center gap-3">
+    <a href="#/scenario/${s.id}" class="font-bold leading-snug hover:underline line-clamp-2">${esc(s.title)}</a>
+    <p class="text-xs text-slate-500">${esc(s.category)} · ${esc(s.subcategory)} · ${s.question_count} question${s.question_count === 1 ? '' : 's'}${s.objective_primary ? ' · ' + esc(s.objective_primary) : ''}</p>
+    <p class="text-sm text-slate-400 line-clamp-3 flex-1">${esc(s.description || '')}</p>
+    <div class="flex items-center gap-2 pt-1">${footer}</div>
+  </div>`;
+
+const filterPanel = (fields, mobile = false) => `
+  <div class="${mobile ? 'lg:hidden mb-4' : 'hidden lg:block w-56 shrink-0'}">
+    <div class="bg-slate-800 rounded-2xl p-4 space-y-4 ${mobile ? '' : 'sticky top-[4.5rem]'}">
+      <p class="text-xs font-black tracking-wider text-slate-500">FILTERS</p>
+      ${fields}
+    </div>
+  </div>`;
+
+async function renderLibrary() {
+  const [scenarios, objectives] = await Promise.all([
+    fetch('/api/scenarios').then(r => r.json()),
+    fetch('/api/objectives').then(r => r.json()).catch(() => []),
+  ]);
+  const st = { q: '', cat: '', sub: '', diff: '', obj: '', own: 'all' };
+  const OWN = [['all', 'All'], ...(me ? [['mine', 'Mine']] : []),
+    ...(me?.department ? [['department', 'Department']] : []), ['official', 'Official']];
+  const visible = () => scenarios.filter(s => {
+    if (s.deleted_at) return false;
+    // scenarios awaiting review stay out of the Library — authors find their
+    // own under the Mine filter (flagged IN REVIEW), reviewers in #/review
+    if (s.review_status === 'pending' && st.own !== 'mine') return false;
+    if (st.own === 'mine' && !s.mine) return false;
+    if (st.own === 'department' && s.visibility !== 'department') return false;
+    if (st.own === 'official' && !s.is_official) return false;
+    if (st.cat && s.category !== st.cat) return false;
+    if (st.sub && s.subcategory !== st.sub) return false;
+    if (st.diff && s.difficulty !== st.diff) return false;
+    if (st.obj && s.objective_primary !== st.obj && s.objective_secondary !== st.obj) return false;
+    if (st.q && !`${s.title} ${s.description}`.toLowerCase().includes(st.q.toLowerCase())) return false;
+    return true;
+  });
+  const deleted = me ? scenarios.filter(s => s.mine && s.deleted_at) : [];
+  const sel = 'tap w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-sm';
+  const fields = `
+    <input id="lf-q" placeholder="Search…" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-sm focus:border-rose-500 focus:outline-none">
+    <div><label class="text-xs font-semibold text-slate-400">Category</label>
+      <select id="lf-cat" class="${sel} mt-1"><option value="">All</option>${Object.keys(SUBCATS).map(c => `<option>${c}</option>`).join('')}</select></div>
+    <div><label class="text-xs font-semibold text-slate-400">Subcategory</label>
+      <select id="lf-sub" class="${sel} mt-1"><option value="">All</option></select></div>
+    <div><label class="text-xs font-semibold text-slate-400">Difficulty</label>
+      <select id="lf-diff" class="${sel} mt-1"><option value="">All</option><option>Introductory</option><option>Standard</option><option>Advanced</option></select></div>
+    <div><label class="text-xs font-semibold text-slate-400">Objective</label>
+      <select id="lf-obj" class="${sel} mt-1"><option value="">All</option>${objectives.map(o => `<option>${esc(o)}</option>`).join('')}</select></div>
+    <div><label class="text-xs font-semibold text-slate-400">Show</label>
+      <div id="lf-own" class="grid grid-cols-2 gap-1.5 mt-1">
+        ${OWN.map(([v, l]) => `<button data-own="${v}" class="tap text-xs font-semibold rounded-lg py-2 ${st.own === v ? 'bg-rose-600 text-white' : 'bg-slate-900 border border-slate-700 hover:border-slate-500'}">${l}</button>`).join('')}
+      </div></div>`;
+  app.innerHTML = `
+  <main class="max-w-6xl mx-auto p-4 sm:p-6 anim-in">
+    <div class="flex items-center justify-between mb-4">
+      <div><h1 class="text-2xl font-bold">Library</h1>
+        <p class="text-sm text-slate-400">Everything you can launch or train on — public, department, and your own.</p></div>
+      ${me ? '<a href="#/create" class="tap hidden sm:flex items-center gap-1.5 text-sm bg-rose-600 hover:bg-rose-500 px-4 py-2.5 rounded-xl font-medium"><i data-lucide="plus" class="w-4 h-4"></i>New</a>' : ''}
+    </div>
+    ${me ? '' : `<div class="bg-amber-950/40 border border-amber-800/50 rounded-xl p-4 mb-4 text-sm text-amber-100 flex items-center gap-3">
       <i data-lucide="log-in" class="w-5 h-5 text-amber-400 shrink-0"></i>
       <span><a href="#/login" class="font-bold text-amber-300 hover:underline">Log in</a> to host live sessions and build your own scenarios. Joining a room never needs an account.</span>
     </div>`}
-    ${scenarios.filter(s => !s.deleted_at).map(s => `
-    <div class="bg-slate-800 rounded-2xl p-5 flex flex-col sm:flex-row sm:items-center gap-4 ${s.is_official ? 'ring-1 ring-emerald-600/60' : ''}">
-      <div class="flex-1">
-        <p class="font-bold flex items-center gap-2 flex-wrap">${esc(s.title)}
-          ${s.is_official ? '<span class="text-[10px] font-black tracking-wider bg-emerald-600 px-2 py-0.5 rounded-full flex items-center gap-1"><i data-lucide="shield-check" class="w-3 h-3"></i>OFFICIAL PROTOCOL</span>' : ''}
-          ${s.visibility === 'department' && !s.is_official ? '<span class="text-[10px] font-bold tracking-wider bg-slate-700 text-emerald-300 px-2 py-0.5 rounded-full">DEPARTMENT</span>' : ''}</p>
-        <p class="text-sm text-slate-400 mt-0.5">${esc(s.category)} · ${esc(s.subcategory)} · ${s.question_count} questions</p>
+    <div class="flex gap-6 items-start">
+      ${filterPanel(fields)}
+      <div class="flex-1 min-w-0">
+        ${filterPanel(fields.replaceAll('lf-', 'lfm-'), true)}
+        <div id="lib-grid" class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4"></div>
+        <div id="lib-deleted" class="mt-6"></div>
       </div>
-      <button data-launch="${s.id}" class="tap bg-emerald-600 hover:bg-emerald-500 rounded-xl px-5 py-3 font-bold text-sm flex items-center justify-center gap-2 shrink-0">
-        <i data-lucide="radio-tower" class="w-4 h-4"></i>Launch Live
-      </button>
-    </div>`).join('') || '<p class="text-slate-500 italic">No scenarios yet.</p>'}
+    </div>
   </main>`;
+  const drawGrid = () => {
+    $('#lib-grid').innerHTML = visible().map(s => scenarioCard(s, {
+      corner: s.mine ? `<div class="flex items-center gap-0.5 -mt-1 -mr-1">
+        <a href="#/create/${s.id}" class="p-1.5 text-slate-400 hover:text-white" title="Edit"><i data-lucide="pencil" class="w-3.5 h-3.5"></i></a>
+        <button data-del="${s.id}" class="p-1.5 text-slate-400 hover:text-rose-400" title="Delete"><i data-lucide="trash-2" class="w-3.5 h-3.5"></i></button></div>` : '',
+      footer: `<a href="#/scenario/${s.id}" class="tap flex-1 text-center text-sm font-semibold bg-slate-700 hover:bg-slate-600 rounded-xl py-2.5">Details</a>
+        <button data-launch="${s.id}" class="tap flex-1 text-sm font-bold bg-emerald-600 hover:bg-emerald-500 rounded-xl py-2.5 flex items-center justify-center gap-1.5"><i data-lucide="radio-tower" class="w-4 h-4"></i>Launch</button>`,
+    })).join('') || '<p class="text-slate-500 italic col-span-full">No scenarios match these filters.</p>';
+    $('#lib-deleted').innerHTML = st.own === 'mine' && deleted.length ? `
+      <details><summary class="text-sm text-slate-500 cursor-pointer hover:text-slate-300">Deleted (${deleted.length})</summary>
+      <div class="space-y-2 mt-2">${deleted.map(s => `
+        <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4 flex items-center gap-3 opacity-80">
+          <div class="flex-1 min-w-0"><p class="font-bold truncate text-slate-400">${esc(s.title)}</p>
+            <p class="text-xs text-slate-500">deleted ${esc(s.deleted_at)}</p></div>
+          <button data-restore="${s.id}" class="tap bg-slate-700 hover:bg-slate-600 rounded-xl px-4 py-2.5 font-bold text-sm">Restore</button>
+        </div>`).join('')}</div></details>` : '';
+    icons();
+    bindLaunchButtons();
+    app.querySelectorAll('[data-del]').forEach(btn => btn.onclick = async () => {
+      if (!confirm('Delete this scenario? Past sessions are kept, and you can restore it later.')) return;
+      const r = await fetch(`/api/scenarios/${btn.dataset.del}`, { method: 'DELETE' });
+      if (r.ok) { toast('Scenario deleted'); renderLibrary(); } else toast('Delete failed', 'bg-rose-600');
+    });
+    app.querySelectorAll('[data-restore]').forEach(btn => btn.onclick = async () => {
+      const r = await fetch(`/api/scenarios/${btn.dataset.restore}/restore`, { method: 'POST' });
+      if (r.ok) { toast('Scenario restored'); renderLibrary(); } else toast('Restore failed', 'bg-rose-600');
+    });
+  };
+  // desktop + mobile filter panels share state; bind both prefixes
+  const bind = pre => {
+    const g = id => $(`#${pre}${id}`);
+    const subSel = () => { g('sub').innerHTML = `<option value="">All</option>` + (SUBCATS[st.cat] || []).map(x => `<option ${x === st.sub ? 'selected' : ''}>${x}</option>`).join(''); };
+    subSel();
+    g('q').oninput = e => { st.q = e.target.value; drawGrid(); };
+    g('cat').onchange = e => { st.cat = e.target.value; st.sub = ''; subSel(); drawGrid(); };
+    g('sub').onchange = e => { st.sub = e.target.value; drawGrid(); };
+    g('diff').onchange = e => { st.diff = e.target.value; drawGrid(); };
+    g('obj').onchange = e => { st.obj = e.target.value; drawGrid(); };
+    g('own')?.querySelectorAll('[data-own]').forEach(b => b.onclick = () => { st.own = b.dataset.own; renderLibraryFilters(); drawGrid(); });
+  };
+  const renderLibraryFilters = () => ['lf-', 'lfm-'].forEach(pre =>
+    $(`#${pre}own`)?.querySelectorAll('[data-own]').forEach(b => {
+      const on = st.own === b.dataset.own;
+      b.className = `tap text-xs font-semibold rounded-lg py-2 ${on ? 'bg-rose-600 text-white' : 'bg-slate-900 border border-slate-700 hover:border-slate-500'}`;
+    }));
+  bind('lf-'); bind('lfm-');
+  drawGrid();
   icons();
-  bindLaunchButtons();
 }
 
 /* ═══ Creator ═══ */
@@ -176,7 +386,7 @@ async function renderCreator(id) {
   if (editingId) {
     const res = await fetch(`/api/scenarios/${editingId}`);
     existing = res.ok ? await res.json() : null;
-    if (!existing || (!existing.mine && !existing.can_review)) { toast('Scenario not found', 'bg-rose-600'); location.hash = '#/me'; return; }
+    if (!existing || (!existing.mine && !existing.can_review)) { toast('Scenario not found', 'bg-rose-600'); location.hash = '#/library'; return; }
     editingAsReviewer = !existing.mine && existing.can_review;
     draftQs = existing.questions.map(q => ({ id: q.id, prompt: q.prompt, kind: q.kind, choices: q.choices, instructor_answer: q.instructor_answer, role_track: q.role_track, stage: q.stage ?? '' }));
     draftMedia = existing.media.map(m => ({ kind: m.kind, url: m.url }));
@@ -403,7 +613,7 @@ async function saveScenario() {
     toast(editingId ? 'Scenario updated' : 'Scenario saved');
     // reviewers return to their queue (visibility stays the author's; the
     // server ignores it on reviewer PUTs), authors to their library
-    location.hash = editingAsReviewer ? `#/create/${editingId}` : '#/me';
+    location.hash = editingAsReviewer ? `#/create/${editingId}` : '#/library';
     if (editingAsReviewer) renderCreator(editingId);
   } else toast('Save failed', 'bg-rose-600');
 }
@@ -770,22 +980,17 @@ function bindCards() {
 let me = null;
 
 function renderNav() {
-  $('#nav-right').innerHTML = `
-    <a href="#/public" class="tap flex items-center gap-1.5 text-sm text-slate-300 hover:text-white px-3 py-2"><i data-lucide="globe" class="w-4 h-4"></i><span class="hidden sm:inline">Community</span></a>
-    <a href="#/library" class="tap flex items-center gap-1.5 text-sm text-slate-300 hover:text-white px-3 py-2"><i data-lucide="library" class="w-4 h-4"></i><span class="hidden sm:inline">Library</span></a>
-    ${me ? `
-    <a href="#/department" class="tap flex items-center gap-1.5 text-sm ${me.department ? 'text-emerald-300 hover:text-emerald-200' : 'text-slate-300 hover:text-white'} px-3 py-2" title="Department"><i data-lucide="building-2" class="w-4 h-4"></i><span class="hidden md:inline">${me.department ? esc(me.department.name) : 'Department'}</span></a>
-    ${me.role === 'site_admin' || (me.role === 'dept_admin' && me.department) ? `<a href="#/review" class="tap flex items-center gap-1.5 text-sm text-sky-300 hover:text-sky-200 px-3 py-2" title="Review queue"><i data-lucide="clipboard-check" class="w-4 h-4"></i><span id="nav-review-count" class="hidden text-[10px] font-black bg-sky-600 rounded-full px-1.5 py-0.5"></span></a>` : ''}
-    ${me.role === 'site_admin' ? `<a href="#/moderation" class="tap flex items-center gap-1.5 text-sm text-rose-300 hover:text-rose-200 px-3 py-2" title="Moderation"><i data-lucide="shield-alert" class="w-4 h-4"></i></a>` : ''}
-    <a href="#/me" class="tap flex items-center gap-1.5 text-sm text-amber-300 hover:text-amber-200 px-3 py-2"><i data-lucide="circle-user" class="w-4 h-4"></i>${esc(me.display_name)}</a>
-    <button id="nav-logout" class="tap text-sm text-slate-400 hover:text-white px-3 py-2">Log out</button>`
-    : `<a href="#/login" class="tap flex items-center gap-1.5 text-sm bg-rose-600 hover:bg-rose-500 rounded-xl px-4 py-2 font-semibold"><i data-lucide="log-in" class="w-4 h-4"></i>Log in</a>`}`;
+  // v9: primary navigation lives in the left sidebar; the top-right is the
+  // account entry point (profile, security, appearance) plus logout.
+  $('#nav-right').innerHTML = me ? `
+    <a href="#/account" class="tap flex items-center gap-2 text-sm text-slate-300 hover:text-white px-3 py-2 rounded-xl hover:bg-slate-800" title="Account settings">
+      <span class="w-7 h-7 rounded-full bg-rose-600 flex items-center justify-center font-black text-xs text-white">${esc((me.display_name || '?')[0].toUpperCase())}</span>
+      <span class="hidden sm:inline font-semibold">${esc(me.display_name)}</span>
+    </a>
+    <button id="nav-logout" class="tap text-sm text-slate-400 hover:text-white px-3 py-2" title="Log out"><i data-lucide="log-out" class="w-4 h-4"></i></button>`
+    : `<a href="#/login" class="tap flex items-center gap-1.5 text-sm bg-rose-600 hover:bg-rose-500 rounded-xl px-4 py-2 font-semibold"><i data-lucide="log-in" class="w-4 h-4"></i>Log in</a>`;
   icons();
-  if (me && (me.role === 'site_admin' || (me.role === 'dept_admin' && me.department)))
-    fetch('/api/review/queue').then(r => r.ok ? r.json() : []).then(q => {
-      const el = $('#nav-review-count');
-      if (el && q.length) { el.textContent = q.length; el.classList.remove('hidden'); }
-    }).catch(() => {});
+  renderSidebar();
   const lo = $('#nav-logout');
   if (lo) lo.onclick = async () => {
     await fetch('/api/logout', { method: 'POST' });
@@ -826,7 +1031,10 @@ function renderAuth(mode) {
     });
     const body = await res.json();
     if (!res.ok) { $('#a-err').textContent = body.error; $('#a-err').classList.remove('hidden'); return; }
-    me = body; renderNav();
+    // login/signup responses lack role + department — fetch the full identity
+    // so admin nav items (review queue, moderation) survive a fresh login
+    me = await fetch('/api/me').then(r => r.json()).catch(() => body);
+    renderNav();
     if (body.claimed_sessions > 0) toast(`Welcome, ${body.display_name} — ${body.claimed_sessions} past session${body.claimed_sessions > 1 ? 's' : ''} saved to your library`);
     else toast(`Welcome, ${body.display_name}`);
     if (!login) toast('Check your email to verify your address', 'bg-slate-700');
@@ -853,7 +1061,7 @@ async function renderVerify(tokenArg) {
     ? `<i data-lucide="badge-check" class="w-10 h-10 mx-auto text-emerald-400"></i>
        <h1 class="text-lg font-bold">Email verified</h1>
        <p class="text-sm text-slate-400">Thanks${body.display_name ? ', ' + esc(body.display_name) : ''} — your address is confirmed.</p>
-       <a href="#/me" class="tap inline-block mt-2 bg-rose-600 hover:bg-rose-500 rounded-xl px-5 py-2.5 font-semibold">Go to my library</a>`
+       <a href="#/me" class="tap inline-block mt-2 bg-rose-600 hover:bg-rose-500 rounded-xl px-5 py-2.5 font-semibold">Go to my sessions</a>`
     : `<i data-lucide="triangle-alert" class="w-10 h-10 mx-auto text-amber-400"></i>
        <h1 class="text-lg font-bold">Link expired</h1>
        <p class="text-sm text-slate-400">${esc(body.error || 'This verification link is invalid or has expired.')}</p>
@@ -922,15 +1130,13 @@ async function renderReset(tokenArg) {
 
 async function renderMe() {
   if (!me) { sessionStorage.authNext = '#/me'; location.hash = '#/login'; return; }
-  const [sessions, scenarios] = await Promise.all([
-    fetch('/api/me/sessions').then(r => r.json()),
-    fetch('/api/scenarios').then(r => r.json()),
-  ]);
-  const mine = scenarios.filter(s => s.mine && !s.deleted_at);
-  const deleted = scenarios.filter(s => s.mine && s.deleted_at);
+  const sessions = await fetch('/api/me/sessions').then(r => r.json());
   app.innerHTML = `
   <main class="max-w-2xl mx-auto p-4 sm:p-6 space-y-5 anim-in">
-    <h1 class="text-2xl font-bold">My Library</h1>
+    <div>
+      <h1 class="text-2xl font-bold">My Sessions</h1>
+      <p class="text-sm text-slate-400">Your hosted, joined, and solo runs. Your scenarios live in the <a href="#/library" class="text-rose-400 hover:underline">Library</a> under the Mine filter.</p>
+    </div>
     ${me.email_verified === false ? `
     <div class="bg-amber-500/10 border border-amber-500/40 rounded-2xl p-4 flex items-start gap-3">
       <i data-lucide="mail-warning" class="w-5 h-5 text-amber-400 shrink-0 mt-0.5"></i>
@@ -940,124 +1146,189 @@ async function renderMe() {
       </div>
       <button id="me-resend" class="tap text-sm bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 rounded-xl px-3 py-2 font-semibold shrink-0">Resend</button>
     </div>` : ''}
-    <section class="space-y-3">
-      <div class="flex items-center justify-between">
-        <h2 class="font-semibold flex items-center gap-2"><i data-lucide="square-pen" class="w-4 h-4 text-amber-400"></i>My Scenarios</h2>
-        <a href="#/create" class="tap flex items-center gap-1.5 text-sm bg-rose-600 hover:bg-rose-500 px-4 py-2.5 rounded-xl font-medium"><i data-lucide="plus" class="w-4 h-4"></i>New</a>
-      </div>
-      ${mine.map(s => `
-      <div class="bg-slate-800 rounded-2xl p-4 flex items-center gap-3">
-        <div class="flex-1 min-w-0">
+    ${sessions.map(s => `
+    <a href="#/session/${s.id}" class="block bg-slate-800 hover:bg-slate-700 rounded-2xl p-4">
+      <div class="flex items-center justify-between gap-3">
+        <div class="min-w-0">
           <p class="font-bold truncate">${esc(s.title)}</p>
-          <p class="text-sm text-slate-400">${esc(s.category)} · ${esc(s.subcategory)} · ${s.question_count} questions
-            ${s.cloned_from ? '· <span class="text-slate-500">cloned</span>' : ''}</p>
+          <p class="text-sm text-slate-400">${esc(s.started_at)} · ${s.mode === 'solo' ? 'solo run' : `room ${esc(s.room_code)} · ${s.hosted ? 'hosted by you' : 'participated'}`}</p>
         </div>
-        ${s.review_status === 'pending' ? '<span class="text-[10px] font-bold bg-sky-600 px-2 py-0.5 rounded-full">IN REVIEW</span>'
-          : s.review_status === 'changes_requested' ? '<span class="text-[10px] font-bold bg-amber-500 text-slate-900 px-2 py-0.5 rounded-full">CHANGES</span>'
-          : s.is_official ? '<span class="text-[10px] font-bold bg-emerald-600 px-2 py-0.5 rounded-full">OFFICIAL</span>' : ''}
-        <span class="text-xs font-semibold px-2.5 py-1 rounded-full ${s.visibility === 'public' ? 'bg-emerald-900/60 text-emerald-300' : 'bg-slate-700 text-slate-300'}">${s.visibility}</span>
-        <a href="#/create/${s.id}" class="tap flex items-center text-slate-300 hover:text-white px-3" title="Edit"><i data-lucide="pencil" class="w-4 h-4"></i></a>
-        <button data-del="${s.id}" class="tap text-slate-400 hover:text-rose-400 px-3" title="Delete"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
-        <button data-launch="${s.id}" class="tap bg-emerald-600 hover:bg-emerald-500 rounded-xl px-4 py-2.5 font-bold text-sm shrink-0">Launch</button>
-      </div>`).join('') || '<p class="text-sm text-slate-500 italic">Nothing yet — build one or clone from the community library.</p>'}
-      ${deleted.length ? `
-      <details class="pt-1">
-        <summary class="text-sm text-slate-500 cursor-pointer hover:text-slate-300">Deleted (${deleted.length})</summary>
-        <div class="space-y-2 mt-2">
-        ${deleted.map(s => `
-          <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4 flex items-center gap-3 opacity-80">
-            <div class="flex-1 min-w-0">
-              <p class="font-bold truncate text-slate-400">${esc(s.title)}</p>
-              <p class="text-xs text-slate-500">deleted ${esc(s.deleted_at)}</p>
-            </div>
-            <button data-restore="${s.id}" class="tap bg-slate-700 hover:bg-slate-600 rounded-xl px-4 py-2.5 font-bold text-sm">Restore</button>
-          </div>`).join('')}
-        </div>
-      </details>` : ''}
-    </section>
-    <section class="space-y-3">
-      <h2 class="font-semibold flex items-center gap-2"><i data-lucide="history" class="w-4 h-4 text-emerald-400"></i>Completed Sessions</h2>
-      ${sessions.map(s => `
-      <a href="#/session/${s.id}" class="block bg-slate-800 hover:bg-slate-700 rounded-2xl p-4">
-        <div class="flex items-center justify-between gap-3">
-          <div class="min-w-0">
-            <p class="font-bold truncate">${esc(s.title)}</p>
-            <p class="text-sm text-slate-400">${esc(s.started_at)} · ${s.mode === 'solo' ? 'solo run' : `room ${esc(s.room_code)} · ${s.hosted ? 'hosted by you' : 'participated'}`}</p>
-          </div>
-          ${s.mode === 'solo' ? `<span class="text-xs font-semibold px-2.5 py-1 rounded-full bg-rose-900/60 text-rose-300">SOLO</span>` : ''}
-          <span class="text-xs font-semibold px-2.5 py-1 rounded-full ${s.status === 'live' ? 'bg-emerald-900/60 text-emerald-300' : 'bg-slate-700 text-slate-300'}">${s.status}</span>
-        </div>
-      </a>`).join('') || '<p class="text-sm text-slate-500 italic">No sessions yet.</p>'}
-    </section>
+        ${s.mode === 'solo' ? `<span class="text-xs font-semibold px-2.5 py-1 rounded-full bg-rose-900/60 text-rose-300">SOLO</span>` : ''}
+        <span class="text-xs font-semibold px-2.5 py-1 rounded-full ${s.status === 'live' ? 'bg-emerald-900/60 text-emerald-300' : 'bg-slate-700 text-slate-300'}">${s.status}</span>
+      </div>
+    </a>`).join('') || '<p class="text-sm text-slate-500 italic">No sessions yet — host one from the Library or try a scenario solo.</p>'}
   </main>`;
   icons();
-  bindLaunchButtons();
   const resend = $('#me-resend');
   if (resend) resend.onclick = async () => {
     resend.disabled = true;
     await fetch('/api/auth/verify/request', { method: 'POST' });
     toast('Verification email sent — check your inbox');
   };
-  app.querySelectorAll('[data-del]').forEach(btn => btn.onclick = async () => {
-    if (!confirm('Delete this scenario? Past sessions are kept, and you can restore it later.')) return;
-    const r = await fetch(`/api/scenarios/${btn.dataset.del}`, { method: 'DELETE' });
-    if (r.ok) { toast('Scenario deleted'); renderMe(); }
-    else toast('Delete failed', 'bg-rose-600');
+}
+
+/* ═══ v9: Account & settings (username in the top bar) ═══ */
+async function renderAccount() {
+  if (!me) { sessionStorage.authNext = '#/account'; location.hash = '#/login'; return; }
+  me = await fetch('/api/me').then(r => r.json()).catch(() => me);
+  const themePref = localStorage.pcTheme || 'system';
+  const roleLabel = { site_admin: 'Site Admin', dept_admin: 'Training Chief / Dept Admin', standard: 'Member' }[me.role] || me.role;
+  app.innerHTML = `
+  <main class="max-w-2xl mx-auto p-4 sm:p-6 space-y-5 anim-in">
+    <div class="flex items-center gap-4">
+      <span class="w-14 h-14 rounded-full bg-rose-600 flex items-center justify-center font-black text-xl text-white">${esc((me.display_name || '?')[0].toUpperCase())}</span>
+      <div>
+        <h1 class="text-2xl font-bold">${esc(me.display_name)}</h1>
+        <p class="text-sm text-slate-400">${esc(me.email)} ${me.email_verified ? '<span class="text-emerald-400">· verified</span>' : '<span class="text-amber-400">· unverified</span>'}</p>
+      </div>
+    </div>
+
+    <section class="bg-slate-800 rounded-2xl p-5 space-y-4">
+      <h2 class="font-semibold flex items-center gap-2"><i data-lucide="user" class="w-4 h-4 text-rose-400"></i>Profile</h2>
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+        <div class="bg-slate-900 rounded-xl p-3"><p class="text-xs text-slate-500">Role</p><p class="font-semibold">${esc(roleLabel)}</p></div>
+        <div class="bg-slate-900 rounded-xl p-3"><p class="text-xs text-slate-500">Department</p><p class="font-semibold">${me.department ? esc(me.department.name) : '—'}</p></div>
+      </div>
+      <div><label class="text-sm font-medium text-slate-300">Display name</label>
+        <div class="flex gap-2 mt-1">
+          <input id="ac-name" value="${esc(me.display_name)}" class="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 focus:border-rose-500 focus:outline-none">
+          <button id="ac-name-save" class="tap text-sm font-bold bg-slate-700 hover:bg-slate-600 rounded-xl px-4">Save</button>
+        </div></div>
+    </section>
+
+    <section class="bg-slate-800 rounded-2xl p-5 space-y-4">
+      <h2 class="font-semibold flex items-center gap-2"><i data-lucide="lock" class="w-4 h-4 text-amber-400"></i>Security</h2>
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div><label class="text-sm font-medium text-slate-300">Current password</label>
+          <input id="ac-pw-old" type="password" class="mt-1 w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 focus:border-amber-500 focus:outline-none"></div>
+        <div><label class="text-sm font-medium text-slate-300">New password <span class="text-slate-500">(8+ chars)</span></label>
+          <input id="ac-pw-new" type="password" class="mt-1 w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 focus:border-amber-500 focus:outline-none"></div>
+      </div>
+      <button id="ac-pw-save" class="tap text-sm font-bold bg-amber-600 hover:bg-amber-500 rounded-xl px-4 py-2.5">Change password</button>
+    </section>
+
+    <section class="bg-slate-800 rounded-2xl p-5 space-y-4">
+      <h2 class="font-semibold flex items-center gap-2"><i data-lucide="sun-moon" class="w-4 h-4 text-sky-400"></i>Appearance</h2>
+      <div id="ac-theme" class="grid grid-cols-3 gap-2">
+        ${[['system', 'System', 'monitor'], ['light', 'Light', 'sun'], ['dark', 'Dark', 'moon']].map(([v, l, ic]) => `
+        <button data-theme-pick="${v}" class="tap flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-semibold ${themePref === v ? 'bg-sky-600 text-white' : 'bg-slate-900 border border-slate-700 hover:border-slate-500'}">
+          <i data-lucide="${ic}" class="w-4 h-4"></i>${l}</button>`).join('')}
+      </div>
+      <p class="text-xs text-slate-500">System follows your device's light/dark setting.</p>
+    </section>
+
+    <section class="bg-slate-800 rounded-2xl p-5 space-y-3">
+      <h2 class="font-semibold flex items-center gap-2"><i data-lucide="languages" class="w-4 h-4 text-emerald-400"></i>Language</h2>
+      <select class="tap w-full sm:w-64 bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-sm" disabled>
+        <option>English</option>
+      </select>
+      <p class="text-xs text-slate-500">English only for now — more languages are on the roadmap.</p>
+    </section>
+
+    <button id="ac-logout" class="tap w-full sm:w-auto text-sm font-bold bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-xl px-6 py-3 flex items-center justify-center gap-2">
+      <i data-lucide="log-out" class="w-4 h-4"></i>Log out
+    </button>
+  </main>`;
+  icons();
+  $('#ac-name-save').onclick = async () => {
+    const r = await fetch('/api/me', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ display_name: $('#ac-name').value }),
+    });
+    if (r.ok) { toast('Name updated'); me.display_name = $('#ac-name').value.trim(); renderNav(); }
+    else toast((await r.json()).error, 'bg-rose-600');
+  };
+  $('#ac-pw-save').onclick = async () => {
+    const r = await fetch('/api/me/password', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ current_password: $('#ac-pw-old').value, new_password: $('#ac-pw-new').value }),
+    });
+    if (r.ok) { toast('Password changed'); $('#ac-pw-old').value = ''; $('#ac-pw-new').value = ''; }
+    else toast((await r.json()).error, 'bg-rose-600');
+  };
+  app.querySelectorAll('[data-theme-pick]').forEach(b => b.onclick = () => {
+    localStorage.pcTheme = b.dataset.themePick;
+    applyTheme();
+    renderAccount();
   });
-  app.querySelectorAll('[data-restore]').forEach(btn => btn.onclick = async () => {
-    const r = await fetch(`/api/scenarios/${btn.dataset.restore}/restore`, { method: 'POST' });
-    if (r.ok) { toast('Scenario restored'); renderMe(); }
-    else toast('Restore failed', 'bg-rose-600');
-  });
+  $('#ac-logout').onclick = async () => {
+    await fetch('/api/logout', { method: 'POST' });
+    me = null; renderNav(); location.hash = '#/'; route();
+  };
 }
 
 async function renderPublic() {
-  const q = new URLSearchParams(location.hash.split('?')[1] || '');
-  const cat = q.get('category') || '', sub = q.get('subcategory') || '';
-  const list = await fetch(`/api/public/scenarios?category=${encodeURIComponent(cat)}&subcategory=${encodeURIComponent(sub)}`).then(r => r.json());
+  const hq = new URLSearchParams(location.hash.split('?')[1] || '');
+  const [list, objectives] = await Promise.all([
+    fetch('/api/public/scenarios').then(r => r.json()),
+    fetch('/api/objectives').then(r => r.json()).catch(() => []),
+  ]);
+  const st = { q: '', cat: hq.get('category') || '', sub: hq.get('subcategory') || '', diff: '', obj: '' };
+  const visible = () => list.filter(s => {
+    if (st.cat && s.category !== st.cat) return false;
+    if (st.sub && s.subcategory !== st.sub) return false;
+    if (st.diff && s.difficulty !== st.diff) return false;
+    if (st.obj && s.objective_primary !== st.obj && s.objective_secondary !== st.obj) return false;
+    if (st.q && !`${s.title} ${s.description} ${s.author_name}`.toLowerCase().includes(st.q.toLowerCase())) return false;
+    return true;
+  });
+  const sel = 'tap w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-sm';
+  const fields = `
+    <input id="pf-q" placeholder="Search…" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-sm focus:border-rose-500 focus:outline-none">
+    <div><label class="text-xs font-semibold text-slate-400">Category</label>
+      <select id="pf-cat" class="${sel} mt-1"><option value="">All</option>${Object.keys(SUBCATS).map(c => `<option ${c === st.cat ? 'selected' : ''}>${c}</option>`).join('')}</select></div>
+    <div><label class="text-xs font-semibold text-slate-400">Subcategory</label>
+      <select id="pf-sub" class="${sel} mt-1"><option value="">All</option></select></div>
+    <div><label class="text-xs font-semibold text-slate-400">Difficulty</label>
+      <select id="pf-diff" class="${sel} mt-1"><option value="">All</option><option>Introductory</option><option>Standard</option><option>Advanced</option></select></div>
+    <div><label class="text-xs font-semibold text-slate-400">Objective</label>
+      <select id="pf-obj" class="${sel} mt-1"><option value="">All</option>${objectives.map(o => `<option>${esc(o)}</option>`).join('')}</select></div>`;
   app.innerHTML = `
-  <main class="max-w-2xl mx-auto p-4 sm:p-6 space-y-4 anim-in">
-    <div class="flex items-center justify-between">
-      <h1 class="text-2xl font-bold">Community Library</h1>
-      <div class="flex items-center">
+  <main class="max-w-6xl mx-auto p-4 sm:p-6 anim-in">
+    <div class="flex items-center justify-between mb-4">
+      <div><h1 class="text-2xl font-bold">Community</h1>
+        <p class="text-sm text-slate-400">Public scenarios shared by the whole community.</p></div>
+      <div class="hidden sm:flex items-center">
         <a href="#/academies" class="tap flex items-center gap-1.5 text-sm text-slate-300 hover:text-white px-3 py-2"><i data-lucide="graduation-cap" class="w-4 h-4"></i>Academies</a>
         <a href="#/coverage" class="tap flex items-center gap-1.5 text-sm text-slate-300 hover:text-white px-3 py-2"><i data-lucide="grid-3x3" class="w-4 h-4"></i>Coverage</a>
       </div>
     </div>
-    <div class="flex gap-2">
-      <select id="f-cat" class="tap flex-1 bg-slate-900 border border-slate-700 rounded-xl px-3 py-2.5 text-sm">
-        <option value="">All categories</option>
-        ${Object.keys(SUBCATS).map(c => `<option ${c === cat ? 'selected' : ''}>${c}</option>`).join('')}
-      </select>
-      <select id="f-sub" class="tap flex-1 bg-slate-900 border border-slate-700 rounded-xl px-3 py-2.5 text-sm">
-        <option value="">All subcategories</option>
-        ${(SUBCATS[cat] || []).map(s => `<option ${s === sub ? 'selected' : ''}>${s}</option>`).join('')}
-      </select>
-    </div>
-    ${list.map(s => `
-    <div class="bg-slate-800 rounded-2xl p-4 space-y-3">
-      <a href="#/scenario/${s.id}" class="block">
-        <p class="font-bold hover:underline">${esc(s.title)}</p>
-        <p class="text-sm text-slate-400">${esc(s.category)} · ${esc(s.subcategory)} · ${s.question_count} questions · by ${esc(s.author_name ?? 'unknown')}</p>
-      </a>
-      <div class="flex items-center gap-2 flex-wrap">
-        <button data-vote="${s.id}" class="tap flex items-center gap-1.5 text-sm px-4 py-2.5 rounded-xl ${s.my_vote ? 'bg-amber-600 font-semibold' : 'bg-slate-700 hover:bg-slate-600'}">
-          <i data-lucide="arrow-big-up" class="w-4 h-4"></i><span data-votecount="${s.id}">${s.votes}</span></button>
-        <button data-clone="${s.id}" class="tap flex items-center gap-1.5 text-sm bg-slate-700 hover:bg-slate-600 px-4 py-2.5 rounded-xl"><i data-lucide="copy-plus" class="w-4 h-4"></i>Clone</button>
-        <button data-report="${s.id}" class="tap flex items-center gap-1.5 text-sm text-slate-400 hover:text-rose-400 px-3 py-2.5" title="Report"><i data-lucide="flag" class="w-4 h-4"></i></button>
-        <a href="#/scenario/${s.id}" class="tap flex items-center gap-1.5 text-sm bg-rose-600 hover:bg-rose-500 px-4 py-2.5 rounded-xl font-bold ml-auto"><i data-lucide="user" class="w-4 h-4"></i>Try Solo</a>
-        <button data-launch="${s.id}" class="tap flex items-center gap-1.5 text-sm bg-emerald-600 hover:bg-emerald-500 px-4 py-2.5 rounded-xl font-bold"><i data-lucide="radio-tower" class="w-4 h-4"></i>Launch Live</button>
+    <div class="flex gap-6 items-start">
+      ${filterPanel(fields)}
+      <div class="flex-1 min-w-0">
+        ${filterPanel(fields.replaceAll('pf-', 'pfm-'), true)}
+        <div id="pub-grid" class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4"></div>
       </div>
-    </div>`).join('') || '<p class="text-sm text-slate-500 italic">No public scenarios match.</p>'}
+    </div>
   </main>`;
-  icons();
-  const refilter = () => {
-    const c = $('#f-cat').value;
-    const s2 = $('#f-sub').value;
-    location.hash = `#/public?category=${encodeURIComponent(c)}&subcategory=${encodeURIComponent(c ? s2 : '')}`;
+  const drawGrid = () => {
+    $('#pub-grid').innerHTML = visible().map(s => scenarioCard(s, {
+      corner: `<button data-vote="${s.id}" class="flex items-center gap-1 text-xs font-semibold px-2.5 py-1.5 rounded-full ${s.my_vote ? 'bg-amber-600 text-white' : 'bg-slate-700 hover:bg-slate-600'}">
+        <i data-lucide="arrow-big-up" class="w-3.5 h-3.5"></i><span data-votecount="${s.id}">${s.votes}</span></button>`,
+      footer: `<button data-clone="${s.id}" class="tap p-2.5 text-slate-400 hover:text-white" title="Clone to my library"><i data-lucide="copy-plus" class="w-4 h-4"></i></button>
+        <button data-report="${s.id}" class="tap p-2.5 text-slate-400 hover:text-rose-400" title="Report"><i data-lucide="flag" class="w-4 h-4"></i></button>
+        <a href="#/scenario/${s.id}" class="tap flex-1 text-center text-sm font-bold bg-rose-600 hover:bg-rose-500 rounded-xl py-2.5">Try Solo</a>
+        <button data-launch="${s.id}" class="tap flex-1 text-sm font-bold bg-emerald-600 hover:bg-emerald-500 rounded-xl py-2.5 flex items-center justify-center gap-1.5"><i data-lucide="radio-tower" class="w-4 h-4"></i>Launch</button>`,
+    })).join('') || '<p class="text-sm text-slate-500 italic col-span-full">No public scenarios match.</p>';
+    icons();
+    bindPublicActions();
+    bindLaunchButtons();
   };
-  $('#f-cat').onchange = () => { $('#f-sub').value = ''; refilter(); };
-  $('#f-sub').onchange = refilter;
+  const bind = pre => {
+    const g = id => $(`#${pre}${id}`);
+    const subSel = () => { g('sub').innerHTML = `<option value="">All</option>` + (SUBCATS[st.cat] || []).map(x => `<option ${x === st.sub ? 'selected' : ''}>${x}</option>`).join(''); };
+    subSel();
+    g('q').oninput = e => { st.q = e.target.value; drawGrid(); };
+    g('cat').onchange = e => { st.cat = e.target.value; st.sub = ''; subSel(); drawGrid(); };
+    g('sub').onchange = e => { st.sub = e.target.value; drawGrid(); };
+    g('diff').onchange = e => { st.diff = e.target.value; drawGrid(); };
+    g('obj').onchange = e => { st.obj = e.target.value; drawGrid(); };
+  };
+  bind('pf-'); bind('pfm-');
+  drawGrid();
+  icons();
+
+  function bindPublicActions() {
   app.querySelectorAll('[data-vote]').forEach(btn => btn.onclick = async () => {
     if (!me) { sessionStorage.authNext = location.hash; location.hash = '#/login'; return; }
     const r = await fetch(`/api/scenarios/${btn.dataset.vote}/vote`, { method: 'POST' }).then(x => x.json());
@@ -1068,7 +1339,7 @@ async function renderPublic() {
   app.querySelectorAll('[data-clone]').forEach(btn => btn.onclick = async () => {
     if (!me) { sessionStorage.authNext = location.hash; location.hash = '#/login'; return; }
     const r = await fetch(`/api/scenarios/${btn.dataset.clone}/clone`, { method: 'POST' });
-    if (r.ok) { toast('Cloned to your private library'); location.hash = '#/me'; }
+    if (r.ok) { toast('Cloned to your private library'); location.hash = '#/library'; }
     else toast('Clone failed', 'bg-rose-600');
   });
   app.querySelectorAll('[data-report]').forEach(btn => btn.onclick = async () => {
@@ -1081,7 +1352,7 @@ async function renderPublic() {
     if (r.ok) toast('Reported — thank you');
     else toast((await r.json()).error, 'bg-amber-500');
   });
-  bindLaunchButtons();
+  }
 }
 
 /* ═══ v7: Curriculum coverage grid ═══ */
@@ -1321,7 +1592,7 @@ async function renderScenarioDetail(id) {
   $('#sd-clone').onclick = async () => {
     if (!me) { sessionStorage.authNext = location.hash; location.hash = '#/login'; return; }
     const r = await fetch(`/api/scenarios/${s.id}/clone`, { method: 'POST' });
-    if (r.ok) { toast('Cloned to your private library'); location.hash = '#/me'; }
+    if (r.ok) { toast('Cloned to your private library'); location.hash = '#/library'; }
     else toast('Clone failed', 'bg-rose-600');
   };
 }
@@ -1450,7 +1721,7 @@ async function renderSessionDetail(id) {
       : `<span class="text-xs font-bold px-2 py-0.5 rounded-full bg-slate-600/50 text-slate-300">DIVERGENT</span>`;
   app.innerHTML = `
   <main class="max-w-2xl mx-auto p-4 sm:p-6 space-y-4 anim-in pb-16">
-    <a href="#/me" class="text-sm text-slate-400 hover:text-white flex items-center gap-1"><i data-lucide="arrow-left" class="w-4 h-4"></i>My Library</a>
+    <a href="#/me" class="text-sm text-slate-400 hover:text-white flex items-center gap-1"><i data-lucide="arrow-left" class="w-4 h-4"></i>My Sessions</a>
     <div class="bg-slate-800 rounded-2xl p-5 flex items-start justify-between gap-3 flex-wrap">
       <div class="min-w-0">
         <h1 class="font-bold text-lg">${esc(session.title)}</h1>

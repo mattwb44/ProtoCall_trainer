@@ -126,6 +126,27 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
              role: user.role, department: dept, email_verified: !!email_verified_at };
   });
 
+  // ── v9 account settings ──
+  app.put('/api/me', (req, reply) => {
+    const user = requireUser(req, reply); if (!user) return;
+    const name = req.body?.display_name?.trim();
+    if (!name) return reply.code(400).send({ error: 'display name required' });
+    db.prepare('UPDATE users SET display_name=? WHERE id=?').run(name, user.id);
+    return { display_name: name };
+  });
+
+  app.post('/api/me/password', authLimited, (req, reply) => {
+    const user = requireUser(req, reply); if (!user) return;
+    const { current_password, new_password } = req.body ?? {};
+    if (!new_password || new_password.length < 8)
+      return reply.code(400).send({ error: 'new password must be 8+ characters' });
+    const row = db.prepare('SELECT password_hash FROM users WHERE id=?').get(user.id);
+    if (!verifyPassword(current_password ?? '', row.password_hash))
+      return reply.code(403).send({ error: 'current password is incorrect' });
+    db.prepare('UPDATE users SET password_hash=? WHERE id=?').run(hashPassword(new_password), user.id);
+    return { ok: true };
+  });
+
   // ── Email verification & password reset ──
   // Resend the verification email to the logged-in user (no-op if already verified).
   app.post('/api/auth/verify/request', authLimited, (req, reply) => {

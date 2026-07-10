@@ -77,6 +77,18 @@ Tests: test/review.test.js (6 tests; suite now 66). Content intake:
 `node scripts/seed-content.js --submit` seeds drafts as private + pending so the
 owner reviews them entirely in-app.
 
+### v9 shipped (2026-07-10, part 6): app shell, browse redesign, account page (PRD-v9.md)
+Top bar + left sidebar on all pages (hidden on join/solo/host; overlay on mobile);
+Library and Community are 3-up square-card grids with a left filter rail (search,
+category, difficulty, objective; Library adds All/Mine/Department/Official and absorbs
+my-scenario management + deleted-restore). `#/me` is now My Sessions only; the
+username opens `#/account` (profile, display-name edit, change password via new
+`POST /api/me/password` + `PUT /api/me`, System/Light/Dark theme via CSS override
+sheet under `html[data-theme=light]`, language placeholder). Bug fixed: client now
+re-fetches /api/me after login (login response lacks role/department, which dropped
+the admin nav icons). Pending-review scenarios are hidden from Library except the
+author's Mine filter. Tests: test/account.test.js (suite now 68).
+
 ### Remaining in v7 (next session starts here)
 1. **Content sprint — drafting DONE, review pending (2026-07-10, part 5).** All 20
    scenarios are drafted in `content/drafts/` (see its README for the batch table:
