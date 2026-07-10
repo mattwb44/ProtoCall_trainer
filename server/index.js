@@ -16,11 +16,14 @@ import { Rooms } from './rooms.js';
 import {
   hashPassword, verifyPassword, createAuthSession, destroyAuthSession,
   userFromCookieHeader, tokenFromCookieHeader, setCookieValue, clearCookieValue,
+  createAuthToken, consumeAuthToken,
 } from './auth.js';
+import { createMailer } from './mailer.js';
+import { createAnalyzer } from './analysis.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRateMax = 300 } = {}) {
+export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRateMax = 300, mailer = createMailer(), analyzer = createAnalyzer() } = {}) {
   const db = createDb(dbFile);
   seedIfEmpty(db);
   // Operator bootstrap: promote the configured account to site_admin on boot (idempotent).
@@ -46,6 +49,10 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
     cacheControl: true, maxAge: '365d', immutable: true, // filenames are content-unique UUIDs
   });
   app.register(fastifyMultipart, { limits: { fileSize: MAX_UPLOAD_BYTES, files: 1 } });
+
+  // Base URL for email links. APP_URL pins it in prod; otherwise derive from the request
+  // (req.protocol is https behind Railway thanks to trustProxy).
+  const baseUrl = req => process.env.APP_URL || `${req.protocol}://${req.headers.host}`;
 
   const currentUser = req => userFromCookieHeader(db, req.headers.cookie);
   const requireUser = (req, reply) => {
@@ -83,9 +90,13 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
     db.prepare('INSERT INTO users (id, email, password_hash, display_name) VALUES (?,?,?,?)')
       .run(id, email, hashPassword(password), display_name.trim());
     const claimed = guest_token ? claimGuest(id, guest_token) : 0;
+    // Fire-and-forget the verification email so a slow/failing mail provider never blocks signup.
+    const vtoken = createAuthToken(db, id, 'verify', 24);
+    mailer.sendVerification(email, display_name.trim(), `${baseUrl(req)}/#/verify/${vtoken}`)
+      .catch(err => req.log.error({ err }, 'verification email failed'));
     reply.header('set-cookie', setCookieValue(createAuthSession(db, id)));
     reply.code(201);
-    return { id, email, display_name: display_name.trim(), claimed_sessions: claimed };
+    return { id, email, display_name: display_name.trim(), claimed_sessions: claimed, email_verified: false };
   });
 
   app.post('/api/login', authLimited, (req, reply) => {
@@ -110,8 +121,57 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
     const dept = user.department_id
       ? db.prepare('SELECT id, name, verified_at FROM departments WHERE id=?').get(user.department_id)
       : null;
+    const { email_verified_at } = db.prepare('SELECT email_verified_at FROM users WHERE id=?').get(user.id);
     return { id: user.id, email: user.email, display_name: user.display_name,
-             role: user.role, department: dept };
+             role: user.role, department: dept, email_verified: !!email_verified_at };
+  });
+
+  // ── Email verification & password reset ──
+  // Resend the verification email to the logged-in user (no-op if already verified).
+  app.post('/api/auth/verify/request', authLimited, (req, reply) => {
+    const user = requireUser(req, reply); if (!user) return;
+    const { email_verified_at } = db.prepare('SELECT email_verified_at FROM users WHERE id=?').get(user.id);
+    if (email_verified_at) return { ok: true, already_verified: true };
+    const t = createAuthToken(db, user.id, 'verify', 24);
+    mailer.sendVerification(user.email, user.display_name, `${baseUrl(req)}/#/verify/${t}`)
+      .catch(err => req.log.error({ err }, 'verification email failed'));
+    return { ok: true };
+  });
+
+  // Consume a verification token and mark the address confirmed. Public: the link is the proof.
+  app.post('/api/auth/verify', authLimited, (req, reply) => {
+    const userId = consumeAuthToken(db, req.body?.token, 'verify');
+    if (!userId) return reply.code(400).send({ error: 'this verification link is invalid or has expired' });
+    db.prepare("UPDATE users SET email_verified_at=datetime('now') WHERE id=?").run(userId);
+    const u = db.prepare('SELECT display_name FROM users WHERE id=?').get(userId);
+    return { ok: true, display_name: u.display_name };
+  });
+
+  // Request a reset link. Always 200 with no hint about whether the account exists.
+  app.post('/api/auth/reset/request', authLimited, (req, reply) => {
+    const email = (req.body?.email ?? '').trim();
+    const user = email ? db.prepare('SELECT * FROM users WHERE email=?').get(email) : null;
+    if (user && user.password_hash !== '!') { // never the seed 'system' account
+      const t = createAuthToken(db, user.id, 'reset', 1);
+      mailer.sendReset(user.email, user.display_name, `${baseUrl(req)}/#/reset/${t}`)
+        .catch(err => req.log.error({ err }, 'reset email failed'));
+    }
+    return { ok: true };
+  });
+
+  // Consume a reset token, set the new password, and log the user in on a fresh session while
+  // revoking every existing session (a reset should boot anyone holding a stolen cookie).
+  app.post('/api/auth/reset', authLimited, (req, reply) => {
+    const { token, password } = req.body ?? {};
+    if (!password || password.length < 8)
+      return reply.code(400).send({ error: 'password must be at least 8 characters' });
+    const userId = consumeAuthToken(db, token, 'reset');
+    if (!userId) return reply.code(400).send({ error: 'this reset link is invalid or has expired' });
+    db.prepare('UPDATE users SET password_hash=? WHERE id=?').run(hashPassword(password), userId);
+    db.prepare('DELETE FROM auth_sessions WHERE user_id=?').run(userId);
+    const u = db.prepare('SELECT id, email, display_name FROM users WHERE id=?').get(userId);
+    reply.header('set-cookie', setCookieValue(createAuthSession(db, userId)));
+    return { id: u.id, email: u.email, display_name: u.display_name };
   });
 
   // Link every unclaimed participant row carrying this browser token, across all sessions.
@@ -567,10 +627,108 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
     return { session: ls, questions, responses, notes, media: mediaFor(ls.scenario_id), my_participant_id: me?.id ?? null };
   }
 
+  // ── v6: AI after-action analysis (PRD-v6, Layer 1) ──
+  // Generates once per session, best-effort: any failure logs and leaves the session
+  // exactly as it is today. Debriefs start as drafts only the host sees; the host
+  // edits and shares them — the AI never speaks to the crew unreviewed.
+  async function generateAnalysis(sessionId) {
+    if (!analyzer) return null; // no ANTHROPIC_API_KEY — feature dormant
+    const existing = db.prepare('SELECT * FROM session_analyses WHERE session_id=?').get(sessionId);
+    if (existing) return existing; // cached — never re-bill
+    const ls = db.prepare(
+      `SELECT ls.*, sc.title, sc.description FROM live_sessions ls
+       JOIN scenarios sc ON sc.id=ls.scenario_id WHERE ls.id=?`).get(sessionId);
+    if (!ls) return null;
+    const responses = db.prepare('SELECT * FROM responses WHERE session_id=?').all(sessionId);
+    if (!responses.length) return null; // nothing to analyze
+    const questions = db.prepare('SELECT * FROM questions WHERE scenario_id=? ORDER BY sort_order').all(ls.scenario_id);
+    const participants = db.prepare('SELECT id, display_tag FROM participants WHERE session_id=?').all(sessionId);
+    const result = await analyzer.analyzeSession({ session: ls, questions, responses, participants });
+    // Persist atomically; tolerate a concurrent generation having won the race.
+    const validIds = new Set(participants.map(p => p.id));
+    db.transaction(() => {
+      db.prepare(`INSERT OR IGNORE INTO session_analyses (session_id, crew_summary, assessments)
+                  VALUES (?,?,?)`).run(sessionId, result.crew_summary, JSON.stringify(result.assessments));
+      const ins = db.prepare(`INSERT OR IGNORE INTO participant_debriefs (id, session_id, participant_id, body)
+                              VALUES (?,?,?,?)`);
+      for (const d of result.participant_debriefs) {
+        if (validIds.has(d.participant_id)) ins.run(uuid(), sessionId, d.participant_id, d.debrief);
+      }
+    })();
+    return db.prepare('SELECT * FROM session_analyses WHERE session_id=?').get(sessionId);
+  }
+
+  const isHostOf = (user, sessionId) =>
+    !!db.prepare('SELECT 1 FROM live_sessions WHERE id=? AND host_id=?').get(sessionId, user.id);
+
+  // Host: generate (idempotent) and fetch the full analysis with draft debriefs.
+  app.post('/api/me/sessions/:id/analysis', async (req, reply) => {
+    const user = requireUser(req, reply); if (!user) return;
+    if (!isHostOf(user, req.params.id)) return reply.code(404).send({ error: 'not found' });
+    if (!analyzer) return reply.code(503).send({ error: 'AI analysis is not enabled on this server' });
+    try {
+      const analysis = await generateAnalysis(req.params.id);
+      if (!analysis) return reply.code(409).send({ error: 'no responses to analyze' });
+      return analysisFor(req.params.id, true);
+    } catch (err) {
+      req.log.error({ err }, 'analysis generation failed');
+      return reply.code(502).send({ error: 'analysis failed — the session is unaffected; try again later' });
+    }
+  });
+
+  function analysisFor(sessionId, includeDrafts) {
+    const analysis = db.prepare('SELECT * FROM session_analyses WHERE session_id=?').get(sessionId);
+    if (!analysis) return null;
+    const debriefs = db.prepare(
+      `SELECT d.*, p.display_tag FROM participant_debriefs d
+       JOIN participants p ON p.id=d.participant_id
+       WHERE d.session_id=? ${includeDrafts ? '' : 'AND d.shared_at IS NOT NULL'}`).all(sessionId);
+    return { crew_summary: analysis.crew_summary, assessments: JSON.parse(analysis.assessments),
+             created_at: analysis.created_at, debriefs };
+  }
+
+  // Host edits a draft debrief; the edited text is what the participant will see.
+  app.put('/api/me/sessions/:id/debriefs/:debriefId', (req, reply) => {
+    const user = requireUser(req, reply); if (!user) return;
+    if (!isHostOf(user, req.params.id)) return reply.code(404).send({ error: 'not found' });
+    const body = req.body?.body?.trim();
+    if (!body) return reply.code(400).send({ error: 'debrief body required' });
+    const r = db.prepare('UPDATE participant_debriefs SET body=? WHERE id=? AND session_id=?')
+      .run(body, req.params.debriefId, req.params.id);
+    if (!r.changes) return reply.code(404).send({ error: 'debrief not found' });
+    return { ok: true };
+  });
+
+  // Host shares all (or one) debriefs, making them visible to their participants.
+  app.post('/api/me/sessions/:id/debriefs/share', (req, reply) => {
+    const user = requireUser(req, reply); if (!user) return;
+    if (!isHostOf(user, req.params.id)) return reply.code(404).send({ error: 'not found' });
+    const one = req.body?.debrief_id;
+    const r = one
+      ? db.prepare("UPDATE participant_debriefs SET shared_at=datetime('now') WHERE id=? AND session_id=? AND shared_at IS NULL")
+          .run(one, req.params.id)
+      : db.prepare("UPDATE participant_debriefs SET shared_at=datetime('now') WHERE session_id=? AND shared_at IS NULL")
+          .run(req.params.id);
+    return { shared: r.changes };
+  });
+
   app.get('/api/me/sessions/:id', (req, reply) => {
     const user = requireUser(req, reply); if (!user) return;
     const detail = sessionDetailFor(user, req.params.id);
     if (!detail) return reply.code(404).send({ error: 'not found' });
+    // v6: host sees the full analysis incl. drafts; a participant sees only their own
+    // shared debrief. Absent analysis (or no key) leaves the payload as before.
+    const isHost = detail.session.host_id === user.id;
+    if (isHost) {
+      detail.analysis = analysisFor(req.params.id, true);
+      detail.analysis_available = !!analyzer;
+    } else if (detail.my_participant_id) {
+      const d = db.prepare(
+        `SELECT body, shared_at FROM participant_debriefs
+         WHERE session_id=? AND participant_id=? AND shared_at IS NOT NULL`)
+        .get(req.params.id, detail.my_participant_id);
+      if (d) detail.my_debrief = d;
+    }
     return detail;
   });
 
@@ -674,6 +832,10 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
       if (role !== 'host' || !code) return ack?.({ error: 'host only' });
       rooms.endSession(sessionId);
       io.to(`room:${code}`).emit('session_ended');
+      // v6: kick off the after-action draft in the background — never blocks the
+      // live loop; a failure just means the host generates on demand later.
+      if (analyzer) generateAnalysis(sessionId)
+        .catch(err => app.log.error({ err }, 'post-session analysis failed'));
       ack?.({ ok: true });
     });
 

@@ -1,4 +1,4 @@
-import { scryptSync, timingSafeEqual, randomBytes } from 'node:crypto';
+import { scryptSync, timingSafeEqual, randomBytes, createHash } from 'node:crypto';
 
 const COOKIE = 'pc_session';
 const THIRTY_DAYS_S = 30 * 24 * 60 * 60;
@@ -25,6 +25,34 @@ export function createAuthSession(db, userId) {
 
 export function destroyAuthSession(db, token) {
   if (token) db.prepare('DELETE FROM auth_sessions WHERE token=?').run(token);
+}
+
+// One-time email tokens (kind 'verify' | 'reset'). We store only the sha256 hash, so a
+// database leak never exposes a usable link. Creating a token drops any prior unused
+// token of the same kind for that user, keeping a single active link per purpose.
+const hashToken = raw => createHash('sha256').update(String(raw)).digest('hex');
+
+export function createAuthToken(db, userId, kind, ttlHours) {
+  const raw = randomBytes(32).toString('hex');
+  db.prepare("DELETE FROM auth_tokens WHERE user_id=? AND kind=? AND used_at IS NULL")
+    .run(userId, kind);
+  db.prepare(`INSERT INTO auth_tokens (id, user_id, kind, token_hash, expires_at)
+              VALUES (?, ?, ?, ?, datetime('now', ?))`)
+    .run(randomBytes(16).toString('hex'), userId, kind, hashToken(raw), `+${ttlHours} hours`);
+  return raw;
+}
+
+// Validates and burns the token in one step; returns the user id, or null if the token is
+// unknown, of the wrong kind, already used, or expired.
+export function consumeAuthToken(db, raw, kind) {
+  if (!raw) return null;
+  const row = db.prepare(
+    `SELECT id, user_id FROM auth_tokens
+     WHERE token_hash=? AND kind=? AND used_at IS NULL AND expires_at > datetime('now')`)
+    .get(hashToken(raw), kind);
+  if (!row) return null;
+  db.prepare("UPDATE auth_tokens SET used_at=datetime('now') WHERE id=?").run(row.id);
+  return row.user_id;
 }
 
 export function tokenFromCookieHeader(cookieHeader) {

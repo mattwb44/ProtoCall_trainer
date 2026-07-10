@@ -1,8 +1,8 @@
 # ProtoCall Trainer — Product Roadmap
 
-Five planned versions take the app from tonight's working demo to the full CrewTable
-vision in SPEC.md. Each version gets its own PRD when it becomes next-up (earlier ones
-would go stale); this file is the map.
+The planned versions take the app from tonight's working demo to the full CrewTable
+vision in SPEC.md — v1–v5 shipped, v6 (Decision Intelligence) is next-up. Each version
+gets its own PRD when it becomes next-up (earlier ones would go stale); this file is the map.
 
 Guiding principle across all versions: **scanning a QR and answering never requires an
 account.** Every version must preserve zero-friction joining.
@@ -55,6 +55,36 @@ what makes a session feel like it counted. Both are pure value-add on the v2 fou
 - Hardening: rate limits, backups, monitoring.
 **Why last:** it's a swap-in, not a rewrite — the code was structured for this from
 day one. Build it when real concurrent departments exist, not before.
+
+## v6 — Decision Intelligence ✅ (shipped 2026-07-08, PRD-v6.md — post-session after-action built; env-gated behind ANTHROPIC_API_KEY; live triage deferred to a follow-up)
+- AI reads free-text crew answers against the instructor's model answer: live triage
+  (aligned / divergent / ⚠️ possible safety error, and which answer to push) plus a
+  per-participant after-action debrief written into the archived session.
+- Strictly human-in-the-loop — the AI triages and drafts; the instructor decides. No
+  authoritative pass/fail. Env-gated behind an Anthropic key; no-op with no key set.
+- Layer 2 (longitudinal per-firefighter competency profiles mapped to NFPA/ISO/CFAI
+  records) is deferred to a future PRD — it aggregates over exactly what v6 produces, so
+  it waits until per-session after-action is proven in real use.
+**Why here:** it's pure leverage on data the app already captures (crew answers +
+instructor ground truth) and amplifies the existing Matrix→push→archive loop rather than
+rewriting it.
+*(Update 2026-07-09: live triage is shelved permanently by owner decision — instructors
+judge answers in real time. After-action stays.)*
+
+## v7 — The Scenario Library: Solo Play, Academies & Curriculum Taxonomy (next-up, PRD-v7.md)
+- Scenario detail page (community library currently has no way to *read* a scenario).
+- Solo play mode: guests can try any public scenario free (Khan-Academy stance — the
+  content is the marketing); signed-in users' solo runs save to the library, visually
+  separate from crew sessions. Model answers revealed only after submitting all
+  questions — a product-wide rule that now applies to live participants too.
+- Role tracks as an overlay (common questions + role-specific), self-selected.
+- Curriculum taxonomy: controlled learning-objective vocabulary, scenario families,
+  academies (site-admin global / dept-admin department-scoped — Georgetown Academy is
+  the first). Coverage grid over objectives × families is the success metric.
+- Host-revealed stages (named question groups); no timers, no branching.
+- Content workstream: first 20 scenarios, AI-drafted in dev sessions with owner review.
+**Why here:** solo play + a readable library turns the community feature (v2) from a
+pile into a curriculum, and is the discovery funnel for hosting live sessions (v1).
 
 ---
 

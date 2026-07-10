@@ -76,6 +76,29 @@ export function createDb(file = process.env.DB_PATH || path.join(__dirname, '..'
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     expires_at TEXT NOT NULL
   );
+  CREATE TABLE IF NOT EXISTS session_analyses (
+    session_id TEXT PRIMARY KEY REFERENCES live_sessions(id) ON DELETE CASCADE,
+    crew_summary TEXT NOT NULL,
+    assessments TEXT NOT NULL,        -- JSON: [{response_id, classification, rationale}]
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE TABLE IF NOT EXISTS participant_debriefs (
+    id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL REFERENCES live_sessions(id) ON DELETE CASCADE,
+    participant_id TEXT NOT NULL REFERENCES participants(id),
+    body TEXT NOT NULL,               -- instructor-editable; starts as the AI draft
+    shared_at TEXT,                   -- NULL = draft, only the host sees it
+    UNIQUE(session_id, participant_id)
+  );
+  CREATE TABLE IF NOT EXISTS auth_tokens (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    kind TEXT NOT NULL CHECK (kind IN ('verify','reset')),
+    token_hash TEXT NOT NULL,          -- sha256 of the raw token; raw is never stored
+    expires_at TEXT NOT NULL,
+    used_at TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
   CREATE TABLE IF NOT EXISTS scenario_votes (
     user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     scenario_id TEXT NOT NULL REFERENCES scenarios(id) ON DELETE CASCADE,
@@ -125,6 +148,7 @@ function migrate(db) {
   addColumn('users', 'department_id', 'department_id TEXT REFERENCES departments(id)');
   addColumn('scenarios', 'department_id', 'department_id TEXT REFERENCES departments(id)');
   addColumn('scenarios', 'is_official', 'is_official INTEGER NOT NULL DEFAULT 0');
+  addColumn('users', 'email_verified_at', 'email_verified_at TEXT');
 
   // System user owns pre-v2 content; the seed scenario becomes public.
   db.prepare(`INSERT OR IGNORE INTO users (id, email, password_hash, display_name)

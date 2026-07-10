@@ -71,6 +71,8 @@ const routes = {
   'join': code => renderJoin(code),
   'login': () => renderAuth('login'),
   'signup': () => renderAuth('signup'),
+  'verify': token => renderVerify(token),
+  'reset': token => renderReset(token),
   'me': renderMe,
   'public': renderPublic,
   'session': id => renderSessionDetail(id),
@@ -642,6 +644,7 @@ function renderAuth(mode) {
         <input id="a-pass" type="password" class="mt-1 w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 focus:border-amber-500 focus:outline-none"></div>
       <p id="a-err" class="text-sm text-rose-400 hidden"></p>
       <button id="a-go" class="tap w-full bg-rose-600 hover:bg-rose-500 rounded-xl py-3 font-bold">${login ? 'Log in' : 'Sign up'}</button>
+      ${login ? `<p class="text-sm text-center"><a href="#/reset" class="text-slate-400 hover:text-slate-200 hover:underline">Forgot your password?</a></p>` : ''}
       <p class="text-sm text-slate-400 text-center">${login
         ? `No account? <a href="#/signup" class="text-amber-400 hover:underline">Sign up</a>`
         : `Already have one? <a href="#/login" class="text-amber-400 hover:underline">Log in</a>`}</p>
@@ -662,11 +665,94 @@ function renderAuth(mode) {
     me = body; renderNav();
     if (body.claimed_sessions > 0) toast(`Welcome, ${body.display_name} — ${body.claimed_sessions} past session${body.claimed_sessions > 1 ? 's' : ''} saved to your library`);
     else toast(`Welcome, ${body.display_name}`);
+    if (!login) toast('Check your email to verify your address', 'bg-slate-700');
     location.hash = sessionStorage.authNext || '#/me';
     sessionStorage.removeItem('authNext');
   };
   $('#a-go').onclick = go;
   app.querySelectorAll('input').forEach(el => el.addEventListener('keydown', e => e.key === 'Enter' && go()));
+  icons();
+}
+
+/* ═══ Email verification ═══ */
+async function renderVerify(tokenArg) {
+  app.innerHTML = `<main class="max-w-sm mx-auto p-6 pt-12 anim-in"><div id="v-card" class="bg-slate-800 rounded-2xl p-6 space-y-3 text-center">
+    <i data-lucide="loader" class="w-8 h-8 mx-auto text-slate-400 animate-spin"></i>
+    <p class="text-sm text-slate-400">Verifying your email…</p></div></main>`;
+  icons();
+  const res = await fetch('/api/auth/verify', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: tokenArg }),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (me) { me = await fetch('/api/me').then(r => r.json()).catch(() => me); renderNav(); }
+  $('#v-card').innerHTML = res.ok
+    ? `<i data-lucide="badge-check" class="w-10 h-10 mx-auto text-emerald-400"></i>
+       <h1 class="text-lg font-bold">Email verified</h1>
+       <p class="text-sm text-slate-400">Thanks${body.display_name ? ', ' + esc(body.display_name) : ''} — your address is confirmed.</p>
+       <a href="#/me" class="tap inline-block mt-2 bg-rose-600 hover:bg-rose-500 rounded-xl px-5 py-2.5 font-semibold">Go to my library</a>`
+    : `<i data-lucide="triangle-alert" class="w-10 h-10 mx-auto text-amber-400"></i>
+       <h1 class="text-lg font-bold">Link expired</h1>
+       <p class="text-sm text-slate-400">${esc(body.error || 'This verification link is invalid or has expired.')}</p>
+       ${me ? `<button id="v-resend" class="tap inline-block mt-2 bg-slate-700 hover:bg-slate-600 rounded-xl px-5 py-2.5 font-semibold">Send a new link</button>`
+             : `<a href="#/login" class="tap inline-block mt-2 bg-rose-600 hover:bg-rose-500 rounded-xl px-5 py-2.5 font-semibold">Log in</a>`}`;
+  const rb = $('#v-resend');
+  if (rb) rb.onclick = async () => { await fetch('/api/auth/verify/request', { method: 'POST' }); toast('Verification email sent'); };
+  icons();
+}
+
+/* ═══ Password reset ═══ */
+async function renderReset(tokenArg) {
+  // No token → request form; token present → set-new-password form.
+  if (!tokenArg) {
+    app.innerHTML = `<main class="max-w-sm mx-auto p-6 pt-12 anim-in"><div class="bg-slate-800 rounded-2xl p-6 space-y-4">
+      <h1 class="text-xl font-bold">Reset your password</h1>
+      <p class="text-sm text-slate-400">Enter your account email and we'll send a link to choose a new password.</p>
+      <div><label class="text-sm font-medium text-slate-300">Email</label>
+        <input id="r-email" type="email" class="mt-1 w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 focus:border-amber-500 focus:outline-none"></div>
+      <button id="r-go" class="tap w-full bg-rose-600 hover:bg-rose-500 rounded-xl py-3 font-bold">Send reset link</button>
+      <p class="text-sm text-slate-400 text-center"><a href="#/login" class="text-amber-400 hover:underline">Back to log in</a></p>
+    </div></main>`;
+    const go = async () => {
+      const email = $('#r-email').value.trim();
+      if (!email) return;
+      $('#r-go').disabled = true;
+      await fetch('/api/auth/reset/request', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email }),
+      });
+      // Always confirm without revealing whether the account exists.
+      app.querySelector('.bg-slate-800').innerHTML = `<div class="text-center space-y-3 py-4">
+        <i data-lucide="mail-check" class="w-10 h-10 mx-auto text-emerald-400"></i>
+        <h1 class="text-lg font-bold">Check your email</h1>
+        <p class="text-sm text-slate-400">If an account exists for <span class="text-slate-200">${esc(email)}</span>, a reset link is on its way. It expires in one hour.</p>
+        <a href="#/login" class="tap inline-block mt-1 bg-slate-700 hover:bg-slate-600 rounded-xl px-5 py-2.5 font-semibold">Back to log in</a></div>`;
+      icons();
+    };
+    $('#r-go').onclick = go;
+    $('#r-email').addEventListener('keydown', e => e.key === 'Enter' && go());
+    icons();
+    return;
+  }
+  app.innerHTML = `<main class="max-w-sm mx-auto p-6 pt-12 anim-in"><div class="bg-slate-800 rounded-2xl p-6 space-y-4">
+    <h1 class="text-xl font-bold">Choose a new password</h1>
+    <div><label class="text-sm font-medium text-slate-300">New password <span class="text-slate-500">(8+ characters)</span></label>
+      <input id="r-pass" type="password" class="mt-1 w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 focus:border-amber-500 focus:outline-none"></div>
+    <p id="r-err" class="text-sm text-rose-400 hidden"></p>
+    <button id="r-go" class="tap w-full bg-rose-600 hover:bg-rose-500 rounded-xl py-3 font-bold">Set password &amp; log in</button>
+  </div></main>`;
+  const go = async () => {
+    const res = await fetch('/api/auth/reset', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token: tokenArg, password: $('#r-pass').value }),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) { $('#r-err').textContent = body.error; $('#r-err').classList.remove('hidden'); return; }
+    me = await fetch('/api/me').then(r => r.json());
+    renderNav();
+    toast(`Password updated — welcome back, ${body.display_name}`);
+    location.hash = '#/me';
+  };
+  $('#r-go').onclick = go;
+  $('#r-pass').addEventListener('keydown', e => e.key === 'Enter' && go());
   icons();
 }
 
@@ -681,6 +767,15 @@ async function renderMe() {
   app.innerHTML = `
   <main class="max-w-2xl mx-auto p-4 sm:p-6 space-y-5 anim-in">
     <h1 class="text-2xl font-bold">My Library</h1>
+    ${me.email_verified === false ? `
+    <div class="bg-amber-500/10 border border-amber-500/40 rounded-2xl p-4 flex items-start gap-3">
+      <i data-lucide="mail-warning" class="w-5 h-5 text-amber-400 shrink-0 mt-0.5"></i>
+      <div class="flex-1 text-sm">
+        <p class="font-semibold text-amber-200">Verify your email</p>
+        <p class="text-slate-400">Confirm <span class="text-slate-200">${esc(me.email)}</span> so you can recover your account. Check your inbox for the link.</p>
+      </div>
+      <button id="me-resend" class="tap text-sm bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 rounded-xl px-3 py-2 font-semibold shrink-0">Resend</button>
+    </div>` : ''}
     <section class="space-y-3">
       <div class="flex items-center justify-between">
         <h2 class="font-semibold flex items-center gap-2"><i data-lucide="square-pen" class="w-4 h-4 text-amber-400"></i>My Scenarios</h2>
@@ -729,6 +824,12 @@ async function renderMe() {
   </main>`;
   icons();
   bindLaunchButtons();
+  const resend = $('#me-resend');
+  if (resend) resend.onclick = async () => {
+    resend.disabled = true;
+    await fetch('/api/auth/verify/request', { method: 'POST' });
+    toast('Verification email sent — check your inbox');
+  };
   app.querySelectorAll('[data-del]').forEach(btn => btn.onclick = async () => {
     if (!confirm('Delete this scenario? Past sessions are kept, and you can restore it later.')) return;
     const r = await fetch(`/api/scenarios/${btn.dataset.del}`, { method: 'DELETE' });
@@ -812,7 +913,15 @@ async function renderSessionDetail(id) {
   if (!me) { sessionStorage.authNext = `#/session/${id}`; location.hash = '#/login'; return; }
   const res = await fetch(`/api/me/sessions/${id}`);
   if (!res.ok) { toast('Session not found', 'bg-rose-600'); location.hash = '#/me'; return; }
-  const { session, questions, responses, notes, media, my_participant_id } = await res.json();
+  const { session, questions, responses, notes, media, my_participant_id,
+          analysis, analysis_available, my_debrief } = await res.json();
+  const isHost = session.host_id === me.id;
+  const assessFor = rid => analysis?.assessments?.find(a => a.response_id === rid);
+  const badge = c => c === 'review'
+    ? `<span class="text-xs font-bold px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300">⚠ REVIEW</span>`
+    : c === 'aligned'
+      ? `<span class="text-xs font-bold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300">ALIGNED</span>`
+      : `<span class="text-xs font-bold px-2 py-0.5 rounded-full bg-slate-600/50 text-slate-300">DIVERGENT</span>`;
   app.innerHTML = `
   <main class="max-w-2xl mx-auto p-4 sm:p-6 space-y-4 anim-in pb-16">
     <a href="#/me" class="text-sm text-slate-400 hover:text-white flex items-center gap-1"><i data-lucide="arrow-left" class="w-4 h-4"></i>My Library</a>
@@ -828,6 +937,33 @@ async function renderSessionDetail(id) {
     <div class="bg-rose-950/50 border border-rose-800/50 rounded-xl p-4 text-sm text-rose-100">
       <p class="font-bold text-rose-300 mb-1">DISPATCH</p>${esc(session.description)}
     </div>
+    ${my_debrief ? `
+    <div class="bg-indigo-950/40 border border-indigo-800/60 rounded-2xl p-4 space-y-2">
+      <p class="text-xs font-bold text-indigo-300 flex items-center gap-1.5"><i data-lucide="clipboard-check" class="w-4 h-4"></i>INSTRUCTOR DEBRIEF</p>
+      <p class="text-sm text-indigo-100 whitespace-pre-wrap">${esc(my_debrief.body)}</p>
+    </div>` : ''}
+    ${isHost && session.status === 'ended' && (analysis_available || analysis) ? `
+    <div class="bg-slate-800 rounded-2xl p-4 space-y-3">
+      <div class="flex items-center justify-between gap-2 flex-wrap">
+        <p class="font-semibold flex items-center gap-2 text-sm"><i data-lucide="sparkles" class="w-4 h-4 text-indigo-400"></i>AI After-Action <span class="text-xs text-slate-500 font-normal">advisory — you review before crew see anything</span></p>
+        ${!analysis ? `<button id="aa-gen" class="tap text-sm bg-indigo-600 hover:bg-indigo-500 rounded-xl px-4 py-2 font-semibold">Generate</button>`
+          : analysis.debriefs.some(d => !d.shared_at)
+            ? `<button id="aa-share" class="tap text-sm bg-emerald-600 hover:bg-emerald-500 rounded-xl px-4 py-2 font-semibold">Share all debriefs</button>`
+            : `<span class="text-xs font-semibold text-emerald-400">Debriefs shared</span>`}
+      </div>
+      ${analysis ? `
+      <div class="bg-slate-900 rounded-xl px-4 py-3 text-sm"><p class="text-xs font-bold text-slate-500 mb-1">CREW SUMMARY</p>${esc(analysis.crew_summary)}</div>
+      <div class="space-y-2">
+        ${analysis.debriefs.map(d => `
+        <div class="bg-slate-900 rounded-xl px-4 py-3 text-sm space-y-2" data-debrief="${esc(d.id)}">
+          <div class="flex items-center justify-between gap-2">
+            <p class="text-xs font-bold text-slate-400">${esc(d.display_tag)} ${d.shared_at ? '<span class="text-emerald-400">· shared</span>' : '<span class="text-amber-400">· draft</span>'}</p>
+            ${!d.shared_at ? `<button data-edit-debrief="${esc(d.id)}" class="tap text-xs text-slate-400 hover:text-white flex items-center gap-1"><i data-lucide="pencil" class="w-3.5 h-3.5"></i>Edit</button>` : ''}
+          </div>
+          <p class="whitespace-pre-wrap" data-debrief-body>${esc(d.body)}</p>
+        </div>`).join('')}
+      </div>` : `<p class="text-sm text-slate-500 italic">No analysis yet — generate one from the crew's answers.</p>`}
+    </div>` : ''}
     ${questions.map((qn, i) => {
       const mineResp = responses.find(r => r.question_id === qn.id && r.participant_id === my_participant_id);
       const pushed = responses.filter(r => r.question_id === qn.id && r.is_pushed);
@@ -835,6 +971,14 @@ async function renderSessionDetail(id) {
       return `<div class="bg-slate-800 rounded-2xl p-4 space-y-3">
         <p class="font-semibold text-sm"><span class="text-rose-400 font-bold">Q${i + 1}.</span> ${qn.role_track ? `<span class="text-amber-400">${esc(qn.role_track)}</span> · ` : ''}${esc(qn.prompt)}</p>
         ${mineResp ? `<div class="bg-slate-900 rounded-xl px-4 py-3 text-sm"><p class="text-xs font-bold text-slate-500 mb-1">YOUR ANSWER</p>${esc(mineResp.body)}</div>` : ''}
+        ${isHost && analysis ? responses.filter(r => r.question_id === qn.id).map(r => {
+          const a = assessFor(r.id);
+          return `<div class="bg-slate-900 rounded-xl px-4 py-3 text-sm space-y-1 ${a?.classification === 'review' ? 'border border-amber-500/40' : ''}">
+            <div class="flex items-center justify-between gap-2"><p class="text-xs font-bold text-slate-500">${esc(r.display_tag)}</p>${a ? badge(a.classification) : ''}</div>
+            <p>${esc(r.body)}</p>
+            ${a ? `<p class="text-xs text-slate-400 italic">${esc(a.rationale)}</p>` : ''}
+          </div>`;
+        }).join('') : ''}
         ${pushed.map(p => `<div class="bg-slate-900 border-l-4 border-rose-500 rounded-lg px-3 py-2.5 text-sm"><p class="text-xs font-bold text-rose-400 mb-0.5">PUSHED · ${esc(p.display_tag)}</p>${esc(p.body)}</div>`).join('')}
         <div class="bg-emerald-950/40 border border-emerald-900 rounded-xl px-4 py-3 text-sm text-emerald-100"><p class="text-xs font-bold text-emerald-400 mb-1">OFFICIAL ANSWER</p>${esc(qn.instructor_answer)}</div>
         ${note ? `<div class="bg-amber-950/30 border border-amber-800/50 rounded-xl px-4 py-3 text-sm"><p class="text-xs font-bold text-amber-400 mb-1">YOUR NOTES</p>${esc(note.body)}</div>` : ''}
@@ -842,6 +986,32 @@ async function renderSessionDetail(id) {
     }).join('')}
   </main>`;
   icons();
+  const gen = $('#aa-gen');
+  if (gen) gen.onclick = async () => {
+    gen.disabled = true; gen.textContent = 'Analyzing…';
+    const r = await fetch(`/api/me/sessions/${session.id}/analysis`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+    if (r.ok) { toast('After-action ready — review the drafts'); renderSessionDetail(id); }
+    else { toast((await r.json()).error, 'bg-rose-600'); gen.disabled = false; gen.textContent = 'Generate'; }
+  };
+  const shareBtn = $('#aa-share');
+  if (shareBtn) shareBtn.onclick = async () => {
+    if (!confirm('Share all draft debriefs with their participants? They will see the current text.')) return;
+    const r = await fetch(`/api/me/sessions/${session.id}/debriefs/share`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+    if (r.ok) { toast('Debriefs shared with the crew'); renderSessionDetail(id); }
+    else toast('Share failed', 'bg-rose-600');
+  };
+  app.querySelectorAll('[data-edit-debrief]').forEach(btn => btn.onclick = async () => {
+    const card = btn.closest('[data-debrief]');
+    const current = card.querySelector('[data-debrief-body]').textContent;
+    const next = prompt('Edit this debrief (the participant will see exactly this):', current);
+    if (next == null || !next.trim() || next === current) return;
+    const r = await fetch(`/api/me/sessions/${session.id}/debriefs/${btn.dataset.editDebrief}`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ body: next.trim() }) });
+    if (r.ok) { toast('Debrief updated'); renderSessionDetail(id); }
+    else toast('Update failed', 'bg-rose-600');
+  });
 }
 
 function bindLaunchButtons() {

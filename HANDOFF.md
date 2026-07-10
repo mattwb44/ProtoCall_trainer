@@ -15,7 +15,12 @@ integration tests → browser verification → deploy → journal entry.
 
 ## Current state: all 5 planned versions shipped + department-approval gate
 - **Live URL:** https://protocall-trainer-production.up.railway.app
-- **Tests:** 24 integration tests, all green. Run with `npm test`.
+- **Tests:** 33 integration tests, all green. Run with `npm test`.
+- **v6 (Decision Intelligence, PRD-v6.md) post-session after-action is built** — env-gated
+  behind `ANTHROPIC_API_KEY` (dormant without it). `server/analysis.js` (raw fetch, structured
+  JSON, injectable as `buildServer({ analyzer })`); on session end a draft crew summary +
+  per-participant debriefs generate in the background; host reviews/edits/shares from the
+  session detail page; participants see only their own shared debrief. Live triage deferred.
 - **Git:** clean tree, all work committed to `main` (local git repo; no GitHub remote).
 - **Deploy:** `npx railway up --service protocall-trainer --detach` from the project dir.
 
@@ -42,6 +47,8 @@ Most recent work: department creation now requires site_admin approval (pending 
 - **Env vars set:** `DB_PATH=/data/protocall.db`, `MEDIA_DIR=/data/media`,
   `SITE_ADMIN_EMAIL=mattwb44@gmail.com` (promotes that account to site_admin on every boot).
   `PORT` is injected by Railway. `REDIS_URL` intentionally NOT set (see below).
+  `RESEND_API_KEY` / `MAIL_FROM` / `APP_URL` **not yet set** — email flow stays dormant
+  (logs instead of sends) until they are; see open item #2.
 - **Health check:** `GET /healthz`. **Backups:** `GET /api/admin/backup` (site_admin only)
   streams a live SQLite snapshot.
 - **Verify against production, not just localhost** — two infra bugs (proxy IPs defeating
@@ -58,9 +65,12 @@ Most recent work: department creation now requires site_admin approval (pending 
 1. **Owner action:** a live smoke-test department **"Gate Check FD"** is sitting pending on
    prod — reject it from `#/moderation`. Any real department the owner created before the
    approval gate will also be pending — approve it there.
-2. **Email verification & password reset** — the only deferred roadmap item. Blocked on a
-   mail-provider choice (Resend / Postmark / SES). Auth tables are ready; it's ~2 routes +
-   a tokens table once a provider + API key exist. Owner needs to pick one.
+2. **Email verification & password reset** — ✅ **built 2026-07-08 with Resend** (env-gated,
+   `server/mailer.js`, 29 tests green). Dormant until you set the prod env vars:
+   `RESEND_API_KEY`, `MAIL_FROM`, `APP_URL` on Railway + verify a Resend sending domain
+   (DKIM). Until then signups work and the app logs `[mail:dev] would send…` instead of
+   sending. Routes: `POST /api/auth/verify(/request)`, `POST /api/auth/reset(/request)`;
+   UI at `#/verify/:token`, `#/reset`, `#/reset/:token`, plus a verify banner on `#/me`.
 3. **Postgres migration** — deliberately deferred with a documented trigger (see `PRD-v5.md`):
    do it only when sustained concurrent load maxes the single instance or a 2nd region is
    needed. It's a swap (schema compatible), not a rewrite. Redis adapter is already wired —
