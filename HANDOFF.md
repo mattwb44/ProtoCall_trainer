@@ -66,10 +66,17 @@ browser verification → deploy → journal entry.
    Stageless scenarios keep whole-scenario gating, bit-for-bit.
 
 ### Remaining in v7 (next session starts here)
-1. **Content sprint** — 20 scenarios, AI-drafted in dev sessions, owner reviews each,
-   tagged with objectives at authoring time; the coverage grid is the progress meter.
-   Historical-incident policy in PRD-v7 is a hard constraint. No generation code in-app.
-   Stages + role tracks + taxonomy are all live now — author scenarios to use them.
+1. **Content sprint — drafting DONE, review pending (2026-07-10, part 5).** All 20
+   scenarios are drafted in `content/drafts/` (see its README for the batch table:
+   14 fireground + 4 EMS + mayday/RIT + intro tier; every one of the 12 objectives
+   covered as a primary). Authoring template lives at
+   `~/engineering-os/knowledge/fire-service/scenario-authoring-template.md`.
+   Next: owner reviews/edits each draft → move approved files to `content/approved/`
+   → seed with `SEED_EMAIL=... SEED_PASSWORD=... node scripts/seed-content.js
+   [--dry-run] [--base URL]` (verified end-to-end against an in-memory server:
+   all 20 parse and POST cleanly). Before seeding drafts 16 & 19 (EMS), add
+   "Patient Assessment" (or similar) to the objective vocabulary via `#/moderation`
+   — the taxonomy list is fireground-only today, so those two carry no primary yet.
 
 ## v7 implementation notes (for whoever continues)
 - **Gating helpers:** `rooms.revealedAnswers(sessionId, participantId)` is the single
