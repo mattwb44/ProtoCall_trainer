@@ -16,8 +16,9 @@ browser verification → deploy → journal entry.
 
 ## Current state: v7 features complete; content sprint remains (2026-07-10, part 4)
 - **Live URL:** https://protocall-trainer-production.up.railway.app —
-  ⚠️ **v6 + v7 work is committed locally but NOT yet deployed.** Deploy with
-  `npx railway up --service protocall-trainer --detach`, then poll `/healthz`.
+  **v6 + v7 deployed 2026-07-10 (part 4)** and verified live (healthz, academies API,
+  new shell served). Redeploy with `npx railway up --service protocall-trainer
+  --detach`, then poll `/healthz` for a fresh uptime.
 - **Tests:** 60 integration tests, all green (`npm test`).
 - **Git:** clean tree, all committed to local `main` (no GitHub remote).
 
@@ -105,8 +106,10 @@ browser verification → deploy → journal entry.
 - **Railway** project `protocall-trainer` (id 6aa83d48-81dc-4d73-a40f-d3a9a9958af2),
   deploys from local dir. Persistent volume at `/data`. `npx railway login` already done.
 - **Env vars set:** `DB_PATH=/data/protocall.db`, `MEDIA_DIR=/data/media`,
-  `SITE_ADMIN_EMAIL=mattwb44@gmail.com`. NOT set (dormant features): `ANTHROPIC_API_KEY`
-  (v6 after-action), `RESEND_API_KEY`/`MAIL_FROM`/`APP_URL` (email), `REDIS_URL`.
+  `SITE_ADMIN_EMAIL=mattwb44@gmail.com`. NOT set (dormant features):
+  `RESEND_API_KEY`/`MAIL_FROM`/`APP_URL` (email), `REDIS_URL`, and
+  `ANTHROPIC_API_KEY` — the v6 after-action **stays dormant by owner decision
+  (2026-07-10)**; crews debrief through discussion. Don't re-propose activating it.
 - **Health:** `GET /healthz`. **Backups:** `GET /api/admin/backup` (site_admin).
 - **Verify against production, not just localhost** — proxy-IP and service-worker bugs
   were only visible live. The SW caches the shell: after deploy, confirm the new
@@ -120,8 +123,9 @@ browser verification → deploy → journal entry.
 ## Open items (owner actions)
 1. Reject the smoke-test department "Gate Check FD" pending on prod (`#/moderation`).
 2. Set Resend env vars + verify sending domain to activate email (see TODO.md).
-3. Set `ANTHROPIC_API_KEY` on Railway to activate the v6 after-action.
-4. **Deploy the v6+v7 work** (see Current state).
+
+(Deployed to prod 2026-07-10, part 4. The v6 after-action stays dormant by owner
+decision — see Deploy/ops above.)
 
 ## Gotchas (journal: `~/engineering-os/journal/`)
 - `buildServer()` is **async**; tests use

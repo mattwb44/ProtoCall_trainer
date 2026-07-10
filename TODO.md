@@ -21,9 +21,11 @@
 - **v7 deferred follow-ups (from PRD-v7 Out of Scope):** advanced question mechanics
   (branching, drawing, pump-calc, map); in-app AI authoring assistant; per-user
   scenario sharing (Google-Docs style); host-assigned roles in live sessions.
-- **Set `ANTHROPIC_API_KEY` on Railway to activate the v6 AI after-action** — without it
-  the feature is fully dormant (33 tests prove byte-identical behavior). Optionally set
-  `ANALYSIS_MODEL` (defaults to `claude-opus-4-8`).
+- ~~**Set `ANTHROPIC_API_KEY` on Railway to activate the v6 AI after-action**~~ —
+  **stays dormant by owner decision (2026-07-10).** Crews debrief through their own
+  discussion; the env-gated code remains as a long-term possibility only. Don't
+  re-propose activating it. (If ever revived: `ANALYSIS_MODEL` defaults to
+  `claude-opus-4-8`.)
 - ~~**v6 live triage (the second surface in PRD-v6)**~~ — **shelved by decision (2026-07-08).**
   The instructor/session leader judges whether a crew answer is good in real time; the app
   doesn't need to. Live per-answer AI classification is off the roadmap indefinitely (not
