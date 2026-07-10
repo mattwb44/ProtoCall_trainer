@@ -86,6 +86,12 @@ publishing requires the scenario to be at least department-visible.
 headers over the ordered question list ("Dispatch", "Arrival", "Conditions Change").
 The host advances stages in live sessions; solo mode advances stage-by-stage as the
 player submits. Stageless scenarios behave exactly as today. No timers, no branching.
+_Reveal granularity (owner decision 2026-07-10): when stages exist, the full-submission
+gate applies per stage — finishing all questions in a stage unlocks that stage's model
+answers. Later stages can't be anchored because their questions aren't visible yet.
+Stageless scenarios keep whole-scenario gating. Per-question reveal stays rejected
+(anchoring); the host's read-as-they-come + selective push workflow is unaffected
+either way._
 
 **Historical incident policy (hard constraint).** Scenario narratives are fictionalized
 (ambiguous city/department). Historical incidents may be named factually and
