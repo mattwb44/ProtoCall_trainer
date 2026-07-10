@@ -410,6 +410,7 @@ function renderJoin(code) {
   });
   s.on('session_ended', () => {
     if (pState) pState.session.status = 'ended';
+    renderJoin(code); // rejoin: session end unlocks all official answers (PRD-v7)
     const b = $('#conn-badge');
     if (b) { b.innerHTML = '<span class="w-2 h-2 bg-slate-500 rounded-full"></span> ENDED'; b.className = 'flex items-center gap-1.5 text-xs font-semibold bg-slate-800 text-slate-400 px-3 py-1.5 rounded-full'; }
     if (me) toast('Session saved to your Completed Library');

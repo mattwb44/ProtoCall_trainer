@@ -624,9 +624,10 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
        FROM live_sessions ls JOIN scenarios sc ON sc.id=ls.scenario_id WHERE ls.id=?`).get(sessionId);
     const me = ls && db.prepare('SELECT * FROM participants WHERE session_id=? AND user_id=?').get(ls.id, user.id);
     if (!ls || (ls.host_id !== user.id && !me)) return null;
-    // PRD-v7 gating: the host always sees model answers; a participant only
-    // once they answered every (non-deleted) question of the session.
-    const revealAnswers = ls.host_id === user.id || (me && rooms.hasAnsweredAll(ls.id, me.id));
+    // PRD-v7 gating: the host always sees model answers; a participant once
+    // they answered every question — or once the session has ended (debrief).
+    const revealAnswers = ls.host_id === user.id || ls.status !== 'live'
+      || (me && rooms.hasAnsweredAll(ls.id, me.id));
     // Include soft-deleted questions: the session happened with them.
     const questions = db.prepare('SELECT * FROM questions WHERE scenario_id=? ORDER BY sort_order')
       .all(ls.scenario_id).map(q => ({
@@ -808,8 +809,10 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
       const state = rooms.roomState(code, { includeAnswers: role === 'host' });
       if (role !== 'host') {
         // PRD-v7: no partial reveals — instructor answers appear only once
-        // this participant has answered every question, then all at once.
-        const revealed = rooms.hasAnsweredAll(room.session.id, participant.id);
+        // this participant has answered every question (or the session has
+        // ended and everyone moves to debrief), then all at once.
+        const revealed = room.session.status !== 'live'
+          || rooms.hasAnsweredAll(room.session.id, participant.id);
         if (revealed) {
           const answers = rooms.officialAnswers(room.session.id);
           state.questions = state.questions.map(q => ({ ...q, instructor_answer: answers[q.id] }));

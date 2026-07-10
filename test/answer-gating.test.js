@@ -96,7 +96,7 @@ test('live session: answers withheld until the participant has submitted every q
   } finally { guest.close(); guest2.close(); }
 });
 
-test('archived session detail: participant gated on completeness, host unaffected', async () => {
+test('session detail REST: gated on completeness while live, unlocked for everyone at session end', async () => {
   const { cookie: hostCookie } = await signup(base, { email: 'archhost@gate.test' });
   const created = await fetch(`${base}/api/scenarios`, {
     method: 'POST', headers: authed(hostCookie),
@@ -122,17 +122,22 @@ test('archived session detail: participant gated on completeness, host unaffecte
     await emit(partial, 'submit_response', { question_id: jp.state.questions[0].id, body: 'only one' });
     await emit(complete, 'submit_response', { question_id: jc.state.questions[0].id, body: 'one' });
     await emit(complete, 'submit_response', { question_id: jc.state.questions[1].id, body: 'two' });
+
+    // claim accounts while the session is still LIVE: the partial participant
+    // is gated over REST too; the complete one already earned the reveal
+    var { cookie: pCookie } = await signup(base, { email: 'archpart@gate.test', guest_token: 'partial-tok' });
+    var { cookie: cCookie } = await signup(base, { email: 'archdone@gate.test', guest_token: 'complete-tok' });
+    const liveP = await fetch(`${base}/api/me/sessions/${session_id}`, { headers: { cookie: pCookie } }).then(r => r.json());
+    for (const q of liveP.questions) assert.equal(q.instructor_answer, undefined);
+    const liveC = await fetch(`${base}/api/me/sessions/${session_id}`, { headers: { cookie: cCookie } }).then(r => r.json());
+    assert.deepEqual(liveC.questions.map(q => q.instructor_answer), ['A1', 'A2']);
+
     await emit(host, 'end_session', {});
   } finally { host.close(); partial.close(); complete.close(); }
 
-  const { cookie: pCookie } = await signup(base, { email: 'archpart@gate.test', guest_token: 'partial-tok' });
-  const { cookie: cCookie } = await signup(base, { email: 'archdone@gate.test', guest_token: 'complete-tok' });
-
+  // ended session → debrief: even the partial participant sees answers now
   const pDetail = await fetch(`${base}/api/me/sessions/${session_id}`, { headers: { cookie: pCookie } }).then(r => r.json());
-  for (const q of pDetail.questions) assert.equal(q.instructor_answer, undefined);
-
-  const cDetail = await fetch(`${base}/api/me/sessions/${session_id}`, { headers: { cookie: cCookie } }).then(r => r.json());
-  assert.deepEqual(cDetail.questions.map(q => q.instructor_answer), ['A1', 'A2']);
+  assert.deepEqual(pDetail.questions.map(q => q.instructor_answer), ['A1', 'A2']);
 
   const hDetail = await fetch(`${base}/api/me/sessions/${session_id}`, { headers: { cookie: hostCookie } }).then(r => r.json());
   assert.deepEqual(hDetail.questions.map(q => q.instructor_answer), ['A1', 'A2']);

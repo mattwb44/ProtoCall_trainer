@@ -98,8 +98,9 @@ test('full live-session loop: create → join → submit → push → end → pe
       const rejoin = await emit(crew2, 'join_room', { code: room_code, token: 'tok-1', role: 'participant' });
       assert.equal(rejoin.participant.display_tag, 'P1');
       const q0 = rejoin.state.questions.find(q => q.id === qid);
-      // answered 1 of 12 questions — still gated, even after session end (PRD-v7)
-      assert.equal(q0.instructor_answer, undefined);
+      // session ended → debrief: answers unlock even with 1 of 12 answered
+      assert.ok(q0.instructor_answer.length > 0);
+      assert.equal(rejoin.state.answers_revealed, true);
     } finally { crew2.close(); }
   } finally {
     host.close(); crew.close();
