@@ -1,6 +1,6 @@
 # ProtoCall Trainer — Session Handoff
 
-_Last updated: 2026-07-10. Read this first, then `ENGINEERING_OS.md`, `ROADMAP.md`, and `TODO.md`._
+_Last updated: 2026-07-10 (part 7). Read this first, then `ENGINEERING_OS.md`, `ROADMAP.md`, and `TODO.md`._
 
 ## What this is
 **ProtoCall Trainer** ("CrewTable") — a live tactical fireground & EMS scenario training
@@ -14,13 +14,43 @@ Built with the Engineering OS at `~/engineering-os` (see `ENGINEERING_OS.md`). T
 each version follows: PRD → architecture review → implement (TDD) → integration tests →
 browser verification → deploy → journal entry.
 
-## Current state: v7 features complete; content sprint remains (2026-07-10, part 4)
+## Current state: v9.1 live; content descriptions need a prod backfill (2026-07-10, part 7)
 - **Live URL:** https://protocall-trainer-production.up.railway.app —
-  **v6 + v7 deployed 2026-07-10 (part 4)** and verified live (healthz, academies API,
-  new shell served). Redeploy with `npx railway up --service protocall-trainer
-  --detach`, then poll `/healthz` for a fresh uptime.
-- **Tests:** 60 integration tests, all green (`npm test`).
-- **Git:** clean tree, all committed to local `main` (no GitHub remote).
+  **v9.1 deployed 2026-07-10 (part 7)** and verified live (fresh uptime, softened
+  light-theme + review-queue-description markers served). Redeploy with
+  `npx railway up --service protocall-trainer --detach`, then poll `/healthz` for a
+  fresh uptime. The service worker caches the shell — hard-refresh after deploy.
+- **Tests:** 68 integration tests, all green (`npm test`).
+- **Git:** clean tree, all committed to local `main` (no GitHub remote). Latest:
+  `b4b687b` (v9.1).
+
+### ⚠️ Open owner action carried into next session — backfill prod descriptions
+The 20 seeded production scenarios have **empty `description` columns**: they were
+seeded before `scripts/seed-content.js` captured the dispatch prose. The `.md` drafts
+DO have the dispatch text and the parser now extracts it (verified: `--dry-run` shows
+210–445 chars for all 20). The website only renders what's in the DB, so until the
+owner runs the backfill, cards/review queue show "No dispatch description". Fix — owner
+runs (needs their password, single-quoted):
+```
+cd ~/Documents/VSCode/Projects/ProtoCall_trainer && SEED_EMAIL=mattwb44@gmail.com SEED_PASSWORD='...' node scripts/seed-content.js --base https://protocall-trainer-production.up.railway.app --update content/drafts
+```
+`--update` PUTs parsed content over existing scenarios by title (overwrites questions
+too), preserving pending review status. Prints `updated: <title>` for each. Confirm not
+yet done next session: fetch a private scenario while logged in and check `description`
+length, or just ask the owner.
+
+### v9.1 shipped (2026-07-10, part 7): review-queue descriptions, card alignment, softer light theme
+- `GET /api/review/queue` now selects `s.description`; the review-queue card
+  (`renderReview` in index.html) renders it (amber "No dispatch description — add one
+  in Review & Edit" fallback when empty) and was relaid vertically so the "Review &
+  Edit" button no longer stretches (the old horizontal flex made its bottom half huge).
+- Light theme softened: no pure-white surfaces (cards `#f7f8fb` + faint
+  `box-shadow`, page/panels warm-cool neutrals `#e8ebf1`/`#eef1f6`), gentler borders,
+  toned-down saturated brand text (sky/rose/emerald/amber) — see the
+  `html[data-theme=light]` block near the top of index.html.
+- Library page-level "New" button is now `flex md:hidden` (mobile-only) since the
+  sidebar already has a prominent New Scenario on desktop — removed the duplicate CTA.
+- Commit `b4b687b`. All 68 tests pass. Deployed + verified live.
 
 ### Shipped this session (PRD-v7.md, in commit order)
 1. **Model-answer gating, product-wide** (`201ecdd`, `8e91de8`): participants see no
