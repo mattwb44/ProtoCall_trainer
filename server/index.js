@@ -296,7 +296,7 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
   app.post('/api/scenarios/:id/official', (req, reply) => {
     const user = requireUser(req, reply); if (!user) return;
     const s = db.prepare('SELECT * FROM scenarios WHERE id=? AND deleted_at IS NULL').get(req.params.id);
-    if (!s || s.visibility !== 'department' || !isChiefOf(user, s.department_id))
+    if (!s || !s.shared_department || !isChiefOf(user, s.department_id))
       return reply.code(403).send({ error: 'only the department chief can badge department scenarios' });
     if (!deptVerified(s.department_id))
       return reply.code(403).send({ error: 'department awaiting site approval' });
@@ -389,7 +389,7 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
       db.prepare(`UPDATE users SET department_id=NULL,
                   role=CASE WHEN role='dept_admin' THEN 'standard' ELSE role END
                   WHERE department_id=?`).run(dept.id);
-      db.prepare("UPDATE scenarios SET visibility='private', department_id=NULL, is_official=0 WHERE department_id=?")
+      db.prepare("UPDATE scenarios SET visibility=CASE WHEN shared_public=1 THEN 'public' ELSE 'private' END, shared_department=0, department_id=NULL, is_official=0 WHERE department_id=?")
         .run(dept.id);
       db.prepare('DELETE FROM departments WHERE id=?').run(dept.id);
     });
@@ -418,7 +418,7 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
     if (!['dismiss', 'unlist'].includes(action)) return reply.code(400).send({ error: 'action must be dismiss or unlist' });
     const tx = db.transaction(() => {
       if (action === 'unlist') {
-        db.prepare("UPDATE scenarios SET visibility='private', is_official=0 WHERE id=?").run(report.scenario_id);
+        db.prepare("UPDATE scenarios SET visibility='private', shared_department=0, shared_public=0, is_official=0 WHERE id=?").run(report.scenario_id);
         // unlisting resolves every open report on that scenario
         db.prepare("UPDATE reports SET resolved_at=datetime('now'), resolution='unlisted' WHERE scenario_id=? AND resolved_at IS NULL")
           .run(report.scenario_id);
@@ -457,11 +457,33 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
   };
 
   const canSee = (s, user) =>
-    s.visibility === 'public'
+    s.shared_public
     || (user && s.author_id === user.id)
-    || (s.visibility === 'department' && user?.department_id && s.department_id === user.department_id)
+    || (s.shared_department && user?.department_id && s.department_id === user.department_id)
     // reviewers can read a scenario that is (or was) in their review pipeline
     || (s.review_status !== '' && isReviewerOf(user, s));
+
+  // Part 6: resolve the two independent shares from a create/update body.
+  // Accepts the new booleans; falls back to the legacy single `visibility`
+  // value so older API callers (and existing tests) keep working. Returns
+  // {error} or {dept, pub, visibility, department_id}.
+  const resolveShares = (body, user) => {
+    let dept, pub;
+    if ('shared_department' in body || 'shared_public' in body) {
+      dept = !!body.shared_department; pub = !!body.shared_public;
+    } else {
+      const v = body.visibility ?? 'private';
+      if (!['private', 'department', 'public'].includes(v)) return { error: 'bad visibility' };
+      dept = v === 'department'; pub = v === 'public';
+    }
+    if (dept && !user.department_id) return { error: 'join a department first' };
+    if (dept && !deptVerified(user.department_id)) return { error: 'your department is awaiting site approval' };
+    return {
+      dept, pub,
+      visibility: pub ? 'public' : dept ? 'department' : 'private',
+      department_id: dept ? user.department_id : null,
+    };
+  };
   const canLaunch = (s, user) => !s.deleted_at && canSee(s, user);
 
   const mediaFor = id => db.prepare(
@@ -483,8 +505,8 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
               (SELECT COUNT(*) FROM questions q WHERE q.scenario_id=s.id) AS question_count,
               (SELECT COUNT(*) FROM scenario_votes v WHERE v.scenario_id=s.id) AS votes
        FROM scenarios s LEFT JOIN users u ON u.id=s.author_id
-       WHERE (s.visibility='public' AND s.deleted_at IS NULL) OR s.author_id=?
-          OR (s.visibility='department' AND s.department_id=? AND s.deleted_at IS NULL)
+       WHERE (s.shared_public=1 AND s.deleted_at IS NULL) OR s.author_id=?
+          OR (s.shared_department=1 AND s.department_id=? AND s.deleted_at IS NULL)
        ORDER BY s.is_official DESC, (s.author_id=?) DESC, s.created_at DESC`)
       .all(user?.id ?? '', user?.department_id ?? '', user?.id ?? '')
       .map(s => ({ ...s, mine: !!user && s.author_id === user.id }));
@@ -499,7 +521,7 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
               (SELECT COUNT(*) FROM scenario_votes v WHERE v.scenario_id=s.id) AS votes,
               (SELECT COUNT(*) FROM scenario_votes v WHERE v.scenario_id=s.id AND v.user_id=?) AS my_vote
        FROM scenarios s LEFT JOIN users u ON u.id=s.author_id
-       WHERE s.visibility='public' AND s.deleted_at IS NULL`;
+       WHERE s.shared_public=1 AND s.deleted_at IS NULL`;
     const params = [user?.id ?? ''];
     if (category) { sql += ' AND s.category=?'; params.push(category); }
     if (subcategory) { sql += ' AND s.subcategory=?'; params.push(subcategory); }
@@ -530,8 +552,31 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
 
   // ── v7 taxonomy: controlled learning objectives + filter labels ──
   const DIFFICULTIES = ['Introductory', 'Standard', 'Advanced'];
-  const objectiveNames = () =>
-    db.prepare('SELECT name FROM learning_objectives ORDER BY name').all().map(o => o.name);
+  // Part 6: building type is a multi-select. The client sends an array of known
+  // tags; we store it as a JSON array string. Unknown members are dropped, and
+  // legacy free-text strings are preserved as-is for back-compat.
+  const BUILDING_TYPES = [
+    '1 story', '2 story', '3+ story', 'Has basement', 'Attached garage', 'Mobile home',
+    'Strip mall', 'Big box', 'High-rise', 'Warehouse', 'Mixed-use',
+    'Type I (fire-resistive)', 'Type II (non-combustible)', 'Type III (ordinary)',
+    'Type IV (heavy timber)', 'Type V (wood frame)',
+    'Vacant / abandoned', 'Under construction / renovation',
+  ];
+  const normalizeBuildingType = (v) => {
+    if (Array.isArray(v)) {
+      const clean = v.filter(x => BUILDING_TYPES.includes(x));
+      return clean.length ? JSON.stringify(clean) : '';
+    }
+    return typeof v === 'string' ? v : '';
+  };
+  // With a category, returns that category's objectives plus the general ones
+  // (category ''); without, the whole controlled list (used by validation and
+  // the coverage grid, which must see every objective).
+  const objectiveNames = (category) =>
+    (category
+      ? db.prepare("SELECT name FROM learning_objectives WHERE category='' OR category=? ORDER BY name").all(category)
+      : db.prepare('SELECT name FROM learning_objectives ORDER BY name').all()
+    ).map(o => o.name);
 
   // Extracts and validates the taxonomy fields; returns {error} or {values}.
   const taxonomyOf = (body = {}) => {
@@ -539,8 +584,7 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
       objective_primary: body.objective_primary ?? '',
       objective_secondary: body.objective_secondary ?? '',
       difficulty: body.difficulty ?? '',
-      duration_min: body.duration_min ?? null,
-      building_type: body.building_type ?? '',
+      building_type: normalizeBuildingType(body.building_type),
     };
     const list = objectiveNames();
     if (t.objective_primary && !list.includes(t.objective_primary)) return { error: 'unknown primary objective' };
@@ -548,12 +592,29 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
     if (t.objective_secondary && !t.objective_primary) return { error: 'secondary objective requires a primary' };
     if (t.objective_secondary && t.objective_secondary === t.objective_primary) return { error: 'objectives must differ' };
     if (t.difficulty && !DIFFICULTIES.includes(t.difficulty)) return { error: 'unknown difficulty' };
-    if (t.duration_min != null && !(Number.isInteger(t.duration_min) && t.duration_min > 0))
-      return { error: 'duration_min must be a positive integer' };
     return { values: t };
   };
 
-  app.get('/api/objectives', () => objectiveNames());
+  app.get('/api/objectives', req => objectiveNames(req.query?.category));
+
+  // Part 6: remember the custom stage names a creator types, so the question
+  // editor can offer them back on their next scenario.
+  const STAGE_PRESETS = ['Dispatch', 'En Route', 'On Arrival / Size-Up', 'Initial Actions',
+    'Escalation', 'Command Transfer', 'Patient Contact', 'Transport', 'Termination'];
+  const rememberStages = (userId, questions = []) => {
+    const custom = [...new Set(
+      questions.map(q => (q?.stage ?? '').trim()).filter(s => s && !STAGE_PRESETS.includes(s)))];
+    if (!custom.length) return;
+    const up = db.prepare(
+      `INSERT INTO user_stage_presets (id, user_id, name, last_used_at) VALUES (?,?,?,datetime('now'))
+       ON CONFLICT(user_id, name) DO UPDATE SET last_used_at=datetime('now')`);
+    custom.forEach(name => up.run(uuid(), userId, name));
+  };
+  app.get('/api/me/stage-presets', (req, reply) => {
+    const user = requireUser(req, reply); if (!user) return;
+    return db.prepare('SELECT name FROM user_stage_presets WHERE user_id=? ORDER BY last_used_at DESC, name')
+      .all(user.id).map(r => r.name);
+  });
 
   // ── v8 scenario review workflow (PRD-v8) ──
   // Author submits → pending; chief/site admin queue → edit in-place → approve
@@ -622,7 +683,7 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
     const objectives = objectiveNames();
     const rows = db.prepare(
       `SELECT category, objective_primary, objective_secondary FROM scenarios
-       WHERE visibility='public' AND deleted_at IS NULL`).all();
+       WHERE shared_public=1 AND deleted_at IS NULL`).all();
     const categories = [...new Set(rows.map(r => r.category))].sort();
     const grid = Object.fromEntries(objectives.map(o => [o, Object.fromEntries(categories.map(c => [c, 0]))]));
     for (const r of rows) for (const o of [r.objective_primary, r.objective_secondary])
@@ -683,7 +744,8 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
     // Drafts are owner-only; soft-deleted scenarios drop out rather than crash.
     const entries = db.prepare(
       `SELECT e.id AS entry_id, e.published, e.sort_order, s.id, s.title, s.description,
-              s.category, s.subcategory, s.visibility, s.department_id, s.author_id, s.difficulty, s.duration_min,
+              s.category, s.subcategory, s.visibility, s.shared_department, s.shared_public,
+              s.department_id, s.author_id, s.difficulty, s.review_status,
               s.objective_primary, s.objective_secondary, s.deleted_at,
               (SELECT COUNT(*) FROM questions q WHERE q.scenario_id=s.id AND q.deleted=0) AS question_count
        FROM academy_entries e JOIN scenarios s ON s.id=e.scenario_id
@@ -708,8 +770,8 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
       if (!canSee(s, user)) return reply.code(400).send({ error: 'you cannot stage a scenario you cannot see' });
       if (e.published) {
         const visibleEnough = a.department_id === null
-          ? s.visibility === 'public'
-          : (s.visibility === 'public' || (s.visibility === 'department' && s.department_id === a.department_id));
+          ? !!s.shared_public
+          : (s.shared_public || (s.shared_department && s.department_id === a.department_id));
         if (!visibleEnough)
           return reply.code(400).send({ error: `"${s.title}" must be ${a.department_id ? 'department-visible' : 'public'} before publishing` });
       }
@@ -736,28 +798,26 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
 
   app.post('/api/scenarios', (req, reply) => {
     const user = requireUser(req, reply); if (!user) return;
-    const { title, description = '', category, subcategory, image_url = '', visibility = 'private', questions = [] } = req.body ?? {};
+    const { title, description = '', category, subcategory, image_url = '', questions = [] } = req.body ?? {};
     if (!title || !category || !subcategory) return reply.code(400).send({ error: 'title, category, subcategory required' });
-    if (!['private', 'department', 'public'].includes(visibility)) return reply.code(400).send({ error: 'bad visibility' });
-    if (visibility === 'department' && !user.department_id)
-      return reply.code(400).send({ error: 'join a department first' });
-    if (visibility === 'department' && !deptVerified(user.department_id))
-      return reply.code(400).send({ error: 'your department is awaiting site approval' });
+    const shares = resolveShares(req.body ?? {}, user);
+    if (shares.error) return reply.code(400).send({ error: shares.error });
     const tax = taxonomyOf(req.body);
     if (tax.error) return reply.code(400).send({ error: tax.error });
     const t = tax.values;
     const id = uuid();
     const tx = db.transaction(() => {
-      db.prepare(`INSERT INTO scenarios (id, title, description, category, subcategory, image_url, visibility, author_id, department_id,
-                    objective_primary, objective_secondary, difficulty, duration_min, building_type)
-                  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(id, title, description, category, subcategory, image_url, visibility, user.id,
-                    visibility === 'department' ? user.department_id : null,
-                    t.objective_primary, t.objective_secondary, t.difficulty, t.duration_min, t.building_type);
+      db.prepare(`INSERT INTO scenarios (id, title, description, category, subcategory, image_url, visibility, shared_department, shared_public, author_id, department_id,
+                    objective_primary, objective_secondary, difficulty, building_type)
+                  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(id, title, description, category, subcategory, image_url,
+                    shares.visibility, shares.dept ? 1 : 0, shares.pub ? 1 : 0, user.id, shares.department_id,
+                    t.objective_primary, t.objective_secondary, t.difficulty, t.building_type);
       const ins = db.prepare(`INSERT INTO questions (id, scenario_id, prompt, kind, choices, instructor_answer, role_track, stage, sort_order)
                               VALUES (?,?,?,?,?,?,?,?,?)`);
       questions.forEach((q, i) => ins.run(uuid(), id, q.prompt, q.kind ?? 'text',
         q.choices ? JSON.stringify(q.choices) : null, q.instructor_answer ?? '', q.role_track ?? '', q.stage ?? '', i));
       replaceMedia(id, req.body.media);
+      rememberStages(user.id, questions);
     });
     tx();
     reply.code(201);
@@ -770,34 +830,36 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
     // v8: an in-scope reviewer may edit a submitted scenario (content only).
     const asReviewer = !!s && s.author_id !== user.id && s.review_status !== '' && isReviewerOf(user, s);
     if (!s || (s.author_id !== user.id && !asReviewer)) return reply.code(404).send({ error: 'not found' });
-    let { title, description = '', category, subcategory, image_url = '', visibility = 'private', questions = [], media: mediaList } = req.body ?? {};
-    if (asReviewer) visibility = s.visibility; // reviewers can't publish/unpublish for the author
+    let { title, description = '', category, subcategory, image_url = '', questions = [], media: mediaList } = req.body ?? {};
     if (!title || !category || !subcategory) return reply.code(400).send({ error: 'title, category, subcategory required' });
-    if (!['private', 'department', 'public'].includes(visibility)) return reply.code(400).send({ error: 'bad visibility' });
-    if (!asReviewer && visibility === 'department' && !user.department_id)
-      return reply.code(400).send({ error: 'join a department first' });
-    if (!asReviewer && visibility === 'department' && !deptVerified(user.department_id))
-      return reply.code(400).send({ error: 'your department is awaiting site approval' });
+    // Reviewers can't publish/unpublish for the author — keep the author's shares.
+    let shares;
+    if (asReviewer) {
+      shares = { dept: !!s.shared_department, pub: !!s.shared_public, visibility: s.visibility, department_id: s.department_id };
+    } else {
+      shares = resolveShares(req.body ?? {}, user);
+      if (shares.error) return reply.code(400).send({ error: shares.error });
+    }
     const tax = taxonomyOf(req.body);
     if (tax.error) return reply.code(400).send({ error: tax.error });
     const t = tax.values;
     const existing = db.prepare('SELECT id FROM questions WHERE scenario_id=? AND deleted=0').all(s.id).map(q => q.id);
     const keptIds = new Set(questions.filter(q => q.id).map(q => q.id));
     // Reviewer edits leave scope/badge/status untouched. Author edits: leaving
-    // department scope clears the department link and any official badge, and
-    // (v8) editing an approved scenario voids the approval — no silent edits
-    // behind the OFFICIAL badge; the author must resubmit.
-    const dept = asReviewer ? s.department_id : (visibility === 'department' ? user.department_id : null);
+    // department scope clears any official badge, and (v8) editing an approved
+    // scenario voids the approval — no silent edits behind the OFFICIAL badge;
+    // the author must resubmit.
+    const dept = shares.department_id;
     const official = asReviewer ? s.is_official
-      : (s.review_status === 'approved' ? 0 : (visibility === 'department' ? s.is_official : 0));
+      : (s.review_status === 'approved' ? 0 : (shares.dept ? s.is_official : 0));
     const status = asReviewer ? s.review_status : (s.review_status === 'approved' ? '' : s.review_status);
     const tx = db.transaction(() => {
       db.prepare(`UPDATE scenarios SET title=?, description=?, category=?, subcategory=?, image_url=?, visibility=?,
-                  department_id=?, is_official=?, review_status=?,
-                  objective_primary=?, objective_secondary=?, difficulty=?, duration_min=?, building_type=? WHERE id=?`)
-        .run(title, description, category, subcategory, image_url, visibility,
-             dept, official, status,
-             t.objective_primary, t.objective_secondary, t.difficulty, t.duration_min, t.building_type, s.id);
+                  shared_department=?, shared_public=?, department_id=?, is_official=?, review_status=?,
+                  objective_primary=?, objective_secondary=?, difficulty=?, building_type=? WHERE id=?`)
+        .run(title, description, category, subcategory, image_url, shares.visibility,
+             shares.dept ? 1 : 0, shares.pub ? 1 : 0, dept, official, status,
+             t.objective_primary, t.objective_secondary, t.difficulty, t.building_type, s.id);
       // Reconcile questions: update kept, insert new, soft-delete removed (responses may reference them).
       const upd = db.prepare(`UPDATE questions SET prompt=?, kind=?, choices=?, instructor_answer=?, role_track=?, stage=?, sort_order=? WHERE id=? AND scenario_id=?`);
       const ins = db.prepare(`INSERT INTO questions (id, scenario_id, prompt, kind, choices, instructor_answer, role_track, stage, sort_order)
@@ -815,6 +877,7 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
         gone.forEach(id => del.run(id));
       }
       if (mediaList !== undefined) replaceMedia(s.id, mediaList);
+      if (!asReviewer) rememberStages(user.id, questions);
     });
     tx();
     return { id: s.id };

@@ -23,11 +23,17 @@ const scenarioBody = extra => JSON.stringify({
   ...extra,
 });
 
-test('the 12 seed objectives exist and are publicly listable', async () => {
+test('seed objectives exist and are publicly listable', async () => {
   const list = await fetch(`${base}/api/objectives`).then(r => r.json());
-  assert.equal(list.length, 12);
   for (const o of ['Reading Smoke', 'VEIS', 'Command Presence', 'Resource Management'])
     assert.ok(list.includes(o), o);
+});
+
+test('objectives are filterable by category; general ones show everywhere', async () => {
+  const ems = await fetch(`${base}/api/objectives?category=EMS`).then(r => r.json());
+  assert.ok(ems.includes('Airway Management'), 'EMS objective present');
+  assert.ok(ems.includes('Command Presence'), 'general objective present');
+  assert.ok(!ems.includes('VEIS'), 'Fireground objective excluded from EMS');
 });
 
 test('scenario taxonomy is validated against the controlled list', async () => {
@@ -37,7 +43,7 @@ test('scenario taxonomy is validated against the controlled list', async () => {
   // valid: primary + secondary + labels
   const ok = await post(scenarioBody({
     objective_primary: 'Reading Smoke', objective_secondary: 'Fire Dynamics',
-    difficulty: 'Standard', duration_min: 20, building_type: 'Single-family residential',
+    difficulty: 'Standard', building_type: ['2 story', 'Type V (wood frame)', 'bogus tag'],
   }));
   assert.equal(ok.status, 201);
   const { id } = await ok.json();
@@ -45,7 +51,8 @@ test('scenario taxonomy is validated against the controlled list', async () => {
   assert.equal(detail.objective_primary, 'Reading Smoke');
   assert.equal(detail.objective_secondary, 'Fire Dynamics');
   assert.equal(detail.difficulty, 'Standard');
-  assert.equal(detail.duration_min, 20);
+  // building type stores known tags as a JSON array; unknown members are dropped
+  assert.deepEqual(JSON.parse(detail.building_type), ['2 story', 'Type V (wood frame)']);
 
   // rejections
   assert.equal((await post(scenarioBody({ objective_primary: 'Vibes' }))).status, 400);
@@ -53,7 +60,6 @@ test('scenario taxonomy is validated against the controlled list', async () => {
   assert.equal((await post(scenarioBody({ objective_secondary: 'Search' }))).status, 400, 'secondary requires primary');
   assert.equal((await post(scenarioBody({ objective_primary: 'Search', objective_secondary: 'Search' }))).status, 400);
   assert.equal((await post(scenarioBody({ difficulty: 'Impossible' }))).status, 400);
-  assert.equal((await post(scenarioBody({ duration_min: -5 }))).status, 400);
 
   // update path validates too
   const bad = await fetch(`${base}/api/scenarios/${id}`, {

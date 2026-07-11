@@ -145,6 +145,35 @@ test('official badge: chief-only, department scenarios only, pins to top', async
   });
 });
 
+test('Part 6: a scenario can be shared with the department AND the public at once', async () => {
+  const created = await fetch(`${base}/api/scenarios`, {
+    method: 'POST', headers: authed(chief),
+    body: JSON.stringify({
+      title: 'Both-Shared Drill', shared_department: true, shared_public: true,
+      category: 'Fireground', subcategory: 'Residential',
+      questions: [{ prompt: 'Size-up priorities?', instructor_answer: 'Life safety, incident stabilization' }],
+    }),
+  }).then(r => r.json());
+
+  const detail = await fetch(`${base}/api/scenarios/${created.id}`, { headers: { cookie: chief } }).then(r => r.json());
+  assert.equal(detail.shared_department, 1);
+  assert.equal(detail.shared_public, 1);
+  assert.equal(detail.visibility, 'public', 'legacy visibility derives to public');
+  assert.equal(detail.department_id != null, true, 'keeps its department link');
+
+  // it shows in the public library…
+  const pub = await fetch(`${base}/api/public/scenarios`).then(r => r.json());
+  assert.ok(pub.find(s => s.id === created.id), 'appears in the public library');
+
+  // …and the chief can still badge it Official (department dimension intact)
+  const badged = await post(`/api/scenarios/${created.id}/official`, chief, { official: true });
+  assert.equal(badged.status, 200);
+  assert.deepEqual(await badged.json(), { is_official: 1 });
+
+  // outsiders can see it because it's public
+  assert.equal((await fetch(`${base}/api/scenarios/${created.id}`, { headers: { cookie: outsider } })).status, 200);
+});
+
 test('analytics: exact numbers, chief-only', async () => {
   // member hosts a session on the dept scenario; one logged-in member + one guest respond
   const { room_code } = await post('/api/sessions', member, { scenario_id: deptScenarioId }).then(r => r.json());

@@ -18,7 +18,9 @@ export function createDb(file = process.env.DB_PATH || path.join(__dirname, '..'
     category TEXT NOT NULL,
     subcategory TEXT NOT NULL,
     image_url TEXT DEFAULT '',
-    visibility TEXT NOT NULL DEFAULT 'private',
+    visibility TEXT NOT NULL DEFAULT 'private',  -- Part 6: derived from the shares below (public > department > private)
+    shared_department INTEGER NOT NULL DEFAULT 0,
+    shared_public INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
   CREATE TABLE IF NOT EXISTS questions (
@@ -123,6 +125,7 @@ export function createDb(file = process.env.DB_PATH || path.join(__dirname, '..'
   CREATE TABLE IF NOT EXISTS learning_objectives (
     id TEXT PRIMARY KEY,
     name TEXT UNIQUE NOT NULL COLLATE NOCASE,
+    category TEXT NOT NULL DEFAULT '',  -- '' = general (shows for every category)
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
   CREATE TABLE IF NOT EXISTS academies (
@@ -140,6 +143,13 @@ export function createDb(file = process.env.DB_PATH || path.join(__dirname, '..'
     published INTEGER NOT NULL DEFAULT 0,  -- 0 = draft, visible only to the academy owner
     sort_order INTEGER NOT NULL DEFAULT 0,
     UNIQUE(academy_id, scenario_id)
+  );
+  CREATE TABLE IF NOT EXISTS user_stage_presets (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    last_used_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(user_id, name)
   );
   CREATE TABLE IF NOT EXISTS scenario_media (
     id TEXT PRIMARY KEY,
@@ -178,6 +188,19 @@ function migrate(db) {
   addColumn('scenarios', 'difficulty', "difficulty TEXT NOT NULL DEFAULT ''");
   addColumn('scenarios', 'duration_min', 'duration_min INTEGER');
   addColumn('scenarios', 'building_type', "building_type TEXT NOT NULL DEFAULT ''");
+  // Part 6: objectives are scoped to a scenario category so the creator only
+  // offers relevant ones ('' = general, offered everywhere).
+  addColumn('learning_objectives', 'category', "category TEXT NOT NULL DEFAULT ''");
+  // Part 6: visibility becomes two independent shares — a scenario can be
+  // shared with its department AND made public at the same time. The legacy
+  // `visibility` column is kept as a derived value (public > department >
+  // private) for back-compat. Backfill the flags once, from that column.
+  if (!db.pragma('table_info(scenarios)').map(c => c.name).includes('shared_department')) {
+    db.exec('ALTER TABLE scenarios ADD COLUMN shared_department INTEGER NOT NULL DEFAULT 0');
+    db.exec('ALTER TABLE scenarios ADD COLUMN shared_public INTEGER NOT NULL DEFAULT 0');
+    db.exec("UPDATE scenarios SET shared_public=1 WHERE visibility='public'");
+    db.exec("UPDATE scenarios SET shared_department=1 WHERE visibility='department'");
+  }
   // v8 review workflow: authors submit scenarios for official review; the
   // author's dept chief (or site admin) edits/approves in-app (PRD-v8).
   addColumn('scenarios', 'review_status', "review_status TEXT NOT NULL DEFAULT ''");
@@ -190,16 +213,35 @@ function migrate(db) {
   addColumn('live_sessions', 'stage_index', 'stage_index INTEGER NOT NULL DEFAULT 0');
 
   // Seed the controlled vocabulary (PRD-v7); site admins extend it in-app.
-  const seedObjectives = ['Reading Smoke', 'Water Application', 'Search', 'VEIS', 'Ventilation',
-    'Fire Attack', 'Apparatus Placement', 'Air Management', 'Building Construction',
-    'Fire Dynamics', 'Command Presence', 'Resource Management'];
-  const insObj = db.prepare('INSERT OR IGNORE INTO learning_objectives (id, name) VALUES (?,?)');
-  seedObjectives.forEach(name => insObj.run(randomUUID(), name));
+  // Part 6: each objective carries a category so the creator can show only the
+  // relevant ones. Category '' is general and offered under every category.
+  // The upsert keeps categories current on databases seeded before Part 6.
+  const seedObjectives = [
+    // Fireground
+    ['Reading Smoke', 'Fireground'], ['Water Application', 'Fireground'], ['Search', 'Fireground'],
+    ['VEIS', 'Fireground'], ['Ventilation', 'Fireground'], ['Fire Attack', 'Fireground'],
+    ['Apparatus Placement', 'Fireground'], ['Building Construction', 'Fireground'],
+    ['Fire Dynamics', 'Fireground'],
+    // EMS
+    ['Primary Assessment', 'EMS'], ['Airway Management', 'EMS'], ['Triage (START)', 'EMS'],
+    ['Patient Handoff', 'EMS'], ['Refusal Documentation', 'EMS'], ['Cardiac Care', 'EMS'],
+    ['Medication Administration', 'EMS'], ['Bleeding Control', 'EMS'],
+    // Motor Vehicle Accidents
+    ['Extrication Priorities', 'Motor Vehicle Accidents'], ['Traffic Incident Management', 'Motor Vehicle Accidents'],
+    ['Vehicle Stabilization', 'Motor Vehicle Accidents'], ['Hazard Control', 'Motor Vehicle Accidents'],
+    ['Patient-Centered Extrication', 'Motor Vehicle Accidents'],
+    // General — offered everywhere
+    ['Air Management', ''], ['Command Presence', ''], ['Resource Management', ''],
+    ['Scene Size-Up', ''], ['Communications', ''],
+  ];
+  const insObj = db.prepare(
+    'INSERT INTO learning_objectives (id, name, category) VALUES (?,?,?) ON CONFLICT(name) DO UPDATE SET category=excluded.category');
+  seedObjectives.forEach(([name, category]) => insObj.run(randomUUID(), name, category));
 
   // System user owns pre-v2 content; the seed scenario becomes public.
   db.prepare(`INSERT OR IGNORE INTO users (id, email, password_hash, display_name)
               VALUES ('system', 'system@protocall.local', '!', 'ProtoCall')`).run();
-  db.prepare(`UPDATE scenarios SET author_id='system', visibility='public' WHERE author_id IS NULL`).run();
+  db.prepare(`UPDATE scenarios SET author_id='system', visibility='public', shared_public=1 WHERE author_id IS NULL`).run();
 }
 
 export const uuid = () => randomUUID();
@@ -207,8 +249,8 @@ export const uuid = () => randomUUID();
 export function seedIfEmpty(db) {
   if (db.prepare('SELECT COUNT(*) n FROM scenarios').get().n > 0) return;
   const sid = uuid();
-  db.prepare(`INSERT INTO scenarios (id, title, description, category, subcategory, visibility, author_id)
-              VALUES (?,?,?,?,?,'public','system')`).run(
+  db.prepare(`INSERT INTO scenarios (id, title, description, category, subcategory, visibility, shared_public, author_id)
+              VALUES (?,?,?,?,?,'public',1,'system')`).run(
     sid,
     'Two-Story Residential Fire — Trapped Occupant',
     "Two-story single-family wood-frame residence, fire at 14:00. Heavy dark smoke pushes from the roof and second-floor windows. A frantic bystander yells that an elderly person is trapped in a second-floor bedroom.",
