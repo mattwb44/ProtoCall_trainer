@@ -452,7 +452,9 @@ async function renderCreator(id) {
     const st = existing.review_status;
     const canAct = existing.can_review && st === 'pending';
     const chip = st === 'pending' ? '<span class="text-xs font-bold bg-sky-600 px-2.5 py-1 rounded-full">AWAITING REVIEW</span>'
-      : st === 'approved' ? '<span class="text-xs font-bold bg-emerald-600 px-2.5 py-1 rounded-full flex items-center gap-1"><i data-lucide="shield-check" class="w-3 h-3"></i>OFFICIAL</span>'
+      : st === 'approved' ? (existing.is_official
+        ? '<span class="text-xs font-bold bg-emerald-600 px-2.5 py-1 rounded-full flex items-center gap-1"><i data-lucide="shield-check" class="w-3 h-3"></i>OFFICIAL</span>'
+        : '<span class="text-xs font-bold bg-emerald-600 px-2.5 py-1 rounded-full flex items-center gap-1"><i data-lucide="check" class="w-3 h-3"></i>APPROVED</span>')
       : st === 'changes_requested' ? '<span class="text-xs font-bold bg-amber-500 text-slate-900 px-2.5 py-1 rounded-full">CHANGES REQUESTED</span>' : '';
     if (!st && !existing.mine) return '';
     return `
@@ -461,12 +463,13 @@ async function renderCreator(id) {
         <p class="font-semibold text-sm flex-1">Official review</p>${chip}
         ${existing.mine && !st ? '<button id="rv-submit" class="tap text-sm font-bold bg-sky-600 hover:bg-sky-500 rounded-xl px-4 py-2">Submit for review</button>' : ''}
         ${existing.mine && st === 'changes_requested' ? '<button id="rv-submit" class="tap text-sm font-bold bg-sky-600 hover:bg-sky-500 rounded-xl px-4 py-2">Resubmit</button>' : ''}
-        ${canAct ? `<button id="rv-approve" class="tap text-sm font-bold bg-emerald-600 hover:bg-emerald-500 rounded-xl px-4 py-2 flex items-center gap-1.5"><i data-lucide="shield-check" class="w-4 h-4"></i>Approve as Official</button>
+        ${canAct ? `<button id="rv-approve" class="tap text-sm font-bold bg-emerald-600 hover:bg-emerald-500 rounded-xl px-4 py-2 flex items-center gap-1.5"><i data-lucide="check" class="w-4 h-4"></i>Approve</button>
+        <button id="rv-approve-official" class="tap text-sm font-bold bg-emerald-800 hover:bg-emerald-700 border border-emerald-500/60 rounded-xl px-4 py-2 flex items-center gap-1.5"><i data-lucide="shield-check" class="w-4 h-4"></i>Approve as Official</button>
         <button id="rv-changes" class="tap text-sm font-bold bg-amber-500 hover:bg-amber-400 text-slate-900 rounded-xl px-4 py-2">Request changes</button>` : ''}
       </div>
       ${st === 'changes_requested' && existing.review_note ? `<p class="text-sm text-amber-200 bg-amber-500/10 rounded-xl p-3"><span class="font-semibold">Reviewer:</span> ${esc(existing.review_note)}</p>` : ''}
       ${st === 'pending' && existing.mine ? '<p class="text-xs text-slate-400">Your reviewer can edit this scenario while it\'s in the queue. Save your own edits before they pick it up.</p>' : ''}
-      ${st === '' && existing.mine ? '<p class="text-xs text-slate-400">Send this scenario to your Training Chief (or the site admin) to be reviewed and badged Official Protocol.</p>' : ''}
+      ${st === '' && existing.mine ? '<p class="text-xs text-slate-400">Send this scenario to your Training Chief (or the site admin) for review — they can approve it, and optionally badge it Official Protocol.</p>' : ''}
       ${canAct ? '<div id="rv-note-wrap" class="hidden"><textarea id="rv-note" rows="2" placeholder="What should the author change?" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-sm focus:border-amber-500 focus:outline-none"></textarea><button id="rv-changes-send" class="tap mt-2 text-sm font-bold bg-amber-500 hover:bg-amber-400 text-slate-900 rounded-xl px-4 py-2">Send back to author</button></div>' : ''}
     </section>`;
   };
@@ -526,13 +529,14 @@ async function renderCreator(id) {
     <button id="c-save" class="tap w-full bg-emerald-600 hover:bg-emerald-500 rounded-2xl py-4 font-bold text-lg flex items-center justify-center gap-2">
       <i data-lucide="save" class="w-5 h-5"></i>${editingAsReviewer ? 'Save Reviewer Edits' : 'Save to Library'}</button>
   </main>`;
-  const rvAct = async (action, note) => {
+  const rvAct = async (action, note, official = false) => {
     const r = await fetch(`/api/scenarios/${editingId}/review`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action, note }),
+      body: JSON.stringify({ action, note, official }),
     });
     if (r.ok) {
-      toast(action === 'approve' ? 'Approved — badged Official Protocol' : 'Sent back to the author');
+      toast(action !== 'approve' ? 'Sent back to the author'
+        : official ? 'Approved — badged Official Protocol' : 'Approved');
       location.hash = '#/review'; renderNav();
     } else toast((await r.json()).error ?? 'Failed', 'bg-rose-600');
   };
@@ -544,6 +548,8 @@ async function renderCreator(id) {
   };
   const rvApprove = $('#rv-approve');
   if (rvApprove) rvApprove.onclick = () => rvAct('approve', '');
+  const rvApproveOfficial = $('#rv-approve-official');
+  if (rvApproveOfficial) rvApproveOfficial.onclick = () => rvAct('approve', '', true);
   const rvChanges = $('#rv-changes');
   if (rvChanges) rvChanges.onclick = () => { $('#rv-note-wrap').classList.toggle('hidden'); $('#rv-note').focus(); };
   const rvSend = $('#rv-changes-send');
@@ -1834,27 +1840,56 @@ async function renderSolo(scenarioId) {
   // Solo advances stage-by-stage: later stages stay hidden until the player
   // finishes the current one (stageless scenarios show everything at once).
   const stageOf = q => Math.max(0, stageNames.indexOf(q.stage));
-  const saved = {}; // question_id -> answer, held across stage re-renders
+  const saved = {}; // question_id -> answer, synced live so tab switches keep work
+  const byId = Object.fromEntries(qs.map(q => [q.id, q]));
   let soloStage = 0;
+  // Part 7: stages are tabs under the sticky dispatch. A tab unlocks when the
+  // previous stage is committed; 'all' shows every unlocked stage at once.
+  let soloTab = stageNames.length ? 0 : 'all';
   const lastStage = stageNames.length ? stageNames.length - 1 : 0;
   const draw = () => {
-  const visible = stageNames.length ? qs.filter(q => stageOf(q) <= soloStage) : qs;
+  const showAll = soloTab === 'all';
+  const visible = !stageNames.length ? qs
+    : showAll ? qs.filter(q => stageOf(q) <= soloStage)
+    : qs.filter(q => stageOf(q) === soloTab);
+  // the submit/continue button acts on the current stage — only offer it where
+  // those questions are on screen
+  const canSubmit = !stageNames.length || showAll || soloTab === soloStage;
   app.innerHTML = `
-  <main class="max-w-md mx-auto p-4 pb-24 space-y-4 anim-in">
-    <header>
-      <p class="text-xs font-bold text-rose-400 flex items-center gap-1.5"><i data-lucide="user" class="w-3.5 h-3.5"></i>SOLO RUN${role ? ` · <span class="text-amber-400">${esc(role)}</span>` : ''}</p>
-      <h1 class="text-xl font-bold leading-tight">${esc(s.title)}</h1>
-    </header>
-    <p class="text-sm text-slate-300 whitespace-pre-wrap">${esc(s.description)}</p>
+  <main class="max-w-3xl mx-auto px-4 sm:px-6 pb-24 anim-in">
+    <div class="sticky top-14 z-20 -mx-4 sm:-mx-6 px-4 sm:px-6 pt-4 pb-3 bg-slate-950/95 backdrop-blur border-b border-slate-800 space-y-2.5">
+      <header>
+        <p class="text-xs font-bold text-rose-400 flex items-center gap-1.5"><i data-lucide="user" class="w-3.5 h-3.5"></i>SOLO RUN${role ? ` · <span class="text-amber-400">${esc(role)}</span>` : ''}</p>
+        <h1 class="text-xl font-bold leading-tight">${esc(s.title)}</h1>
+      </header>
+      <div class="bg-rose-950/50 border border-rose-800/50 rounded-xl px-4 py-3 text-sm text-rose-100 max-h-36 overflow-y-auto">
+        <p class="text-xs font-bold text-rose-300 mb-1">DISPATCH</p>
+        <p class="whitespace-pre-wrap">${esc(s.description)}</p>
+      </div>
+      ${stageNames.length ? `
+      <div id="solo-tabs" class="flex gap-1.5 overflow-x-auto">
+        ${stageNames.map((n, i) => {
+          const locked = i > soloStage, active = soloTab === i, done = i < soloStage;
+          return `<button data-tab="${i}" ${locked ? 'disabled' : ''} class="tap shrink-0 flex items-center gap-1.5 text-xs font-bold px-3.5 py-2 rounded-full ${
+            active ? 'bg-rose-600 text-white'
+            : locked ? 'bg-slate-900 text-slate-600 cursor-not-allowed'
+            : 'bg-slate-800 text-slate-300 hover:bg-slate-700'}">
+            <i data-lucide="${locked ? 'lock' : done ? 'check' : 'circle-dot'}" class="w-3.5 h-3.5 ${done && !active ? 'text-emerald-400' : ''}"></i>${esc(n)}</button>`;
+        }).join('')}
+        <button data-tab="all" class="tap shrink-0 text-xs font-bold px-3.5 py-2 rounded-full ${showAll ? 'bg-rose-600 text-white' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'}">All</button>
+      </div>` : ''}
+    </div>
+    <div class="space-y-4 mt-4">
     ${!me ? `<div class="bg-amber-500/10 border border-amber-500/40 rounded-2xl px-4 py-3 text-xs text-amber-200">Playing as a guest — this run <b>won't be saved</b>.</div>` : ''}
     <div id="solo-cards" class="space-y-4">
     ${visible.map((q, i) => {
       const locked = stageNames.length && stageOf(q) < soloStage; // earlier stage, already committed
-      return (q.stage && q.stage !== visible[i - 1]?.stage
+      const n = qs.indexOf(q) + 1; // stable numbering across tabs
+      return (showAll && q.stage && q.stage !== visible[i - 1]?.stage
         ? `<div class="flex items-center gap-3 pt-2"><span class="text-xs font-black tracking-widest text-amber-400">${esc(q.stage.toUpperCase())}</span><span class="flex-1 h-px bg-slate-700"></span></div>` : '')
       + `
       <div class="bg-slate-800 rounded-2xl p-4 space-y-3">
-        <p class="font-semibold text-sm leading-snug"><span class="text-rose-400 font-bold">Q${i + 1}.</span> ${q.role_track ? `<span class="text-amber-400">${esc(q.role_track)}</span> · ` : ''}${esc(q.prompt)}</p>
+        <p class="font-semibold text-sm leading-snug"><span class="text-rose-400 font-bold">Q${n}.</span> ${q.role_track ? `<span class="text-amber-400">${esc(q.role_track)}</span> · ` : ''}${esc(q.prompt)}</p>
         ${(q.kind === 'multiple_choice' || q.kind === 'select_all')
           ? (() => {
               const selSet = q.kind === 'select_all' ? new Set((saved[q.id] || '').split('|').map(x => x.trim()).filter(Boolean)) : null;
@@ -1869,8 +1904,11 @@ async function renderSolo(scenarioId) {
       </div>`;
     }).join('')}
     </div>
-    <button id="solo-submit" class="tap w-full bg-rose-600 hover:bg-rose-500 rounded-xl py-3.5 font-bold">${stageNames.length && soloStage < lastStage
-      ? `Continue — next stage: “${esc(stageNames[soloStage + 1])}”` : 'Submit Run — Reveal Official Answers'}</button>
+    ${canSubmit
+      ? `<button id="solo-submit" class="tap w-full bg-rose-600 hover:bg-rose-500 rounded-xl py-3.5 font-bold">${stageNames.length && soloStage < lastStage
+          ? `Continue — next stage: “${esc(stageNames[soloStage + 1])}”` : 'Submit Run — Reveal Official Answers'}</button>`
+      : `<p class="text-sm text-slate-500 italic text-center py-2">This stage is committed — continue from the <b>${esc(stageNames[soloStage])}</b> tab.</p>`}
+    </div>
   </main>`;
   icons();
   const answerOf = q => {
@@ -1878,11 +1916,24 @@ async function renderSolo(scenarioId) {
     if (q.kind === 'select_all') return [...app.querySelectorAll(`input[name="solo-${q.id}"]:checked`)].map(x => x.value).join(' | ');
     return app.querySelector(`[data-solo="${q.id}"]`)?.value.trim() ?? '';
   };
-  $('#solo-submit').onclick = async () => {
-    visible.filter(q => stageOf(q) === soloStage || !stageNames.length).forEach(q => { saved[q.id] = answerOf(q); });
+  const syncFromDom = q => { // only overwrite saved answers for on-screen questions
+    if (app.querySelector(`[name="solo-${q.id}"],[data-solo="${q.id}"]`)) saved[q.id] = answerOf(q);
+  };
+  // live sync: answers survive tab switches and stage re-renders
+  $('#solo-cards').addEventListener('input', e => {
+    const qid = e.target.dataset.solo ?? (e.target.name?.startsWith('solo-') ? e.target.name.slice(5) : '');
+    if (byId[qid]) saved[qid] = answerOf(byId[qid]);
+  });
+  app.querySelectorAll('#solo-tabs [data-tab]').forEach(b => b.onclick = () => {
+    soloTab = b.dataset.tab === 'all' ? 'all' : Number(b.dataset.tab);
+    draw();
+  });
+  const submitBtn = $('#solo-submit');
+  if (submitBtn) submitBtn.onclick = async () => {
+    visible.forEach(syncFromDom);
     const current = stageNames.length ? qs.filter(q => stageOf(q) === soloStage) : qs;
     if (current.some(q => !saved[q.id])) return toast(stageNames.length ? 'Answer every question in this stage first' : 'Answer every question first — no partial reveals', 'bg-amber-500');
-    if (stageNames.length && soloStage < lastStage) { soloStage++; draw(); window.scrollTo(0, document.body.scrollHeight); return; }
+    if (stageNames.length && soloStage < lastStage) { soloStage++; soloTab = soloStage; draw(); window.scrollTo(0, 0); return; }
     const answers = Object.fromEntries(qs.map(q => [q.id, saved[q.id]]));
     const btn = $('#solo-submit'); btn.disabled = true; btn.textContent = 'Submitting…';
     if (me) {
@@ -1914,9 +1965,18 @@ async function renderSolo(scenarioId) {
   draw();
 }
 
+// Part 7: official answers render as a collapsible under the user's answer, so
+// the reader chooses when to compare — Question → your answer → reveal toggle.
+const officialDrop = body => `
+  <details class="group bg-emerald-950/40 border border-emerald-900 rounded-xl text-sm text-emerald-100">
+    <summary class="tap flex items-center gap-2 px-4 py-3 cursor-pointer text-xs font-bold text-emerald-400 select-none">
+      <i data-lucide="chevron-right" class="w-4 h-4 transition-transform group-open:rotate-90"></i>OFFICIAL ANSWER — tap to reveal</summary>
+    <p class="px-4 pb-3 pt-1 whitespace-pre-wrap">${esc(body)}</p>
+  </details>`;
+
 function soloReveal(s, qs, answers, official, role) {
   app.innerHTML = `
-  <main class="max-w-md mx-auto p-4 pb-24 space-y-4 anim-in">
+  <main class="max-w-3xl mx-auto p-4 sm:p-6 pb-24 space-y-4 anim-in">
     <header>
       <p class="text-xs font-bold text-emerald-400 flex items-center gap-1.5"><i data-lucide="shield-check" class="w-3.5 h-3.5"></i>RUN COMPLETE${role ? ` · <span class="text-amber-400">${esc(role)}</span>` : ''}</p>
       <h1 class="text-xl font-bold leading-tight">${esc(s.title)}</h1>
@@ -1928,7 +1988,7 @@ function soloReveal(s, qs, answers, official, role) {
     <div class="bg-slate-800 rounded-2xl p-4 space-y-3">
       <p class="font-semibold text-sm leading-snug"><span class="text-rose-400 font-bold">Q${i + 1}.</span> ${q.role_track ? `<span class="text-amber-400">${esc(q.role_track)}</span> · ` : ''}${esc(q.prompt)}</p>
       <div class="bg-slate-900 rounded-xl px-4 py-3 text-sm"><p class="text-xs font-bold text-slate-500 mb-1">YOUR ANSWER</p>${esc(answers[q.id])}</div>
-      <div class="bg-emerald-950/40 border border-emerald-900 rounded-xl px-4 py-3 text-sm text-emerald-100"><p class="text-xs font-bold text-emerald-400 mb-1">OFFICIAL ANSWER</p>${esc(official[q.id])}</div>
+      ${officialDrop(official[q.id])}
     </div>`).join('')}
     <a href="#/scenario/${esc(s.id)}" class="tap block text-center bg-slate-800 hover:bg-slate-700 rounded-xl py-3 font-semibold text-sm">Back to scenario</a>
   </main>`;
@@ -1949,7 +2009,7 @@ async function renderSessionDetail(id) {
       ? `<span class="text-xs font-bold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300">ALIGNED</span>`
       : `<span class="text-xs font-bold px-2 py-0.5 rounded-full bg-slate-600/50 text-slate-300">DIVERGENT</span>`;
   app.innerHTML = `
-  <main class="max-w-2xl mx-auto p-4 sm:p-6 space-y-4 anim-in pb-16">
+  <main class="max-w-3xl mx-auto p-4 sm:p-6 space-y-4 anim-in pb-16">
     <a href="#/me" class="text-sm text-slate-400 hover:text-white flex items-center gap-1"><i data-lucide="arrow-left" class="w-4 h-4"></i>My Sessions</a>
     <div class="bg-slate-800 rounded-2xl p-5 flex items-start justify-between gap-3 flex-wrap">
       <div class="min-w-0">
@@ -2006,7 +2066,7 @@ async function renderSessionDetail(id) {
           </div>`;
         }).join('') : ''}
         ${pushed.map(p => `<div class="bg-slate-900 border-l-4 border-rose-500 rounded-lg px-3 py-2.5 text-sm"><p class="text-xs font-bold text-rose-400 mb-0.5">PUSHED · ${esc(p.display_tag)}</p>${esc(p.body)}</div>`).join('')}
-        ${qn.instructor_answer != null ? `<div class="bg-emerald-950/40 border border-emerald-900 rounded-xl px-4 py-3 text-sm text-emerald-100"><p class="text-xs font-bold text-emerald-400 mb-1">OFFICIAL ANSWER</p>${esc(qn.instructor_answer)}</div>` : ''}
+        ${qn.instructor_answer != null ? officialDrop(qn.instructor_answer) : ''}
         ${note ? `<div class="bg-amber-950/30 border border-amber-800/50 rounded-xl px-4 py-3 text-sm"><p class="text-xs font-bold text-amber-400 mb-1">YOUR NOTES</p>${esc(note.body)}</div>` : ''}
       </div>`;
     }).join('')}

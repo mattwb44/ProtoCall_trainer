@@ -618,7 +618,8 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
 
   // ── v8 scenario review workflow (PRD-v8) ──
   // Author submits → pending; chief/site admin queue → edit in-place → approve
-  // (grants the official badge) or request changes (note goes back to author).
+  // (optionally granting the official badge) or request changes (note goes back
+  // to the author).
   app.post('/api/scenarios/:id/submit-review', (req, reply) => {
     const user = requireUser(req, reply); if (!user) return;
     const s = db.prepare('SELECT * FROM scenarios WHERE id=? AND deleted_at IS NULL').get(req.params.id);
@@ -655,9 +656,12 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
     if (!isReviewerOf(user, s)) return reply.code(403).send({ error: 'not your review queue' });
     const { action, note = '' } = req.body ?? {};
     if (action === 'approve') {
-      db.prepare(`UPDATE scenarios SET review_status='approved', review_note=?, is_official=1 WHERE id=?`)
-        .run(String(note).trim(), s.id);
-      return { review_status: 'approved', is_official: 1 };
+      // Part 7: approval no longer auto-grants the OFFICIAL badge — that tag is
+      // reserved for official department scenarios, so the reviewer opts in.
+      const official = req.body?.official ? 1 : 0;
+      db.prepare(`UPDATE scenarios SET review_status='approved', review_note=?, is_official=? WHERE id=?`)
+        .run(String(note).trim(), official, s.id);
+      return { review_status: 'approved', is_official: official };
     }
     if (action === 'request_changes') {
       if (!String(note).trim()) return reply.code(400).send({ error: 'a note telling the author what to change is required' });

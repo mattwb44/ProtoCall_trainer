@@ -106,7 +106,7 @@ test('reviewer can read a pending private scenario (with answers) and edit conte
   assert.equal(after.review_status, 'pending', 'reviewer edit keeps it pending');
 });
 
-test('approve grants official; request_changes requires and stores a note; scope enforced', async () => {
+test('approve is plain by default, official only on request; request_changes requires and stores a note; scope enforced', async () => {
   const id = await makeScenario(member, { title: 'Approve Me' });
   await post(`/api/scenarios/${id}/submit-review`, member);
 
@@ -120,19 +120,28 @@ test('approve grants official; request_changes requires and stores a note; scope
   assert.equal(mine.review_status, 'changes_requested');
   assert.equal(mine.review_note, 'Add a backup line question.');
 
-  // author resubmits after changes, chief approves
+  // author resubmits after changes, chief approves — Part 7: a plain approve
+  // does NOT badge the scenario Official; that's a separate opt-in.
   assert.equal((await post(`/api/scenarios/${id}/submit-review`, member)).status, 200);
   const ap = await post(`/api/scenarios/${id}/review`, chief, { action: 'approve' });
   assert.equal(ap.status, 200);
+  assert.equal((await ap.json()).is_official, 0);
   const row = ctx.db.prepare('SELECT is_official, review_status FROM scenarios WHERE id=?').get(id);
-  assert.equal(row.is_official, 1);
+  assert.equal(row.is_official, 0, 'plain approve leaves the official badge off');
   assert.equal(row.review_status, 'approved');
+
+  // approve with official:true grants the badge
+  const id2 = await makeScenario(member, { title: 'Badge Me' });
+  await post(`/api/scenarios/${id2}/submit-review`, member);
+  const ap2 = await post(`/api/scenarios/${id2}/review`, chief, { action: 'approve', official: true });
+  assert.equal(ap2.status, 200);
+  assert.deepEqual(await ap2.json(), { review_status: 'approved', is_official: 1 });
 });
 
 test('author edit after approval voids the badge and status', async () => {
   const id = await makeScenario(member, { title: 'Void Me' });
   await post(`/api/scenarios/${id}/submit-review`, member);
-  await post(`/api/scenarios/${id}/review`, chief, { action: 'approve' });
+  await post(`/api/scenarios/${id}/review`, chief, { action: 'approve', official: true });
 
   const put = await fetch(`${base}/api/scenarios/${id}`, {
     method: 'PUT', headers: authed(member),
@@ -152,7 +161,7 @@ test('site admin can review (and self-review) scenarios from authors with no dep
   await post(`/api/scenarios/${id}/submit-review`, admin);
   const q = await get('/api/review/queue', admin).then(r => r.json());
   assert.ok(q.some(s => s.id === id), 'own draft in own queue (content-sprint flow)');
-  const ap = await post(`/api/scenarios/${id}/review`, admin, { action: 'approve' });
+  const ap = await post(`/api/scenarios/${id}/review`, admin, { action: 'approve', official: true });
   assert.equal(ap.status, 200);
   assert.equal((await ap.json()).is_official, 1);
 });
