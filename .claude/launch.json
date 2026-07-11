@@ -1,12 +1,6 @@
 {
   "version": "0.0.1",
   "configurations": [
-    {
-      "name": "protocall",
-      "runtimeExecutable": "npm",
-      "runtimeArgs": ["start"],
-      "port": 3100,
-      "autoPort": true
-    }
+    { "name": "protocall", "runtimeExecutable": "npm", "runtimeArgs": ["start"], "port": 3100, "autoPort": true }
   ]
 }

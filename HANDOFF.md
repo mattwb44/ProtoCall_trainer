@@ -14,7 +14,7 @@ Built with the Engineering OS at `~/engineering-os` (see `ENGINEERING_OS.md`). T
 each version follows: PRD → architecture review → implement (TDD) → integration tests →
 browser verification → deploy → journal entry.
 
-## Current state: v9.1 live; content descriptions need a prod backfill (2026-07-10, part 7)
+## Current state: v9.1 live; prod content descriptions backfilled (2026-07-10, part 7)
 - **Live URL:** https://protocall-trainer-production.up.railway.app —
   **v9.1 deployed 2026-07-10 (part 7)** and verified live (fresh uptime, softened
   light-theme + review-queue-description markers served). Redeploy with
@@ -24,20 +24,17 @@ browser verification → deploy → journal entry.
 - **Git:** clean tree, all committed to local `main` (no GitHub remote). Latest:
   `b4b687b` (v9.1).
 
-### ⚠️ Open owner action carried into next session — backfill prod descriptions
-The 20 seeded production scenarios have **empty `description` columns**: they were
-seeded before `scripts/seed-content.js` captured the dispatch prose. The `.md` drafts
-DO have the dispatch text and the parser now extracts it (verified: `--dry-run` shows
-210–445 chars for all 20). The website only renders what's in the DB, so until the
-owner runs the backfill, cards/review queue show "No dispatch description". Fix — owner
-runs (needs their password, single-quoted):
+### ✅ RESOLVED — prod descriptions backfilled (2026-07-10, part 7)
+The 20 seeded production scenarios originally had **empty `description` columns** (they
+were seeded before `scripts/seed-content.js` captured the dispatch prose). The owner ran
+the `--update` backfill and **descriptions now show on the site** (Library cards + review
+queue). No further action needed. For reference, the backfill command was:
 ```
 cd ~/Documents/VSCode/Projects/ProtoCall_trainer && SEED_EMAIL=mattwb44@gmail.com SEED_PASSWORD='...' node scripts/seed-content.js --base https://protocall-trainer-production.up.railway.app --update content/drafts
 ```
 `--update` PUTs parsed content over existing scenarios by title (overwrites questions
-too), preserving pending review status. Prints `updated: <title>` for each. Confirm not
-yet done next session: fetch a private scenario while logged in and check `description`
-length, or just ask the owner.
+too), preserving pending review status. Re-run it only if the drafts change and you
+haven't hand-edited those scenarios in-app.
 
 ### v9.1 shipped (2026-07-10, part 7): review-queue descriptions, card alignment, softer light theme
 - `GET /api/review/queue` now selects `s.description`; the review-queue card
