@@ -944,8 +944,23 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
        FROM live_sessions ls
        JOIN scenarios sc ON sc.id=ls.scenario_id
        LEFT JOIN participants p ON p.session_id=ls.id AND p.user_id=?
-       WHERE ls.host_id=? OR p.id IS NOT NULL
+       WHERE ls.deleted_at IS NULL AND (ls.host_id=? OR p.id IS NOT NULL)
        ORDER BY ls.started_at DESC`).all(user.id, user.id, user.id);
+  });
+
+  // Part 8: the owner can delete a finished session from their library — the
+  // host for live sessions, the runner for solo (solo rows have host_id NULL
+  // and track the player as a participant). Soft delete: it disappears from
+  // everyone's list/detail, but the rows survive. Live sessions end first.
+  app.delete('/api/me/sessions/:id', (req, reply) => {
+    const user = requireUser(req, reply); if (!user) return;
+    const ls = db.prepare('SELECT * FROM live_sessions WHERE id=? AND deleted_at IS NULL').get(req.params.id);
+    const owner = ls && (ls.host_id === user.id || (ls.mode === 'solo' &&
+      db.prepare('SELECT 1 FROM participants WHERE session_id=? AND user_id=?').get(ls.id, user.id)));
+    if (!owner) return reply.code(404).send({ error: 'not found' });
+    if (ls.status === 'live') return reply.code(409).send({ error: 'end the session before deleting it' });
+    db.prepare("UPDATE live_sessions SET deleted_at=datetime('now') WHERE id=?").run(ls.id);
+    return { deleted: true };
   });
 
   // ── v7: solo runs (PRD-v7) ──
@@ -1020,7 +1035,8 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
   function sessionDetailFor(user, sessionId) {
     const ls = db.prepare(
       `SELECT ls.*, sc.title, sc.description, sc.category, sc.subcategory, sc.image_url
-       FROM live_sessions ls JOIN scenarios sc ON sc.id=ls.scenario_id WHERE ls.id=?`).get(sessionId);
+       FROM live_sessions ls JOIN scenarios sc ON sc.id=ls.scenario_id
+       WHERE ls.id=? AND ls.deleted_at IS NULL`).get(sessionId);
     const me = ls && db.prepare('SELECT * FROM participants WHERE session_id=? AND user_id=?').get(ls.id, user.id);
     if (!ls || (ls.host_id !== user.id && !me)) return null;
     // PRD-v7 gating: the host always sees model answers; while live, a
@@ -1028,21 +1044,30 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
     // stageless); session end unlocks everything for the debrief.
     const revealAll = ls.host_id === user.id || ls.status !== 'live';
     const revealMap = !revealAll && me ? rooms.revealedAnswers(ls.id, me.id).answers : {};
-    // Include soft-deleted questions: the session happened with them.
+    const responses = db.prepare(
+      `SELECT r.*, p.display_tag, p.user_id, p.role_track FROM responses r
+       JOIN participants p ON p.id=r.participant_id WHERE r.session_id=?`).all(ls.id);
+    // Part 8: reconstruct the question set as the session ran it. Editing a
+    // scenario can replace question rows (old soft-deleted, new inserted) and
+    // the archive would show both — the new row answerless, the old one with
+    // the response. Rules: a deleted question stays only if it was answered
+    // here; an ended solo run shows exactly its answered set (complete by
+    // definition); live sessions keep unanswered current questions so the
+    // host still sees what was never reached.
+    const answeredIds = new Set(responses.map(r => r.question_id));
+    const soloEnded = ls.mode === 'solo' && ls.status === 'ended';
     // A participant who played a role only ever saw common + role questions;
     // the host's archive keeps every track.
     const filterTrack = me?.role_track && ls.host_id !== user.id;
     const questions = db.prepare('SELECT * FROM questions WHERE scenario_id=? ORDER BY sort_order')
       .all(ls.scenario_id)
+      .filter(q => answeredIds.has(q.id) || (!q.deleted && !soloEnded))
       .filter(q => !filterTrack || !q.role_track || q.role_track === me.role_track)
       .map(q => ({
         ...q,
         choices: q.choices ? JSON.parse(q.choices) : null,
         instructor_answer: revealAll || q.id in revealMap ? q.instructor_answer : undefined,
       }));
-    const responses = db.prepare(
-      `SELECT r.*, p.display_tag, p.user_id, p.role_track FROM responses r
-       JOIN participants p ON p.id=r.participant_id WHERE r.session_id=?`).all(ls.id);
     const notes = me ? db.prepare('SELECT * FROM notes WHERE session_id=? AND participant_id=?').all(ls.id, me.id) : [];
     return { session: ls, questions, responses, notes, media: mediaFor(ls.scenario_id), my_participant_id: me?.id ?? null };
   }

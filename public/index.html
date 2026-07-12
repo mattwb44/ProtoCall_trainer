@@ -25,6 +25,48 @@
   @keyframes flash-push{0%{background:#9f1239}100%{background:#1e293b}}
   .pushed-flash{animation:flash-push 1.2s ease-out}
 
+  /* ── Part 8: category strip (Library/Community) — icon row + slanted tabs.
+     Each element carries its palette via --c/--tx/--glow/--tint inline. The
+     color "fill" is a clip-path wipe rising from the bottom; draining is the
+     same transition in reverse. ── */
+  .cat-icon{position:relative;display:inline-flex;min-width:0;min-height:0}
+  .cat-icon svg{width:42px;height:42px;display:block}
+  .cat-icon .basec{color:#475569;transition:color .4s}
+  .cat-icon .fillc{position:absolute;inset:0;clip-path:inset(100% 0 0 0);
+    transition:clip-path .65s cubic-bezier(.4,0,.2,1)}
+  .cat-icon.on .fillc{clip-path:inset(0 0 0 0)}
+  .cat-line{height:2px;flex:1;max-width:9rem;background:#e2e8f0;opacity:.55;border-radius:1px}
+  html[data-theme=light] .cat-line{background:#64748b}
+  .cat-tab{position:relative;transform:skew(-14deg);background:#0f172a;border:1px solid #334155;
+    border-radius:.45rem;padding:.6rem 1.15rem .6rem 1.5rem;overflow:hidden;
+    transition:background .5s ease,border-color .5s ease,box-shadow .5s ease;min-height:0;min-width:0}
+  .cat-tab .stripe{position:absolute;top:-2px;bottom:-2px;width:4px;background:#475569;transition:background .5s ease}
+  .cat-tab .s1{left:5px}.cat-tab .s2{left:12px}
+  .cat-tab .lbl{display:inline-flex;align-items:center;gap:.4rem;transform:skew(14deg);font-weight:800;
+    font-size:.78rem;letter-spacing:.06em;color:#94a3b8;transition:color .5s ease;white-space:nowrap}
+  .cat-tab .qrs{width:32px;height:12px;color:#64748b;transition:color .5s ease}
+  .cat-tab.on .qrs{color:#38bdf8}
+  .cat-tab.on{background:var(--c);border-color:var(--c)}
+  .cat-tab.on .lbl{color:var(--tx)}
+  .cat-tab.on .stripe{background:var(--tx);opacity:.7}
+  .cat-tab.active{box-shadow:0 0 16px var(--glow),0 0 4px var(--glow)}
+  html[data-theme=light] .cat-tab{background:#eef1f6;border-color:#d3dae4}
+  html[data-theme=light] .cat-tab.on{background:var(--c);border-color:var(--c)}
+  .cat-mat{border:1px solid #1e293b;border-radius:1.1rem;padding:.9rem;
+    transition:background .6s ease,border-color .6s ease,box-shadow .6s ease}
+  html[data-theme=light] .cat-mat{border-color:#dde3ec}
+  .cat-mat.colored{background:var(--tint);border-color:var(--c);
+    box-shadow:0 0 24px var(--glow),inset 0 0 60px var(--tint)}
+  .cat-card-edge{border-left:4px solid var(--c);
+    background-image:linear-gradient(100deg,var(--tint),transparent 45%)}
+  /* per-category palettes as classes (not inline styles) so themes can override */
+  .cat-k-fire{--c:#ef4444;--tx:#fff;--glow:rgba(239,68,68,.55);--tint:rgba(239,68,68,.12)}
+  .cat-k-ems{--c:#e2e8f0;--tx:#0f172a;--glow:rgba(56,189,248,.6);--tint:rgba(56,189,248,.10)}
+  .cat-k-mva{--c:#f59e0b;--tx:#231a02;--glow:rgba(245,158,11,.55);--tint:rgba(245,158,11,.12)}
+  .cat-k-all{--c:#334155;--tx:#e2e8f0;--glow:rgba(148,163,184,.45)}
+  /* EMS "white" is invisible on the light theme — swap to a readable slate */
+  html[data-theme=light] .cat-k-ems{--c:#94a3b8}
+
   /* ── v9 light theme: remaps the dark slate utilities under html[data-theme=light].
      The single colored text-white (toast) and colored buttons are untouched. ── */
   /* Soft, low-glare light theme: warm-cool neutral surfaces, no pure white,
@@ -247,8 +289,12 @@ const scenarioChips = s => [
   s.difficulty ? `<span class="text-[10px] font-bold bg-slate-700 text-slate-300 px-2 py-0.5 rounded-full">${esc(s.difficulty.toUpperCase())}</span>` : '',
 ].filter(Boolean).join('');
 
-const scenarioCard = (s, { corner = '', footer = '' } = {}) => `
-  <div class="bg-slate-800 rounded-2xl p-4 flex flex-col gap-2 min-h-[230px] ${s.is_official ? 'ring-1 ring-emerald-600/60' : ''}">
+const scenarioCard = (s, { corner = '', footer = '' } = {}) => {
+  // Part 8: cards carry their category color — thick left edge + faint wash —
+  // so the All tab still reads at a glance (EMS = white edge, blue wash).
+  const cm = CAT_META[s.category];
+  return `
+  <div class="bg-slate-800 rounded-2xl p-4 flex flex-col gap-2 min-h-[230px] ${s.is_official ? 'ring-1 ring-emerald-600/60' : ''} ${cm ? `cat-card-edge cat-k-${cm.icon}` : ''}">
     <div class="flex items-start justify-between gap-2">
       <div class="flex items-center gap-1.5 flex-wrap min-h-[20px]">${scenarioChips(s)}</div>
       ${corner}
@@ -258,6 +304,7 @@ const scenarioCard = (s, { corner = '', footer = '' } = {}) => `
     <p class="text-sm text-slate-400 line-clamp-3 flex-1">${esc(s.description || '')}</p>
     <div class="flex items-center gap-2 pt-1">${footer}</div>
   </div>`;
+};
 
 const filterPanel = (fields, mobile = false) => `
   <div class="${mobile ? 'lg:hidden mb-4' : 'hidden lg:block w-56 shrink-0'}">
@@ -266,6 +313,89 @@ const filterPanel = (fields, mobile = false) => `
       ${fields}
     </div>
   </div>`;
+
+/* ── Part 8: category strip — icon row (helmet/axe · star of life · MVA) with
+   connecting lines, plus slanted F1-style tabs. Selecting a category fills its
+   icon+tab with color (clip-path wipe) and drains the others; the mat behind
+   the scenario grid takes the category's deep tint + neon border. ── */
+const CAT_META = { // palettes live in the .cat-k-* CSS classes
+  'Fireground': { label: 'FIREGROUND', icon: 'fire' },
+  'EMS': { label: 'EMS', icon: 'ems', accent: '#38bdf8' },
+  'Motor Vehicle Accidents': { label: 'MVAs', icon: 'mva' },
+};
+
+// Reference-matched silhouettes: main shapes use currentColor so the gray base
+// and colored fill layers share the same markup; `detail` colors the inner
+// accents (helmet ridge, serpent + staff). The MVA icon is the user-supplied
+// car-crash vector (FontAwesome path) used verbatim.
+const catIcon = (kind, detail) => ({
+  fire: `<svg viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+    <g transform="rotate(42 12 15.5)">
+      <rect x="11.25" y="1.4" width="1.5" height="22" rx=".75"/>
+      <path d="M12.6 2.1c1.9.1 3.7 1 4.7 2.4-1.1 1.5-2.8 2.5-4.7 2.7z"/>
+    </g>
+    <g transform="rotate(-42 12 15.5)">
+      <rect x="11.25" y="1.4" width="1.5" height="22" rx=".75"/>
+      <path d="M11.4 2.1c-1.9.1-3.7 1-4.7 2.4 1.1 1.5 2.8 2.5 4.7 2.7z"/>
+    </g>
+    <path d="M12 8.8c-3.4 0-5.9 2.6-5.9 6.1v1h11.8v-1c0-3.5-2.5-6.1-5.9-6.1z"/>
+    <path d="M12 7.8c.5 0 .9 1 .9 2.2v5.9h-1.8V10c0-1.2.4-2.2.9-2.2z" fill="${detail}"/>
+    <path d="M2.4 15.8h19.2c.9 0 1.6.55 1.6 1.25s-.7 1.25-1.6 1.25H2.4c-.9 0-1.6-.55-1.6-1.25s.7-1.25 1.6-1.25z"/></svg>`,
+  ems: `<svg viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+    <rect x="9.4" y="1" width="5.2" height="22" rx="1.4"/>
+    <rect x="9.4" y="1" width="5.2" height="22" rx="1.4" transform="rotate(60 12 12)"/>
+    <rect x="9.4" y="1" width="5.2" height="22" rx="1.4" transform="rotate(120 12 12)"/>
+    <g fill="none" stroke="${detail}" stroke-linecap="round">
+      <path d="M12 4.6v14.8" stroke-width="1.9"/>
+      <path d="M10 7.6c1.7-1.1 3.4-.4 3.2 1-.2 1.3-2.9 1.5-3.1 3-.2 1.5 2.7 1.7 2.9 3.2.2 1.4-1.4 2.2-3 1.4" stroke-width="1.4"/>
+    </g></svg>`,
+  mva: `<svg viewBox="0 -64 640 640" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+    <path d="M143.25 220.81l-12.42 46.37c-3.01 11.25-3.63 22.89-2.41 34.39l-35.2 28.98c-6.57 5.41-16.31-.43-14.62-8.77l15.44-76.68c1.06-5.26-2.66-10.28-8-10.79l-77.86-7.55c-8.47-.82-11.23-11.83-4.14-16.54l65.15-43.3c4.46-2.97 5.38-9.15 1.98-13.29L21.46 93.22c-5.41-6.57.43-16.3 8.78-14.62l76.68 15.44c5.26 1.06 10.28-2.66 10.8-8l7.55-77.86c.82-8.48 11.83-11.23 16.55-4.14l43.3 65.14c2.97 4.46 9.15 5.38 13.29 1.98l60.4-49.71c6.57-5.41 16.3.43 14.62 8.77L262.1 86.38c-2.71 3.05-5.43 6.09-7.91 9.4l-32.15 42.97-10.71 14.32c-32.73 8.76-59.18 34.53-68.08 67.74zm494.57 132.51l-12.42 46.36c-3.13 11.68-9.38 21.61-17.55 29.36a66.876 66.876 0 0 1-8.76 7l-13.99 52.23c-1.14 4.27-3.1 8.1-5.65 11.38-7.67 9.84-20.74 14.68-33.54 11.25L515 502.62c-17.07-4.57-27.2-22.12-22.63-39.19l8.28-30.91-247.28-66.26-8.28 30.91c-4.57 17.07-22.12 27.2-39.19 22.63l-30.91-8.28c-12.8-3.43-21.7-14.16-23.42-26.51-.57-4.12-.35-8.42.79-12.68l13.99-52.23a66.62 66.62 0 0 1-4.09-10.45c-3.2-10.79-3.65-22.52-.52-34.2l12.42-46.37c5.31-19.8 19.36-34.83 36.89-42.21a64.336 64.336 0 0 1 18.49-4.72l18.13-24.23 32.15-42.97c3.45-4.61 7.19-8.9 11.2-12.84 8-7.89 17.03-14.44 26.74-19.51 4.86-2.54 9.89-4.71 15.05-6.49 10.33-3.58 21.19-5.63 32.24-6.04 11.05-.41 22.31.82 33.43 3.8l122.68 32.87c11.12 2.98 21.48 7.54 30.85 13.43a111.11 111.11 0 0 1 34.69 34.5c8.82 13.88 14.64 29.84 16.68 46.99l6.36 53.29 3.59 30.05a64.49 64.49 0 0 1 22.74 29.93c4.39 11.88 5.29 25.19 1.75 38.39zM255.58 234.34c-18.55-4.97-34.21 4.04-39.17 22.53-4.96 18.49 4.11 34.12 22.65 39.09 18.55 4.97 45.54 15.51 50.49-2.98 4.96-18.49-15.43-53.67-33.97-58.64zm290.61 28.17l-6.36-53.29c-.58-4.87-1.89-9.53-3.82-13.86-5.8-12.99-17.2-23.01-31.42-26.82l-122.68-32.87a48.008 48.008 0 0 0-50.86 17.61l-32.15 42.97 172 46.08 75.29 20.18zm18.49 54.65c-18.55-4.97-53.8 15.31-58.75 33.79-4.95 18.49 23.69 22.86 42.24 27.83 18.55 4.97 34.21-4.04 39.17-22.53 4.95-18.48-4.11-34.12-22.66-39.09z"/></svg>`,
+}[kind]);
+
+const catStrip = cur => {
+  const on = name => cur === '' || cur === name;
+  const iconBtn = ([name, m]) => `
+    <button data-cattab="${name}" class="cat-icon cat-k-${m.icon} ${on(name) ? 'on' : ''}" aria-label="${m.label}" title="${m.label}">
+      <span class="basec">${catIcon(m.icon, '#94a3b8')}</span>
+      <span class="fillc" style="color:var(--c)">${catIcon(m.icon, m.accent || '#fff')}</span>
+    </button>`;
+  // the EMS tab carries the blue ECG/QRS blip beside its label
+  const qrs = `<svg class="qrs" viewBox="0 0 34 12" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg">
+    <polyline points="1,7 9,7 12,10 16,1 20,11 23,4 26,7 33,7" stroke="currentColor"/></svg>`;
+  const tabBtn = ([name, m]) => `
+    <button data-cattab="${name}" class="cat-tab cat-k-${m.icon} ${on(name) ? 'on' : ''} ${cur === name ? 'active' : ''}">
+      <span class="stripe s1"></span><span class="stripe s2"></span><span class="lbl">${m.label}${m.accent ? qrs : ''}</span>
+    </button>`;
+  return `
+  <div class="mb-4 space-y-3">
+    <div class="flex items-center justify-center gap-3 sm:gap-4 px-2">
+      ${Object.entries(CAT_META).map(iconBtn).join('<span class="cat-line"></span>')}
+    </div>
+    <div class="flex items-center justify-center gap-2.5 sm:gap-3 flex-wrap px-3">
+      <button data-cattab="" class="cat-tab cat-k-all on ${cur === '' ? 'active' : ''}">
+        <span class="stripe s1"></span><span class="stripe s2"></span><span class="lbl">ALL</span>
+      </button>
+      ${Object.entries(CAT_META).map(tabBtn).join('')}
+    </div>
+  </div>`;
+};
+
+// Class-toggle update (no re-render) so the fill/drain transitions actually run.
+const updateCatStrip = cur => {
+  app.querySelectorAll('[data-cattab]').forEach(el => {
+    const name = el.dataset.cattab;
+    el.classList.toggle('on', name === '' || cur === '' || cur === name);
+    el.classList.toggle('active', cur === name);
+  });
+  const mat = $('#cat-mat');
+  if (!mat) return;
+  const m = CAT_META[cur];
+  mat.className = `cat-mat ${m ? `colored cat-k-${m.icon}` : ''}`;
+};
+
+const bindCatStrip = onPick =>
+  app.querySelectorAll('[data-cattab]').forEach(el => el.onclick = () => onPick(el.dataset.cattab));
 
 async function renderLibrary() {
   const [scenarios, objectives] = await Promise.all([
@@ -294,8 +424,6 @@ async function renderLibrary() {
   const sel = 'tap w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-sm';
   const fields = `
     <input id="lf-q" placeholder="Search…" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-sm focus:border-rose-500 focus:outline-none">
-    <div><label class="text-xs font-semibold text-slate-400">Category</label>
-      <select id="lf-cat" class="${sel} mt-1"><option value="">All</option>${Object.keys(SUBCATS).map(c => `<option>${c}</option>`).join('')}</select></div>
     <div><label class="text-xs font-semibold text-slate-400">Subcategory</label>
       <select id="lf-sub" class="${sel} mt-1"><option value="">All</option></select></div>
     <div><label class="text-xs font-semibold text-slate-400">Difficulty</label>
@@ -317,11 +445,14 @@ async function renderLibrary() {
       <i data-lucide="log-in" class="w-5 h-5 text-amber-400 shrink-0"></i>
       <span><a href="#/login" class="font-bold text-amber-300 hover:underline">Log in</a> to host live sessions and build your own scenarios. Joining a room never needs an account.</span>
     </div>`}
+    ${catStrip(st.cat)}
     <div class="flex gap-6 items-start">
       ${filterPanel(fields)}
       <div class="flex-1 min-w-0">
         ${filterPanel(fields.replaceAll('lf-', 'lfm-'), true)}
-        <div id="lib-grid" class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4"></div>
+        <div id="cat-mat" class="cat-mat">
+          <div id="lib-grid" class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4"></div>
+        </div>
         <div id="lib-deleted" class="mt-6"></div>
       </div>
     </div>
@@ -354,18 +485,25 @@ async function renderLibrary() {
       if (r.ok) { toast('Scenario restored'); renderLibrary(); } else toast('Restore failed', 'bg-rose-600');
     });
   };
-  // desktop + mobile filter panels share state; bind both prefixes
+  // desktop + mobile filter panels share state; bind both prefixes.
+  // Category moved out of the panel and into the Part 8 tab strip.
+  const subSels = [];
   const bind = pre => {
     const g = id => $(`#${pre}${id}`);
     const subSel = () => { g('sub').innerHTML = `<option value="">All</option>` + (SUBCATS[st.cat] || []).map(x => `<option ${x === st.sub ? 'selected' : ''}>${x}</option>`).join(''); };
-    subSel();
+    subSel(); subSels.push(subSel);
     g('q').oninput = e => { st.q = e.target.value; drawGrid(); };
-    g('cat').onchange = e => { st.cat = e.target.value; st.sub = ''; subSel(); drawGrid(); };
     g('sub').onchange = e => { st.sub = e.target.value; drawGrid(); };
     g('diff').onchange = e => { st.diff = e.target.value; drawGrid(); };
     g('obj').onchange = e => { st.obj = e.target.value; drawGrid(); };
     g('own')?.querySelectorAll('[data-own]').forEach(b => b.onclick = () => { st.own = b.dataset.own; renderLibraryFilters(); drawGrid(); });
   };
+  bindCatStrip(cat => {
+    st.cat = cat; st.sub = '';
+    subSels.forEach(f => f());
+    updateCatStrip(cat);
+    drawGrid();
+  });
   const renderLibraryFilters = () => ['lf-', 'lfm-'].forEach(pre =>
     $(`#${pre}own`)?.querySelectorAll('[data-own]').forEach(b => {
       const on = st.own === b.dataset.own;
@@ -1383,6 +1521,7 @@ async function renderMe() {
         </div>
         ${s.mode === 'solo' ? `<span class="text-xs font-semibold px-2.5 py-1 rounded-full bg-rose-900/60 text-rose-300">SOLO</span>` : ''}
         <span class="text-xs font-semibold px-2.5 py-1 rounded-full ${s.status === 'live' ? 'bg-emerald-900/60 text-emerald-300' : 'bg-slate-700 text-slate-300'}">${s.status}</span>
+        ${(s.hosted || s.mode === 'solo') && s.status !== 'live' ? `<button data-delsession="${s.id}" title="Delete session" class="tap p-2 -m-1 text-slate-500 hover:text-rose-400"><i data-lucide="trash-2" class="w-4 h-4"></i></button>` : ''}
       </div>
     </a>`).join('') || '<p class="text-sm text-slate-500 italic">No sessions yet — host one from the Library or try a scenario solo.</p>'}
   </main>`;
@@ -1393,6 +1532,13 @@ async function renderMe() {
     await fetch('/api/auth/verify/request', { method: 'POST' });
     toast('Verification email sent — check your inbox');
   };
+  app.querySelectorAll('[data-delsession]').forEach(btn => btn.onclick = async e => {
+    e.preventDefault(); e.stopPropagation(); // the row itself is a link
+    if (!confirm('Delete this session and its answers from your library? This can\'t be undone.')) return;
+    const r = await fetch(`/api/me/sessions/${btn.dataset.delsession}`, { method: 'DELETE' });
+    if (r.ok) { toast('Session deleted'); renderMe(); }
+    else toast((await r.json()).error ?? 'Delete failed', 'bg-rose-600');
+  });
 }
 
 /* ═══ v9: Account & settings (username in the top bar) ═══ */
@@ -1503,8 +1649,6 @@ async function renderPublic() {
   const sel = 'tap w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-sm';
   const fields = `
     <input id="pf-q" placeholder="Search…" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-sm focus:border-rose-500 focus:outline-none">
-    <div><label class="text-xs font-semibold text-slate-400">Category</label>
-      <select id="pf-cat" class="${sel} mt-1"><option value="">All</option>${Object.keys(SUBCATS).map(c => `<option ${c === st.cat ? 'selected' : ''}>${c}</option>`).join('')}</select></div>
     <div><label class="text-xs font-semibold text-slate-400">Subcategory</label>
       <select id="pf-sub" class="${sel} mt-1"><option value="">All</option></select></div>
     <div><label class="text-xs font-semibold text-slate-400">Difficulty</label>
@@ -1521,11 +1665,14 @@ async function renderPublic() {
         <a href="#/coverage" class="tap flex items-center gap-1.5 text-sm text-slate-300 hover:text-white px-3 py-2"><i data-lucide="grid-3x3" class="w-4 h-4"></i>Coverage</a>
       </div>
     </div>
+    ${catStrip(st.cat)}
     <div class="flex gap-6 items-start">
       ${filterPanel(fields)}
       <div class="flex-1 min-w-0">
         ${filterPanel(fields.replaceAll('pf-', 'pfm-'), true)}
-        <div id="pub-grid" class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4"></div>
+        <div id="cat-mat" class="cat-mat">
+          <div id="pub-grid" class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4"></div>
+        </div>
       </div>
     </div>
   </main>`;
@@ -1542,17 +1689,24 @@ async function renderPublic() {
     bindPublicActions();
     bindLaunchButtons();
   };
+  const subSels = [];
   const bind = pre => {
     const g = id => $(`#${pre}${id}`);
     const subSel = () => { g('sub').innerHTML = `<option value="">All</option>` + (SUBCATS[st.cat] || []).map(x => `<option ${x === st.sub ? 'selected' : ''}>${x}</option>`).join(''); };
-    subSel();
+    subSel(); subSels.push(subSel);
     g('q').oninput = e => { st.q = e.target.value; drawGrid(); };
-    g('cat').onchange = e => { st.cat = e.target.value; st.sub = ''; subSel(); drawGrid(); };
     g('sub').onchange = e => { st.sub = e.target.value; drawGrid(); };
     g('diff').onchange = e => { st.diff = e.target.value; drawGrid(); };
     g('obj').onchange = e => { st.obj = e.target.value; drawGrid(); };
   };
+  bindCatStrip(cat => {
+    st.cat = cat; st.sub = '';
+    subSels.forEach(f => f());
+    updateCatStrip(cat);
+    drawGrid();
+  });
   bind('pf-'); bind('pfm-');
+  updateCatStrip(st.cat); // deep links (?category=…) arrive pre-selected
   drawGrid();
   icons();
 

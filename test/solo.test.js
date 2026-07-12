@@ -161,3 +161,69 @@ test('solo run guards: no double answers, no answering other tracks, no joining 
   });
   assert.equal(theirs.status, 404);
 });
+
+// Part 8: editing a scenario after a run must not duplicate questions in the
+// archive — the ended solo run shows exactly the questions it answered.
+test('archive shows no duplicates after the scenario is edited', async () => {
+  const { cookie: author } = await signup(base, { email: 'editafter@solo.test' });
+  const sid = await makeScenario(author, {
+    questions: [
+      { prompt: 'Original Q1?', kind: 'text', instructor_answer: 'A1' },
+      { prompt: 'Original Q2?', kind: 'text', instructor_answer: 'A2' },
+    ],
+  });
+  const { cookie } = await signup(base, { email: 'editplayer@solo.test' });
+  const run = await fetch(`${base}/api/solo/runs`, {
+    method: 'POST', headers: authed(cookie), body: JSON.stringify({ scenario_id: sid }),
+  }).then(r => r.json());
+  for (const q of run.questions)
+    await fetch(`${base}/api/solo/runs/${run.run_id}/answers`, {
+      method: 'POST', headers: authed(cookie),
+      body: JSON.stringify({ question_id: q.id, body: 'ans ' + q.prompt }),
+    });
+
+  // author replaces every question (no ids sent → old rows soft-deleted)
+  const put = await fetch(`${base}/api/scenarios/${sid}`, {
+    method: 'PUT', headers: authed(author),
+    body: JSON.stringify({
+      title: 'Solo fixture', description: 'd', category: 'Fire', subcategory: 'Structure', visibility: 'public',
+      questions: [{ prompt: 'Rewritten Q?', kind: 'text', instructor_answer: 'NEW' }],
+    }),
+  });
+  assert.equal(put.status, 200);
+
+  const detail = await fetch(`${base}/api/me/sessions/${run.run_id}`, { headers: { cookie } }).then(r => r.json());
+  assert.equal(detail.questions.length, 2, 'exactly the questions the run answered');
+  assert.deepEqual(detail.questions.map(q => q.prompt).sort(), ['Original Q1?', 'Original Q2?']);
+  assert.deepEqual(detail.questions.map(q => q.instructor_answer).sort(), ['A1', 'A2']);
+  assert.equal(detail.responses.length, 2, 'every shown question has the user answer');
+});
+
+// Part 8: sessions can be deleted from My Sessions — solo owner/host only,
+// not while live, and gone from list + detail afterwards.
+test('session delete: owner only, hidden after, joined sessions not deletable by participants', async () => {
+  const { cookie: author } = await signup(base, { email: 'delauthor@solo.test' });
+  const sid = await makeScenario(author);
+  const { cookie } = await signup(base, { email: 'delplayer@solo.test' });
+  const run = await fetch(`${base}/api/solo/runs`, {
+    method: 'POST', headers: authed(cookie), body: JSON.stringify({ scenario_id: sid, role_track: 'Captain' }),
+  }).then(r => r.json());
+
+  // an unfinished (live) run can't be deleted
+  assert.equal((await fetch(`${base}/api/me/sessions/${run.run_id}`, { method: 'DELETE', headers: { cookie } })).status, 409);
+  for (const q of run.questions)
+    await fetch(`${base}/api/solo/runs/${run.run_id}/answers`, {
+      method: 'POST', headers: authed(cookie),
+      body: JSON.stringify({ question_id: q.id, body: 'a' }),
+    });
+
+  // not yours → 404 (solo runs have no host; the runner owns it as participant)
+  const { cookie: stranger } = await signup(base, { email: 'delstranger@solo.test' });
+  assert.equal((await fetch(`${base}/api/me/sessions/${run.run_id}`, { method: 'DELETE', headers: { cookie: stranger } })).status, 404);
+
+  const del = await fetch(`${base}/api/me/sessions/${run.run_id}`, { method: 'DELETE', headers: { cookie } });
+  assert.equal(del.status, 200);
+  const mine = await fetch(`${base}/api/me/sessions`, { headers: { cookie } }).then(r => r.json());
+  assert.ok(!mine.some(s => s.id === run.run_id), 'gone from the list');
+  assert.equal((await fetch(`${base}/api/me/sessions/${run.run_id}`, { headers: { cookie } })).status, 404, 'detail 404s');
+});
