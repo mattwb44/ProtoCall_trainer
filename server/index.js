@@ -1045,7 +1045,7 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
     const revealAll = ls.host_id === user.id || ls.status !== 'live';
     const revealMap = !revealAll && me ? rooms.revealedAnswers(ls.id, me.id).answers : {};
     const responses = db.prepare(
-      `SELECT r.*, p.display_tag, p.user_id, p.role_track FROM responses r
+      `SELECT r.*, p.display_tag, p.user_id, p.role_track, p.shift_label FROM responses r
        JOIN participants p ON p.id=r.participant_id WHERE r.session_id=?`).all(ls.id);
     // Part 8: reconstruct the question set as the session ran it. Editing a
     // scenario can replace question rows (old soft-deleted, new inserted) and
@@ -1259,6 +1259,16 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
       }
       io.to(`room:${code}`).emit('participant_count', counts(code));
       ack?.({ state, participant });
+    });
+
+    // F4: participant picks/updates an optional shift label; locks at first answer.
+    socket.on('set_shift', ({ shift }, ack) => {
+      const { sessionId, participantId } = socket.data ?? {};
+      if (!sessionId || !participantId) return ack?.({ error: 'invalid' });
+      const val = typeof shift === 'string' ? shift.trim().slice(0, 24) : '';
+      const stored = rooms.setShift(sessionId, participantId, val);
+      if (stored === null) return ack?.({ error: 'locked' });
+      ack?.({ ok: true, shift: stored });
     });
 
     socket.on('submit_response', ({ question_id, body }, ack) => {

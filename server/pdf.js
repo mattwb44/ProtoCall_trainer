@@ -34,7 +34,7 @@ export function sessionPdf({ session, questions, responses, notes, my_participan
     }
 
     for (const p of responses.filter(r => r.question_id === q.id && r.is_pushed)) {
-      doc.fillColor(rose).fontSize(8).font('Helvetica-Bold').text(`PUSHED BY INSTRUCTOR · ${p.display_tag}`);
+      doc.fillColor(rose).fontSize(8).font('Helvetica-Bold').text(`PUSHED BY INSTRUCTOR · ${p.display_tag}${p.shift_label ? ` · Shift ${p.shift_label}` : ''}`);
       doc.fillColor(slate).fontSize(10).font('Helvetica').text(p.body);
       doc.moveDown(0.25);
     }

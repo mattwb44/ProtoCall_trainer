@@ -1057,12 +1057,21 @@ function drawHost(state) {
 function drawMatrix() {
   if (!hostState) return;
   const hqs = hostState.questions;
-  $('#matrix').innerHTML = hqs.map((q, qi) => (q.stage && q.stage !== hqs[qi - 1]?.stage
+  // F4: per-shift response tally — distinct participants who've answered, by shift.
+  const byShift = {};
+  hostState.responses.forEach(r => { if (r.shift_label) (byShift[r.shift_label] ??= new Set()).add(r.participant_id); });
+  const shiftKeys = Object.keys(byShift).sort();
+  const tally = shiftKeys.length
+    ? `<div class="flex items-center gap-2 flex-wrap text-xs bg-slate-800 rounded-xl px-3 py-2">
+        <span class="font-semibold text-slate-400 flex items-center gap-1"><i data-lucide="users" class="w-3.5 h-3.5"></i>By ${esc(SHIFT_LABEL)}:</span>
+        ${shiftKeys.map(k => `<span class="font-bold text-sky-300 bg-sky-950/50 rounded px-2 py-0.5">${esc(k)} · ${byShift[k].size}</span>`).join('')}</div>`
+    : '';
+  $('#matrix').innerHTML = tally + hqs.map((q, qi) => (q.stage && q.stage !== hqs[qi - 1]?.stage
     ? `<div class="flex items-center gap-3 pt-2"><span class="text-xs font-black tracking-widest ${hostState.session.stages?.indexOf(q.stage) > hostState.session.stage_index ? 'text-slate-600' : 'text-amber-400'}">${esc(q.stage.toUpperCase())}${hostState.session.stages?.indexOf(q.stage) > hostState.session.stage_index ? ' — NOT YET VISIBLE' : ''}</span><span class="flex-1 h-px bg-slate-700"></span></div>` : '') + (q0 => {
     const rows = hostState.responses.filter(r => r.question_id === q.id).map(r => `
       <div class="flex items-start gap-3 bg-slate-900 rounded-xl p-3 anim-in ${r.is_pushed ? 'ring-2 ring-rose-500' : ''}">
         <span class="shrink-0 w-8 h-8 rounded-full bg-slate-700 text-xs font-bold flex items-center justify-center text-slate-300" title="${esc(r.role_track || '')}">${esc(r.display_tag)}</span>
-        <p class="flex-1 text-sm text-slate-200 pt-1">${r.role_track ? `<span class="text-xs font-bold text-amber-400 mr-1.5">${esc(r.role_track)}</span>` : ''}${esc(r.body)}</p>
+        <p class="flex-1 text-sm text-slate-200 pt-1">${r.role_track ? `<span class="text-xs font-bold text-amber-400 mr-1.5">${esc(r.role_track)}</span>` : ''}${r.shift_label ? `<span class="text-xs font-bold text-sky-300 mr-1.5">${esc(SHIFT_LABEL)} ${esc(r.shift_label)}</span>` : ''}${esc(r.body)}</p>
         <button data-push="${r.id}" ${r.is_pushed ? 'disabled' : ''} class="tap shrink-0 text-xs font-bold px-3 py-2 rounded-lg ${r.is_pushed ? 'bg-rose-900 text-rose-300' : 'bg-rose-600 hover:bg-rose-500'}">${r.is_pushed ? '✓ Pushed' : 'Push to Crew'}</button>
       </div>`).join('');
     return `<div class="bg-slate-800 rounded-2xl p-4">
@@ -1077,7 +1086,11 @@ function drawMatrix() {
 }
 
 /* ═══ Participant ═══ */
-let pState = null, myId = null, myRole = '';
+// F4: optional shift/platoon label. SHIFT_LABEL is the single relabel point
+// (e.g. "Platoon"/"Class" later); SHIFT_OPTIONS are the offered chips.
+const SHIFT_LABEL = 'Shift';
+const SHIFT_OPTIONS = ['A', 'B', 'C', 'D'];
+let pState = null, myId = null, myRole = '', myShift = '';
 function drawRolePicker(code, state) {
   app.innerHTML = `
   <main class="max-w-md mx-auto p-4 pt-10 space-y-4 anim-in">
@@ -1145,7 +1158,7 @@ function renderJoin(code) {
       drawRolePicker(code, state);
       return;
     }
-    pState = state; myId = participant.id; myRole = participant.role_track;
+    pState = state; myId = participant.id; myRole = participant.role_track; myShift = participant.shift_label || '';
     answered.clear(); official.clear();
     state.responses.filter(r => r.participant_id === myId).forEach(r => answered.add(r.question_id));
     state.questions.forEach(q => { if (q.instructor_answer !== undefined) official.set(q.id, q.instructor_answer ?? ''); });
@@ -1159,7 +1172,7 @@ function drawParticipant() {
   app.innerHTML = `
   <main class="max-w-md mx-auto pb-40 anim-in">
     <header class="sticky top-[52px] z-30 bg-slate-900/95 backdrop-blur border-b border-slate-800 px-4 py-3 flex items-center justify-between">
-      <div><p class="text-xs text-slate-400">Room <span class="font-mono font-bold text-amber-400">${esc(session.room_code)}</span>${myRole ? ` · <span class="font-semibold text-amber-400">${esc(myRole)}</span>` : ''}</p>
+      <div><p class="text-xs text-slate-400">Room <span class="font-mono font-bold text-amber-400">${esc(session.room_code)}</span>${myRole ? ` · <span class="font-semibold text-amber-400">${esc(myRole)}</span>` : ''}${myShift ? ` · <span class="font-semibold text-sky-300">${SHIFT_LABEL} ${esc(myShift)}</span>` : ''}</p>
         <p class="font-semibold text-sm leading-tight">${esc(session.title)}</p></div>
       <span id="conn-badge" class="flex items-center gap-1.5 text-xs font-semibold ${ended ? 'bg-slate-800 text-slate-400' : 'bg-emerald-900/60 text-emerald-300'} px-3 py-1.5 rounded-full">
         ${ended ? 'ENDED' : '<span class="w-2 h-2 bg-emerald-400 rounded-full live-dot"></span> LIVE'}</span>
@@ -1171,6 +1184,7 @@ function drawParticipant() {
         ${esc(session.description)}
       </div>
     </div>
+    ${!ended ? shiftBar() : ''}
     <div id="q-stream" class="px-4 pt-4 space-y-4">
       ${questions.map((q, i) => (q.stage && q.stage !== questions[i - 1]?.stage
         ? `<div class="flex items-center gap-3 pt-2"><span class="text-xs font-black tracking-widest text-amber-400">${esc(q.stage.toUpperCase())}</span><span class="flex-1 h-px bg-slate-700"></span></div>` : '')
@@ -1188,6 +1202,13 @@ function drawParticipant() {
     </div>
   </main>`;
   bindCards(); icons();
+  app.querySelectorAll('[data-shift]').forEach(b => b.onclick = () => {
+    const val = b.dataset.shift;
+    getSocket().emit('set_shift', { shift: val }, res => {
+      if (res?.error) return toast(`${SHIFT_LABEL} locks once you answer`, 'bg-rose-600');
+      myShift = res.shift; drawParticipant();
+    });
+  });
   // re-render pushed answers already in state
   responses.filter(r => r.is_pushed).forEach(r => {
     const slot = document.getElementById('pushed-' + r.question_id);
@@ -1195,6 +1216,19 @@ function drawParticipant() {
       `<div data-rid="${r.id}" class="bg-slate-800 border-l-4 border-rose-500 rounded-lg px-3 py-2.5 text-sm">
         <p class="text-xs font-bold text-rose-400 mb-0.5">PUSHED BY INSTRUCTOR · ${esc(r.display_tag)}</p>${esc(r.body)}</div>`);
   });
+}
+// F4: optional shift picker, shown until the participant's first answer locks it.
+// Skipping it costs nothing, so zero-friction joining is preserved.
+function shiftBar() {
+  const locked = answered.size > 0;
+  if (locked) return myShift
+    ? `<div class="px-4 pt-4"><span class="inline-flex items-center gap-1.5 text-xs font-semibold text-sky-300 bg-sky-950/50 border border-sky-900 rounded-lg px-3 py-1.5"><i data-lucide="users" class="w-3.5 h-3.5"></i>${SHIFT_LABEL} ${esc(myShift)}</span></div>`
+    : '';
+  return `<div class="px-4 pt-4"><div class="bg-slate-800 rounded-xl p-3 flex items-center gap-2 flex-wrap">
+    <span class="text-xs font-semibold text-slate-400 flex items-center gap-1 mr-1"><i data-lucide="users" class="w-3.5 h-3.5"></i>Your ${SHIFT_LABEL} <span class="text-slate-500 font-normal">(optional)</span></span>
+    ${SHIFT_OPTIONS.map(o => `<button data-shift="${esc(o)}" class="tap px-3 py-1.5 rounded-lg text-sm font-bold ${myShift === o ? 'bg-sky-500 text-slate-900' : 'bg-slate-900 text-slate-300 hover:bg-slate-700'}">${esc(o)}</button>`).join('')}
+    ${myShift ? `<button data-shift="" class="tap text-xs text-slate-500 hover:text-slate-300 underline ml-0.5">clear</button>` : ''}
+  </div></div>`;
 }
 const KIND_LABEL = { photo: 'PHOTO', ekg: 'EKG STRIP', map: 'MAP' };
 function mediaStrip(media, legacyUrl) {
@@ -2214,12 +2248,12 @@ async function renderSessionDetail(id) {
         ${isHost && analysis ? responses.filter(r => r.question_id === qn.id).map(r => {
           const a = assessFor(r.id);
           return `<div class="bg-slate-900 rounded-xl px-4 py-3 text-sm space-y-1 ${a?.classification === 'review' ? 'border border-amber-500/40' : ''}">
-            <div class="flex items-center justify-between gap-2"><p class="text-xs font-bold text-slate-500">${esc(r.display_tag)}${r.role_track ? ` · <span class="text-amber-400">${esc(r.role_track)}</span>` : ''}</p>${a ? badge(a.classification) : ''}</div>
+            <div class="flex items-center justify-between gap-2"><p class="text-xs font-bold text-slate-500">${esc(r.display_tag)}${r.role_track ? ` · <span class="text-amber-400">${esc(r.role_track)}</span>` : ''}${r.shift_label ? ` · <span class="text-sky-300">${esc(SHIFT_LABEL)} ${esc(r.shift_label)}</span>` : ''}</p>${a ? badge(a.classification) : ''}</div>
             <p>${esc(r.body)}</p>
             ${a ? `<p class="text-xs text-slate-400 italic">${esc(a.rationale)}</p>` : ''}
           </div>`;
         }).join('') : ''}
-        ${pushed.map(p => `<div class="bg-slate-900 border-l-4 border-rose-500 rounded-lg px-3 py-2.5 text-sm"><p class="text-xs font-bold text-rose-400 mb-0.5">PUSHED · ${esc(p.display_tag)}</p>${esc(p.body)}</div>`).join('')}
+        ${pushed.map(p => `<div class="bg-slate-900 border-l-4 border-rose-500 rounded-lg px-3 py-2.5 text-sm"><p class="text-xs font-bold text-rose-400 mb-0.5">PUSHED · ${esc(p.display_tag)}${p.shift_label ? ` · ${esc(SHIFT_LABEL)} ${esc(p.shift_label)}` : ''}</p>${esc(p.body)}</div>`).join('')}
         ${qn.instructor_answer != null ? officialDrop(qn.instructor_answer) : ''}
         ${note ? `<div class="bg-amber-950/30 border border-amber-800/50 rounded-xl px-4 py-3 text-sm"><p class="text-xs font-bold text-amber-400 mb-1">YOUR NOTES</p>${esc(note.body)}</div>` : ''}
       </div>`;

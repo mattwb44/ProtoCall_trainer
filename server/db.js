@@ -182,6 +182,10 @@ function migrate(db) {
   addColumn('users', 'email_verified_at', 'email_verified_at TEXT');
   addColumn('live_sessions', 'mode', "mode TEXT NOT NULL DEFAULT 'live'");
   addColumn('participants', 'role_track', "role_track TEXT NOT NULL DEFAULT ''");
+  // F4 (fireground migration): optional shift/platoon label a participant sets
+  // at join, tagging their answers in the matrix, archive, and PDF. Blank = not
+  // set (keeps zero-friction joining intact). Label defaults to "Shift" client-side.
+  addColumn('participants', 'shift_label', "shift_label TEXT NOT NULL DEFAULT ''");
   // v7 taxonomy: controlled learning objectives + filter labels (PRD-v7)
   addColumn('scenarios', 'objective_primary', "objective_primary TEXT NOT NULL DEFAULT ''");
   addColumn('scenarios', 'objective_secondary', "objective_secondary TEXT NOT NULL DEFAULT ''");

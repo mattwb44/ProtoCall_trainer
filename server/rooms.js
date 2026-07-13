@@ -46,7 +46,7 @@ export class Rooms {
     if (!p) {
       const n = this.db.prepare('SELECT COUNT(*) n FROM participants WHERE session_id=?')
         .get(sessionId).n;
-      p = { id: uuid(), session_id: sessionId, token, display_tag: `P${n + 1}`, user_id: userId, role_track: roleTrack };
+      p = { id: uuid(), session_id: sessionId, token, display_tag: `P${n + 1}`, user_id: userId, role_track: roleTrack, shift_label: '' };
       this.db.prepare('INSERT INTO participants (id, session_id, token, display_tag, user_id, role_track) VALUES (?,?,?,?,?,?)')
         .run(p.id, p.session_id, p.token, p.display_tag, p.user_id, p.role_track);
       return p;
@@ -74,8 +74,19 @@ export class Rooms {
       'INSERT INTO responses (id, session_id, question_id, participant_id, body) VALUES (?,?,?,?,?)')
       .run(id, sessionId, questionId, participantId, body);
     return this.db.prepare(
-      `SELECT r.*, p.display_tag, p.role_track FROM responses r
+      `SELECT r.*, p.display_tag, p.role_track, p.shift_label FROM responses r
        JOIN participants p ON p.id = r.participant_id WHERE r.id=?`).get(id);
+  }
+
+  // F4: a participant sets/changes their shift label freely until their first
+  // answer lands, then it locks (so the host's tagged matrix stays stable).
+  // Returns the stored value, or null when locked. '' clears an unset choice.
+  setShift(sessionId, participantId, shift) {
+    const answered = this.db.prepare(
+      'SELECT COUNT(*) n FROM responses WHERE session_id=? AND participant_id=?').get(sessionId, participantId).n;
+    if (answered) return null;
+    this.db.prepare('UPDATE participants SET shift_label=? WHERE id=?').run(shift, participantId);
+    return shift;
   }
 
   pushAnswer(responseId) {
@@ -209,7 +220,7 @@ export class Rooms {
     const room = this.getByCode(code);
     if (!room) return null;
     const responses = this.db.prepare(
-      `SELECT r.id, r.question_id, r.body, r.is_pushed, r.participant_id, p.display_tag, p.role_track
+      `SELECT r.id, r.question_id, r.body, r.is_pushed, r.participant_id, p.display_tag, p.role_track, p.shift_label
        FROM responses r JOIN participants p ON p.id = r.participant_id
        WHERE r.session_id=? ORDER BY r.submitted_at`).all(room.session.id);
     const stages = this.resolveStages(room.questions);
