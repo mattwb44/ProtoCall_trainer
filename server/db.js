@@ -157,6 +157,16 @@ export function createDb(file = process.env.DB_PATH || path.join(__dirname, '..'
     kind TEXT NOT NULL DEFAULT 'photo' CHECK (kind IN ('photo','ekg','map')),
     url TEXT NOT NULL,
     sort_order INTEGER NOT NULL DEFAULT 0
+  );
+  -- Track 0c: raw started/finished counts for solo runs (guest + signed-in),
+  -- so the study-library work (self-marking, objective roll-up, recommender)
+  -- gets built against real drop-off data instead of a guess.
+  CREATE TABLE IF NOT EXISTS solo_events (
+    id TEXT PRIMARY KEY,
+    event TEXT NOT NULL CHECK (event IN ('started','finished')),
+    scenario_id TEXT NOT NULL REFERENCES scenarios(id) ON DELETE CASCADE,
+    user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
   );`);
 
   migrate(db);

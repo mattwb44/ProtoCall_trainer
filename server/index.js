@@ -977,6 +977,19 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
 
   const officialFor = qs => Object.fromEntries(qs.map(q => [q.id, q.instructor_answer ?? '']));
 
+  // Track 0c: fire-and-forget funnel logging — never blocks or fails the request.
+  const logSolo = (event, scenarioId, userId = null) => {
+    try { db.prepare('INSERT INTO solo_events (id, event, scenario_id, user_id) VALUES (?,?,?,?)')
+      .run(uuid(), event, scenarioId, userId); } catch { /* best-effort */ }
+  };
+
+  app.post('/api/scenarios/:id/solo-start', (req, reply) => {
+    const s = db.prepare('SELECT id FROM scenarios WHERE id=? AND deleted_at IS NULL').get(req.params.id);
+    if (!s) return reply.code(404).send({ error: 'not found' });
+    logSolo('started', s.id, currentUser(req)?.id ?? null);
+    reply.code(204); return null;
+  });
+
   // Guest (or any) stateless solo run: submit every answer at once, get every
   // model answer back. Nothing is stored — "won't be saved" is literal.
   app.post('/api/scenarios/:id/solo-reveal', (req, reply) => {
@@ -988,6 +1001,7 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
     if (!qs.length) return reply.code(400).send({ error: 'no questions for this role' });
     const missing = qs.filter(q => !String(answers[q.id] ?? '').trim()).length;
     if (missing) return reply.code(400).send({ error: 'answer every question first', missing });
+    logSolo('finished', s.id, user?.id ?? null);
     return { official_answers: officialFor(qs) };
   });
 
@@ -1026,7 +1040,7 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
     // v7 stages: solo advances stage-by-stage — each completed stage reveals
     // its model answers; completing the whole set ends the run (the debrief).
     const { answers, complete } = rooms.revealedAnswers(ls.id, me.id);
-    if (complete) rooms.endSession(ls.id);
+    if (complete) { rooms.endSession(ls.id); logSolo('finished', ls.scenario_id, user.id); }
     return { ok: true, complete,
              ...(Object.keys(answers).length ? { official_answers: answers } : {}) };
   });
