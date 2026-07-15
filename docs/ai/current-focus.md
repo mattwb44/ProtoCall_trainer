@@ -10,8 +10,11 @@ supply gates everything downstream.
 - **Track 0 — housekeeping.** ✅ VOICE.md + solo funnel logging shipped.
 - **Track A — consumption.** A1 (solo exit + revision) ✅ shipped/live.
   A2 (unified After-Action reveal) — next.
-- **Track B — creation.** Scene-first + sticky reference, progressive
-  disclosure, creation tutorial, destination selector.
+- **Track B — creation.** ✅ Scene-first ordering, sticky scene reference
+  (desktop rail + mobile peek), progressive disclosure of stage/role fields,
+  dismissible creation tutorial, and destination selector all shipped in the
+  creator (`renderCreator`). Next: corpus-seeded keyword suggester lands with
+  Track C.
 - **Track C — objectives.** Per-question grain + enforced tagging +
   corpus-seeded keyword suggester.
 - **Track D — community moderation.** Approval queue + admin.
@@ -19,5 +22,5 @@ supply gates everything downstream.
   recommender. **Gated** on the solo funnel showing repeat usage.
 
 ## Recommended order
-0 → A → B → C → D; E only once funnel data justifies it. B is arguably the
-highest-leverage track (supply), sequenced right after A.
+0 → A → B → C → D; E only once funnel data justifies it. B (creation UX)
+shipped; A2 (unified After-Action reveal) still outstanding on Track A.
