@@ -56,7 +56,7 @@ test('scenario media: saved ordered, appears in detail and live room state, clon
   const { id } = await fetch(`${base}/api/scenarios`, {
     method: 'POST', headers: authed(cookie),
     body: JSON.stringify({
-      title: 'STEMI Recognition', visibility: 'public', category: 'EMS', subcategory: 'Cardiac',
+      title: 'STEMI Recognition', visibility: 'public', category: 'EMS', subcategory: 'Cardiac', objective_primary: 'Cardiac Care',
       questions: [{ prompt: 'Interpret the 12-lead.', instructor_answer: 'Anterior STEMI' }],
       media: [{ kind: 'ekg', url: u1.url }, { kind: 'photo', url: u2.url }],
     }),
@@ -148,7 +148,7 @@ test('soft delete hides, blocks launch, restores; history still opens', async ()
   const { id } = await fetch(`${base}/api/scenarios`, {
     method: 'POST', headers: authed(cookie),
     body: JSON.stringify({
-      title: 'Wildland Anchor Point', visibility: 'public', category: 'Fireground', subcategory: 'Wildland',
+      title: 'Wildland Anchor Point', visibility: 'public', category: 'Fireground', subcategory: 'Wildland', objective_primary: 'Scene Size-Up',
       questions: [{ prompt: 'LCES stands for?', instructor_answer: 'Lookouts, Communications, Escape routes, Safety zones' }],
     }),
   }).then(r => r.json());

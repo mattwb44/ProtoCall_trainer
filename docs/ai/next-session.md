@@ -3,6 +3,18 @@
 _Updated 2026-07-15. Read `current-focus.md` and `decisions.md` first._
 
 ## Completed (2026-07-15)
+- **Track C (slice 2) — per-question objective grain + enforced tagging** shipped.
+  Migration adds `questions.objective` (blank inherits the scenario primary).
+  Scenario detail now returns `objectives` = the union (primary first). Editor
+  gets a per-question objective select in the advanced cluster (relabelled
+  "Per-question stage · role · objective"); saveScenario forwards it. Enforcement:
+  a primary objective is required when a scenario is shared (public/department) or
+  submitted for review — **a refinement of the "enforced at creation" decision**
+  (private drafts stay exempt; see `decisions.md`). Enforced in POST/PUT +
+  submit-review, guarded in the creator before save; clone copies per-question
+  objectives + scenario objectives. ~10 test fixtures updated to tag their shared
+  scenarios; 2 new taxonomy tests. Full suite 84 (1 pre-existing media size-cap
+  flake, unrelated — flakes identically on the clean tree). **Track C complete.**
 - **Track C (slice 1) — objective keyword suggester** shipped. New
   `server/objectives.js`: a rule-based, local, explainable suggester blending a
   hand-curated seed (`SEED_KEYWORDS`, one entry per learning objective) with a
@@ -55,11 +67,11 @@ _Updated 2026-07-15. Read `current-focus.md` and `decisions.md` first._
   `SITE_ADMIN_EMAIL`), or promotable from the UI? Not yet decided.
 
 ## Recommended next steps (priority order)
-1. **Track C — remaining** (see `decisions.md` → Objectives architecture): the
-   keyword suggester is done; still to build the per-question objective grain
-   (scenario set = union of its questions'; needs a question-level objective
-   column/join + migration) and enforced tagging at creation (≥ the scenario
-   primary). Optionally persist suggested/accepted objectives from the suggester.
+1. **Track D — community moderation** (see `decisions.md` → Community): approval
+   queue exists (`submit-review` → pending → admin approve/reject; only approved
+   + public show in community browse). Confirm the browse/query actually gates on
+   approval, and resolve the open **admin model** question below. Optionally, the
+   Track C follow-up: persist suggested/accepted objectives from the suggester.
 2. **Track D — community moderation** (approval queue is largely in place; see
    the admin-model open question above). Hold **Track E** until `solo_events`
    shows repeat solo usage.

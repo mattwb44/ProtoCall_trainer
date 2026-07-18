@@ -548,7 +548,10 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
         choices: q.choices ? JSON.parse(q.choices) : null,
         instructor_answer: mine || reviewer ? q.instructor_answer : undefined,
       }));
-    return { ...s, questions, media: mediaFor(s.id), mine, can_review: reviewer };
+    // Track C: the scenario's effective objective set is the union of its own
+    // primary/secondary and each question's objective (blank inherits primary).
+    return { ...s, questions, objectives: effectiveObjectives(s, questions),
+             media: mediaFor(s.id), mine, can_review: reviewer };
   });
 
   // ── v7 taxonomy: controlled learning objectives + filter labels ──
@@ -578,6 +581,29 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
       ? db.prepare("SELECT name FROM learning_objectives WHERE category='' OR category=? ORDER BY name").all(category)
       : db.prepare('SELECT name FROM learning_objectives ORDER BY name').all()
     ).map(o => o.name);
+
+  // Track C: the scenario's objective set is the union of its primary,
+  // secondary, and every question's objective (blank inherits the primary).
+  // Primary leads; order is otherwise first-seen.
+  const effectiveObjectives = (scenario, questions = []) => {
+    const out = [];
+    const add = o => { if (o && !out.includes(o)) out.push(o); };
+    add(scenario.objective_primary);
+    add(scenario.objective_secondary);
+    questions.forEach(q => add(q.objective || scenario.objective_primary));
+    return out;
+  };
+
+  // Validates each question's optional objective against the controlled list.
+  // Blank is always allowed (inherits the scenario primary).
+  const validateQuestionObjectives = (questions = []) => {
+    const list = new Set(objectiveNames());
+    for (const q of questions) {
+      const o = (q?.objective ?? '').trim();
+      if (o && !list.has(o)) return { error: `unknown question objective: ${o}` };
+    }
+    return {};
+  };
 
   // Extracts and validates the taxonomy fields; returns {error} or {values}.
   const taxonomyOf = (body = {}) => {
@@ -663,6 +689,8 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
     if (s.review_status === 'approved') return reply.code(409).send({ error: 'already approved' });
     const qCount = db.prepare('SELECT COUNT(*) c FROM questions WHERE scenario_id=? AND deleted=0').get(s.id).c;
     if (!qCount) return reply.code(400).send({ error: 'add at least one question first' });
+    // Track C: a scenario headed for official review must be tagged.
+    if (!s.objective_primary) return reply.code(400).send({ error: 'tag a primary objective before submitting for review' });
     db.prepare(`UPDATE scenarios SET review_status='pending', review_note='', submitted_at=datetime('now') WHERE id=?`)
       .run(s.id);
     return { review_status: 'pending' };
@@ -844,6 +872,12 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
     const tax = taxonomyOf(req.body);
     if (tax.error) return reply.code(400).send({ error: tax.error });
     const t = tax.values;
+    const qObj = validateQuestionObjectives(questions);
+    if (qObj.error) return reply.code(400).send({ error: qObj.error });
+    // Enforced tagging: anything shared beyond Private must carry a primary
+    // objective (private drafts stay friction-free).
+    if ((shares.pub || shares.dept) && !t.objective_primary)
+      return reply.code(400).send({ error: 'a shared scenario needs a primary objective' });
     const id = uuid();
     const tx = db.transaction(() => {
       db.prepare(`INSERT INTO scenarios (id, title, description, category, subcategory, image_url, visibility, shared_department, shared_public, author_id, department_id,
@@ -851,10 +885,10 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(id, title, description, category, subcategory, image_url,
                     shares.visibility, shares.dept ? 1 : 0, shares.pub ? 1 : 0, user.id, shares.department_id,
                     t.objective_primary, t.objective_secondary, t.difficulty, t.building_type);
-      const ins = db.prepare(`INSERT INTO questions (id, scenario_id, prompt, kind, choices, instructor_answer, role_track, stage, sort_order)
-                              VALUES (?,?,?,?,?,?,?,?,?)`);
+      const ins = db.prepare(`INSERT INTO questions (id, scenario_id, prompt, kind, choices, instructor_answer, role_track, stage, objective, sort_order)
+                              VALUES (?,?,?,?,?,?,?,?,?,?)`);
       questions.forEach((q, i) => ins.run(uuid(), id, q.prompt, q.kind ?? 'text',
-        q.choices ? JSON.stringify(q.choices) : null, q.instructor_answer ?? '', q.role_track ?? '', q.stage ?? '', i));
+        q.choices ? JSON.stringify(q.choices) : null, q.instructor_answer ?? '', q.role_track ?? '', q.stage ?? '', (q.objective ?? '').trim(), i));
       replaceMedia(id, req.body.media);
       rememberStages(user.id, questions);
     });
@@ -882,6 +916,12 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
     const tax = taxonomyOf(req.body);
     if (tax.error) return reply.code(400).send({ error: tax.error });
     const t = tax.values;
+    const qObj = validateQuestionObjectives(questions);
+    if (qObj.error) return reply.code(400).send({ error: qObj.error });
+    // Enforced tagging (author edits only — a reviewer keeps the author's
+    // shares): anything shared beyond Private must carry a primary objective.
+    if (!asReviewer && (shares.pub || shares.dept) && !t.objective_primary)
+      return reply.code(400).send({ error: 'a shared scenario needs a primary objective' });
     const existing = db.prepare('SELECT id FROM questions WHERE scenario_id=? AND deleted=0').all(s.id).map(q => q.id);
     const keptIds = new Set(questions.filter(q => q.id).map(q => q.id));
     // Reviewer edits leave scope/badge/status untouched. Author edits: leaving
@@ -900,15 +940,16 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
              shares.dept ? 1 : 0, shares.pub ? 1 : 0, dept, official, status,
              t.objective_primary, t.objective_secondary, t.difficulty, t.building_type, s.id);
       // Reconcile questions: update kept, insert new, soft-delete removed (responses may reference them).
-      const upd = db.prepare(`UPDATE questions SET prompt=?, kind=?, choices=?, instructor_answer=?, role_track=?, stage=?, sort_order=? WHERE id=? AND scenario_id=?`);
-      const ins = db.prepare(`INSERT INTO questions (id, scenario_id, prompt, kind, choices, instructor_answer, role_track, stage, sort_order)
-                              VALUES (?,?,?,?,?,?,?,?,?)`);
+      const upd = db.prepare(`UPDATE questions SET prompt=?, kind=?, choices=?, instructor_answer=?, role_track=?, stage=?, objective=?, sort_order=? WHERE id=? AND scenario_id=?`);
+      const ins = db.prepare(`INSERT INTO questions (id, scenario_id, prompt, kind, choices, instructor_answer, role_track, stage, objective, sort_order)
+                              VALUES (?,?,?,?,?,?,?,?,?,?)`);
       questions.forEach((q, i) => {
         const choices = q.choices ? JSON.stringify(q.choices) : null;
+        const objective = (q.objective ?? '').trim();
         if (q.id && existing.includes(q.id))
-          upd.run(q.prompt, q.kind ?? 'text', choices, q.instructor_answer ?? '', q.role_track ?? '', q.stage ?? '', i, q.id, s.id);
+          upd.run(q.prompt, q.kind ?? 'text', choices, q.instructor_answer ?? '', q.role_track ?? '', q.stage ?? '', objective, i, q.id, s.id);
         else
-          ins.run(uuid(), s.id, q.prompt, q.kind ?? 'text', choices, q.instructor_answer ?? '', q.role_track ?? '', q.stage ?? '', i);
+          ins.run(uuid(), s.id, q.prompt, q.kind ?? 'text', choices, q.instructor_answer ?? '', q.role_track ?? '', q.stage ?? '', objective, i);
       });
       const gone = existing.filter(id => !keptIds.has(id));
       if (gone.length) {
@@ -944,13 +985,15 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
     if (!src || !canSee(src, user)) return reply.code(404).send({ error: 'not found' });
     const id = uuid();
     const tx = db.transaction(() => {
-      db.prepare(`INSERT INTO scenarios (id, title, description, category, subcategory, image_url, visibility, author_id, cloned_from)
-                  VALUES (?,?,?,?,?,?,'private',?,?)`)
-        .run(id, src.title, src.description, src.category, src.subcategory, src.image_url, user.id, src.id);
+      db.prepare(`INSERT INTO scenarios (id, title, description, category, subcategory, image_url, visibility, author_id, cloned_from,
+                    objective_primary, objective_secondary, difficulty, building_type)
+                  VALUES (?,?,?,?,?,?,'private',?,?,?,?,?,?)`)
+        .run(id, src.title, src.description, src.category, src.subcategory, src.image_url, user.id, src.id,
+             src.objective_primary ?? '', src.objective_secondary ?? '', src.difficulty ?? '', src.building_type ?? '');
       const qs = db.prepare('SELECT * FROM questions WHERE scenario_id=? AND deleted=0 ORDER BY sort_order').all(src.id);
-      const ins = db.prepare(`INSERT INTO questions (id, scenario_id, prompt, kind, choices, instructor_answer, role_track, stage, sort_order)
-                              VALUES (?,?,?,?,?,?,?,?,?)`);
-      qs.forEach(q => ins.run(uuid(), id, q.prompt, q.kind, q.choices, q.instructor_answer, q.role_track, q.stage, q.sort_order));
+      const ins = db.prepare(`INSERT INTO questions (id, scenario_id, prompt, kind, choices, instructor_answer, role_track, stage, objective, sort_order)
+                              VALUES (?,?,?,?,?,?,?,?,?,?)`);
+      qs.forEach(q => ins.run(uuid(), id, q.prompt, q.kind, q.choices, q.instructor_answer, q.role_track, q.stage, q.objective ?? '', q.sort_order));
       replaceMedia(id, mediaFor(src.id));
     });
     tx();

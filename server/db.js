@@ -224,6 +224,10 @@ function migrate(db) {
   // stage inherits the previous question's stage. Sessions track the host's
   // (or solo player's) current stage index.
   addColumn('questions', 'stage', "stage TEXT NOT NULL DEFAULT ''");
+  // Track C: per-question learning objective. Blank inherits the scenario's
+  // primary; a scenario's effective objective set is the union of its
+  // questions' objectives. Fixes the old 2-objective-per-scenario cap.
+  addColumn('questions', 'objective', "objective TEXT NOT NULL DEFAULT ''");
   addColumn('live_sessions', 'stage_index', 'stage_index INTEGER NOT NULL DEFAULT 0');
   // Part 8: sessions can be deleted from My Sessions (host/solo owner only)
   addColumn('live_sessions', 'deleted_at', 'deleted_at TEXT');

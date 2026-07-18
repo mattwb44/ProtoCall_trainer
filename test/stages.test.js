@@ -25,7 +25,7 @@ before(async () => {
     method: 'POST', headers: authed(host.cookie),
     body: JSON.stringify({
       title: 'Staged Fire', description: 'd', category: 'Fire', subcategory: 'Structure',
-      visibility: 'public',
+      visibility: 'public', objective_primary: 'Scene Size-Up',
       questions: [
         { prompt: 'D1?', instructor_answer: 'dA1', stage: 'Dispatch' },
         { prompt: 'D2?', instructor_answer: 'dA2' },                    // blank inherits Dispatch

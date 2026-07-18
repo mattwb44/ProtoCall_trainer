@@ -556,7 +556,10 @@ function syncAnswer(q) {
   if (q.kind === 'multiple_choice' || q.kind === 'select_all')
     q.instructor_answer = (q._correct || []).map(ci => q.choices?.[ci]).filter(c => c && c.trim()).join(' | ');
 }
-const newQuestion = () => ({ prompt: '', kind: 'text', choices: null, instructor_answer: '', role_track: '', stage: '', _correct: [] });
+const newQuestion = () => ({ prompt: '', kind: 'text', choices: null, instructor_answer: '', role_track: '', stage: '', objective: '', _correct: [] });
+// Category objectives available to the question editor (drawQs runs outside
+// renderCreator's scope, so the current list lives here).
+let draftObjectives = [];
 async function renderCreator(id) {
   if (!me) { sessionStorage.authNext = location.hash; location.hash = '#/login'; return; }
   editingId = id || null;
@@ -571,7 +574,7 @@ async function renderCreator(id) {
     if (!existing || (!existing.mine && !existing.can_review)) { toast('Scenario not found', 'bg-rose-600'); location.hash = '#/library'; return; }
     editingAsReviewer = !existing.mine && existing.can_review;
     draftQs = existing.questions.map(q => {
-      const qq = { id: q.id, prompt: q.prompt, kind: q.kind, choices: q.choices, instructor_answer: q.instructor_answer, role_track: q.role_track ?? '', stage: q.stage ?? '', _correct: [] };
+      const qq = { id: q.id, prompt: q.prompt, kind: q.kind, choices: q.choices, instructor_answer: q.instructor_answer, role_track: q.role_track ?? '', stage: q.stage ?? '', objective: q.objective ?? '', _correct: [] };
       if ((q.kind === 'multiple_choice' || q.kind === 'select_all') && Array.isArray(q.choices)) {
         const corrects = (q.instructor_answer || '').split('|').map(s => s.trim()).filter(Boolean);
         qq._correct = q.choices.map((c, ci) => (corrects.includes(c) ? ci : -1)).filter(ci => ci >= 0);
@@ -584,6 +587,7 @@ async function renderCreator(id) {
   // and repopulate the dropdowns whenever the category changes.
   const initialCat = existing?.category ?? Object.keys(SUBCATS)[0];
   const objectives = await loadObjectives(initialCat);
+  draftObjectives = objectives;
   // v8 review banner: author sees status + submit/resubmit; reviewer sees
   // approve / request-changes actions on a pending scenario.
   const reviewBanner = () => {
@@ -686,9 +690,9 @@ async function renderCreator(id) {
         <section class="bg-slate-800 rounded-2xl p-4 sm:p-6 space-y-3">
           <div class="flex items-center justify-between gap-3 flex-wrap">
             <h2 class="font-semibold">Questions</h2>
-            <label class="tap flex items-center gap-2 text-xs text-slate-400 cursor-pointer" title="Show per-question stage and role fields.">
+            <label class="tap flex items-center gap-2 text-xs text-slate-400 cursor-pointer" title="Show per-question stage, role, and objective fields.">
               <input id="c-adv" type="checkbox" ${advancedQ ? 'checked' : ''} class="accent-amber-500 w-4 h-4">
-              Stage &amp; role fields
+              Per-question stage · role · objective
             </label>
           </div>
           <div id="c-qs" class="space-y-3"></div>
@@ -754,10 +758,13 @@ async function renderCreator(id) {
   // current pick only if it's still offered.
   const fillObjectives = async () => {
     const list = await loadObjectives($('#c-cat').value);
+    draftObjectives = list;
     [['#c-obj1', $('#c-obj1').value], ['#c-obj2', $('#c-obj2').value]].forEach(([selId, cur]) => {
       $(selId).innerHTML = `<option value="">— none —</option>` +
         list.map(o => `<option ${o === cur ? 'selected' : ''}>${esc(o)}</option>`).join('');
     });
+    // per-question objective dropdowns follow the category too
+    if (advancedQ) drawQs();
   };
   $('#c-cat').onchange = () => { fillSub(); toggleBldg(); fillObjectives(); };
   fillSub(); toggleBldg();
@@ -972,6 +979,15 @@ function roleSelect(q, i) {
     </select>
     <input data-role-custom="${i}" value="${esc(custom ? q.role_track : '')}" placeholder="Custom role" class="${custom ? '' : 'hidden'} bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs w-32">`;
 }
+// Track C: per-question objective. Blank inherits the scenario's primary.
+function objectiveSelect(q, i) {
+  const opt = v => `<option value="${esc(v)}" ${q.objective === v ? 'selected' : ''}>${esc(v)}</option>`;
+  return `
+    <select data-objective="${i}" class="tap bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs w-48" title="Learning objective for this question — blank inherits the scenario's primary.">
+      <option value="" ${!q.objective ? 'selected' : ''}>— objective: inherits primary —</option>
+      ${draftObjectives.map(opt).join('')}
+    </select>`;
+}
 function choiceEditor(q, i) {
   const isMC = q.kind === 'multiple_choice';
   const rows = (q.choices || []).map((c, ci) => `
@@ -995,7 +1011,7 @@ function drawQs() {
   $('#c-qs').innerHTML = draftQs.map((q, i) => `
   <div class="bg-slate-900 border border-slate-700 rounded-xl p-4 space-y-3">
     <div class="flex items-start justify-between gap-2 flex-wrap">
-      <div class="flex items-center gap-2 flex-wrap">${advancedQ ? `${stageSelect(q, i)}${roleSelect(q, i)}` : `<span class="text-xs font-semibold text-slate-500">Question ${i + 1}</span>`}</div>
+      <div class="flex items-center gap-2 flex-wrap">${advancedQ ? `${stageSelect(q, i)}${roleSelect(q, i)}${objectiveSelect(q, i)}` : `<span class="text-xs font-semibold text-slate-500">Question ${i + 1}</span>`}</div>
       <button data-delq="${i}" class="tap text-slate-500 hover:text-rose-400 p-1.5" title="Delete question"><i data-lucide="x" class="w-5 h-5"></i></button>
     </div>
     <div class="flex items-center gap-1 bg-slate-800 rounded-lg p-1 text-xs w-fit flex-wrap">
@@ -1029,6 +1045,8 @@ function drawQs() {
     else { cust.classList.add('hidden'); q.role_track = sel.value; }
   });
   qs.querySelectorAll('[data-role-custom]').forEach(inp => inp.oninput = () => { draftQs[inp.dataset.roleCustom].role_track = inp.value.trim(); });
+  // per-question objective
+  qs.querySelectorAll('[data-objective]').forEach(sel => sel.onchange = () => { draftQs[sel.dataset.objective].objective = sel.value; });
   // kind tabs
   qs.querySelectorAll('[data-kind]').forEach(el => el.onclick = () => {
     const q = draftQs[el.dataset.i], k = el.dataset.kind;
@@ -1082,6 +1100,7 @@ async function saveScenario() {
       return {
         ...(q.id ? { id: q.id } : {}),
         prompt: q.prompt, kind: q.kind, role_track: q.role_track, stage: q.stage,
+        objective: q.objective ?? '',
         instructor_answer: q.instructor_answer,
         choices: choice ? (q.choices || []).filter(c => c.trim()) : null,
       };
@@ -1093,6 +1112,11 @@ async function saveScenario() {
     return toast('Pick a primary objective first', 'bg-amber-500');
   if (body.objective_secondary && body.objective_secondary === body.objective_primary)
     return toast('Objectives must differ', 'bg-amber-500');
+  // Enforced tagging: sharing beyond Private needs a primary objective.
+  if ((body.shared_public || body.shared_department) && !body.objective_primary) {
+    $('#c-obj1')?.focus();
+    return toast('Tag a primary objective before sharing', 'bg-amber-500');
+  }
   const res = await fetch(editingId ? `/api/scenarios/${editingId}` : '/api/scenarios', {
     method: editingId ? 'PUT' : 'POST',
     headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
@@ -2092,14 +2116,15 @@ async function renderScenarioDetail(id) {
     <div>
       <h1 class="text-2xl font-bold leading-tight">${esc(s.title)}</h1>
       <p class="text-sm text-slate-400 mt-1">${esc(s.category)} · ${esc(s.subcategory)} · by ${esc(s.author_name ?? 'unknown')}</p>
-      ${[s.objective_primary, s.objective_secondary, s.difficulty,
-         bldgList.length].some(Boolean) ? `
+      ${(() => {
+        const objs = (s.objectives?.length ? s.objectives : [s.objective_primary, s.objective_secondary]).filter(Boolean);
+        return [objs.length, s.difficulty, bldgList.length].some(Boolean) ? `
       <div class="flex items-center gap-2 flex-wrap mt-2">
-        ${s.objective_primary ? `<span class="text-xs font-semibold px-2.5 py-1 rounded-full bg-indigo-900/60 text-indigo-300">${esc(s.objective_primary)}</span>` : ''}
-        ${s.objective_secondary ? `<span class="text-xs font-semibold px-2.5 py-1 rounded-full bg-indigo-950/60 text-indigo-400">${esc(s.objective_secondary)}</span>` : ''}
+        ${objs.map((o, i) => `<span class="text-xs font-semibold px-2.5 py-1 rounded-full ${i === 0 ? 'bg-indigo-900/60 text-indigo-300' : 'bg-indigo-950/60 text-indigo-400'}">${esc(o)}</span>`).join('')}
         ${s.difficulty ? `<span class="text-xs font-semibold px-2.5 py-1 rounded-full bg-slate-700 text-slate-300">${esc(s.difficulty)}</span>` : ''}
         ${bldgList.map(b => `<span class="text-xs font-semibold px-2.5 py-1 rounded-full bg-slate-700 text-slate-300">${esc(b)}</span>`).join('')}
-      </div>` : ''}
+      </div>` : '';
+      })()}
     </div>
     <p class="text-sm text-slate-300 whitespace-pre-wrap">${esc(s.description)}</p>
     ${s.media?.length ? `<div class="flex gap-2 overflow-x-auto">${s.media.map(m =>
@@ -2290,7 +2315,8 @@ const officialDrop = (body, open = false) => `
 // default, and the save is explicit + deferred (never silent).
 async function soloReveal(s, qs, answers, official, role) {
   window.scrollTo(0, 0);
-  const objChips = [s.objective_primary, s.objective_secondary].filter(Boolean)
+  const objSet = (s.objectives?.length ? s.objectives : [s.objective_primary, s.objective_secondary]).filter(Boolean);
+  const objChips = objSet
     .map(o => `<span class="text-xs font-semibold px-2.5 py-1 rounded-full bg-indigo-900/60 text-indigo-300">${esc(o)}</span>`).join('');
   app.innerHTML = `
   <main class="max-w-3xl mx-auto p-4 sm:p-6 pb-28 space-y-4 anim-in">

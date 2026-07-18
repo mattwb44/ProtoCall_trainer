@@ -15,14 +15,15 @@ supply gates everything downstream.
   dismissible creation tutorial, and destination selector all shipped in the
   creator (`renderCreator`). Next: corpus-seeded keyword suggester lands with
   Track C.
-- **Track C — objectives.** Keyword suggester ✅ shipped (rule-based, local,
-  explainable; hand-seed + corpus blend in `server/objectives.js`, "Suggest
-  objectives" in the creator). Still to do: per-question objective grain +
-  enforced tagging at creation.
+- **Track C — objectives.** ✅ Complete. Keyword suggester (rule-based, local,
+  explainable; `server/objectives.js`), per-question objective grain (union set),
+  and enforced tagging when a scenario leaves Private — all shipped. Optional
+  follow-up: persist suggested/accepted objectives for later analysis.
 - **Track D — community moderation.** Approval queue + admin.
 - **Track E — study library.** Self-marking, objective roll-up, personal tags,
   recommender. **Gated** on the solo funnel showing repeat usage.
 
 ## Recommended order
-0 → A → B → C → D; E only once funnel data justifies it. Tracks 0, A, and B
-are shipped. **Track C (objectives)** is next, then D.
+0 → A → B → C → D; E only once funnel data justifies it. Tracks 0, A, B, and C
+are shipped. **Track D (community moderation)** is next; hold E until the solo
+funnel shows repeat usage.

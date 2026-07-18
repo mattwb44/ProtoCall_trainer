@@ -22,7 +22,7 @@ async function room() {
   const { id } = await fetch(`${base}/api/scenarios`, {
     method: 'POST', headers: authed(cookie),
     body: JSON.stringify({
-      title: 'Shift fixture', description: 'd', category: 'Fire', subcategory: 'Structure', visibility: 'public',
+      title: 'Shift fixture', description: 'd', category: 'Fire', subcategory: 'Structure', visibility: 'public', objective_primary: 'Scene Size-Up',
       questions: [{ prompt: 'Q1?', kind: 'text', instructor_answer: 'A1' }],
     }),
   }).then(r => r.json());

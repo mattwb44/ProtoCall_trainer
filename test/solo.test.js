@@ -23,6 +23,7 @@ async function makeScenario(cookie, { visibility = 'public', questions } = {}) {
     method: 'POST', headers: authed(cookie),
     body: JSON.stringify({
       title: 'Solo fixture', description: 'd', category: 'Fire', subcategory: 'Structure', visibility,
+      objective_primary: 'Scene Size-Up',
       questions: questions ?? [
         { prompt: 'Common Q?', kind: 'text', instructor_answer: 'CA' },
         { prompt: 'Engineer Q?', kind: 'text', instructor_answer: 'EA', role_track: 'Engineer/Driver-Operator' },
@@ -186,7 +187,7 @@ test('archive shows no duplicates after the scenario is edited', async () => {
   const put = await fetch(`${base}/api/scenarios/${sid}`, {
     method: 'PUT', headers: authed(author),
     body: JSON.stringify({
-      title: 'Solo fixture', description: 'd', category: 'Fire', subcategory: 'Structure', visibility: 'public',
+      title: 'Solo fixture', description: 'd', category: 'Fire', subcategory: 'Structure', visibility: 'public', objective_primary: 'Scene Size-Up',
       questions: [{ prompt: 'Rewritten Q?', kind: 'text', instructor_answer: 'NEW' }],
     }),
   });

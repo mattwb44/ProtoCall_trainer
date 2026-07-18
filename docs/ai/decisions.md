@@ -28,16 +28,23 @@ full rationale lives in the PRDs (`PRD-v*.md`), `SPEC.md`, and `VOICE.md`.
   (another in the same category).
 
 ## Objectives architecture
-- **Per-question objective grain.** Objectives move to the question level
-  (optional, inheriting the scenario's primary by default); a scenario's
-  objective set is the union of its questions'. Fixes the 2-objective cap that
-  under-tags multi-topic scenarios.
-- **Objective tagging is enforced at creation** (at least the scenario primary).
+- **Per-question objective grain.** ✅ Shipped. Each question carries an optional
+  `objective` (blank inherits the scenario primary); a scenario's objective set
+  is the union (`objectives` in scenario detail, primary first). Fixed the
+  2-objective cap. Editor: per-question objective select in the advanced cluster
+  (stage · role · objective).
+- **Objective tagging is enforced when a scenario leaves Private.** ✅ Shipped.
+  _Refinement of the original "enforced at creation":_ private drafts stay
+  friction-free, but sharing to Department/Community — and submit-for-review —
+  requires at least the scenario primary. Enforced server-side (POST/PUT +
+  submit-review) and guarded in the creator before save. Rationale: objectives
+  only feed discovery/coverage/roll-ups once a scenario is shared; blocking
+  every private scratch draft added friction without value.
 - **Assisted tagging = rule-based, corpus-seeded, local, explainable,
-  human-in-the-loop.** Suggest per-question objectives + quality nudges;
-  analyze the draft once at creation, store suggested + accepted, don't re-run.
-  No external AI / API dependency. (Embeddings/local-LLM deferred; revisit only
-  if the keyword suggester visibly misses.)
+  human-in-the-loop.** ✅ Keyword suggester shipped (`server/objectives.js`,
+  hand-seed + corpus blend; "Suggest objectives" in the creator). Storing
+  suggested/accepted for later analysis is still deferred. No external AI / API
+  dependency. (Embeddings/local-LLM deferred; revisit only if it visibly misses.)
 
 ## Creation flow UX
 - **Scene-first ordering:** media/dispatch at the top, degrading to

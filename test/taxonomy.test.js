@@ -90,6 +90,52 @@ test('site admin extends the vocabulary; standard users cannot', async () => {
   assert.equal(ok.status, 201);
 });
 
+test('Track C: per-question objectives; scenario objective set is their union', async () => {
+  const { cookie } = await signup(base, { email: 'grain@tax.test' });
+  const res = await fetch(`${base}/api/scenarios`, {
+    method: 'POST', headers: authed(cookie),
+    body: scenarioBody({
+      objective_primary: 'Search',
+      questions: [
+        { prompt: 'Airway?', instructor_answer: 'a', objective: 'Ventilation' },
+        { prompt: 'Fire?', instructor_answer: 'b', objective: 'Fire Attack' },
+        { prompt: 'Other?', instructor_answer: 'c' }, // blank inherits the primary
+      ],
+    }),
+  });
+  assert.equal(res.status, 201);
+  const { id } = await res.json();
+  const detail = await fetch(`${base}/api/scenarios/${id}`, { headers: { cookie } }).then(r => r.json());
+  assert.deepEqual(detail.objectives, ['Search', 'Ventilation', 'Fire Attack'], 'union, primary first');
+  assert.equal(detail.questions.find(q => q.prompt === 'Airway?').objective, 'Ventilation');
+  assert.equal(detail.questions.find(q => q.prompt === 'Other?').objective, '', 'blank stored (inherits at read)');
+
+  // an unknown per-question objective is rejected
+  const bad = await fetch(`${base}/api/scenarios`, {
+    method: 'POST', headers: authed(cookie),
+    body: scenarioBody({ objective_primary: 'Search', questions: [{ prompt: 'Q', instructor_answer: 'a', objective: 'Not Real' }] }),
+  });
+  assert.equal(bad.status, 400);
+});
+
+test('Track C: a primary objective is enforced when a scenario leaves Private', async () => {
+  const { cookie } = await signup(base, { email: 'enforce@tax.test' });
+  const mk = extra => fetch(`${base}/api/scenarios`, { method: 'POST', headers: authed(cookie), body: scenarioBody(extra) });
+
+  // private draft may be untagged
+  assert.equal((await mk({ visibility: 'private' })).status, 201);
+  // sharing to the community without a primary is blocked
+  assert.equal((await mk({ visibility: 'public' })).status, 400, 'public needs a primary');
+  assert.equal((await mk({ shared_department: true })).status, 400, 'department needs a primary');
+  // with a primary it goes through
+  assert.equal((await mk({ visibility: 'public', objective_primary: 'Search' })).status, 201);
+
+  // submit-for-review also requires a primary
+  const untagged = await mk({ visibility: 'private' }).then(r => r.json());
+  const submit = await fetch(`${base}/api/scenarios/${untagged.id}/submit-review`, { method: 'POST', headers: authed(cookie) });
+  assert.equal(submit.status, 400, 'must tag before review');
+});
+
 test('coverage grid counts public scenarios by objective × category; private excluded', async () => {
   const { cookie } = await signup(base, { email: 'cov@tax.test' });
   const mk = extra => fetch(`${base}/api/scenarios`, { method: 'POST', headers: authed(cookie), body: scenarioBody(extra) });

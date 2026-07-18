@@ -94,7 +94,7 @@ test('ownership: private hidden from others; public launchable; clone deep-copie
   const mk = (title, visibility) => fetch(`${base}/api/scenarios`, {
     method: 'POST', headers: authed(authorCookie),
     body: JSON.stringify({
-      title, visibility, category: 'EMS', subcategory: 'Cardiac',
+      title, visibility, category: 'EMS', subcategory: 'Cardiac', objective_primary: 'Cardiac Care',
       questions: [{ prompt: 'Rhythm?', kind: 'text', instructor_answer: 'V-fib' }],
     }),
   }).then(r => r.json());

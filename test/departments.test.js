@@ -75,7 +75,7 @@ test('department visibility: members see/launch/clone, outsiders 404', async () 
   const created = await fetch(`${base}/api/scenarios`, {
     method: 'POST', headers: authed(chief),
     body: JSON.stringify({
-      title: 'Station 1 SOP — First Due Engine', visibility: 'department',
+      title: 'Station 1 SOP — First Due Engine', visibility: 'department', objective_primary: 'Scene Size-Up',
       category: 'Fireground', subcategory: 'Residential',
       questions: [{ prompt: 'First-due engine responsibilities?', instructor_answer: 'Attack line, water supply, 360' }],
     }),
@@ -128,7 +128,7 @@ test('official badge: chief-only, department scenarios only, pins to top', async
   await fetch(`${base}/api/scenarios/${deptScenarioId}`, {
     method: 'PUT', headers: authed(chief),
     body: JSON.stringify({
-      title: detail.title, visibility: 'private', category: detail.category, subcategory: detail.subcategory,
+      title: detail.title, visibility: 'private', category: detail.category, subcategory: detail.subcategory, objective_primary: detail.objective_primary,
       questions: detail.questions.map(q => ({ id: q.id, prompt: q.prompt, kind: q.kind, choices: q.choices, instructor_answer: q.instructor_answer, role_track: q.role_track })),
     }),
   });
@@ -139,7 +139,7 @@ test('official badge: chief-only, department scenarios only, pins to top', async
   await fetch(`${base}/api/scenarios/${deptScenarioId}`, {
     method: 'PUT', headers: authed(chief),
     body: JSON.stringify({
-      title: detail.title, visibility: 'department', category: detail.category, subcategory: detail.subcategory,
+      title: detail.title, visibility: 'department', category: detail.category, subcategory: detail.subcategory, objective_primary: detail.objective_primary,
       questions: detail.questions.map(q => ({ id: q.id, prompt: q.prompt, kind: q.kind, choices: q.choices, instructor_answer: q.instructor_answer, role_track: q.role_track })),
     }),
   });
@@ -150,7 +150,7 @@ test('Part 6: a scenario can be shared with the department AND the public at onc
     method: 'POST', headers: authed(chief),
     body: JSON.stringify({
       title: 'Both-Shared Drill', shared_department: true, shared_public: true,
-      category: 'Fireground', subcategory: 'Residential',
+      category: 'Fireground', subcategory: 'Residential', objective_primary: 'Scene Size-Up',
       questions: [{ prompt: 'Size-up priorities?', instructor_answer: 'Life safety, incident stabilization' }],
     }),
   }).then(r => r.json());
@@ -206,7 +206,7 @@ test('report → queue → unlist flips private and closes all reports; access c
   const { id } = await fetch(`${base}/api/scenarios`, {
     method: 'POST', headers: authed(outsider),
     body: JSON.stringify({
-      title: 'Sketchy Freelancing Drill', visibility: 'public', category: 'Fireground', subcategory: 'Commercial',
+      title: 'Sketchy Freelancing Drill', visibility: 'public', category: 'Fireground', subcategory: 'Commercial', objective_primary: 'Scene Size-Up',
       questions: [{ prompt: 'Enter alone without command approval?', instructor_answer: 'yes' }],
     }),
   }).then(r => r.json());

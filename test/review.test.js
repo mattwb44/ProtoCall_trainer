@@ -18,6 +18,7 @@ const get = (path, cookie) => fetch(`${base}${path}`, { headers: { cookie } });
 const makeScenario = async (cookie, over = {}) => {
   const res = await post('/api/scenarios', cookie, {
     title: over.title ?? 'Review Me', category: 'Fireground', subcategory: 'Residential',
+    objective_primary: 'Scene Size-Up',
     visibility: over.visibility ?? 'private',
     questions: [{ prompt: 'Q1?', instructor_answer: 'A1', stage: 'Arrival' }],
     ...over,

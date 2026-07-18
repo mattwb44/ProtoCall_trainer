@@ -37,7 +37,7 @@ test('REST: the author still sees instructor answers (needed to edit)', async ()
   const created = await fetch(`${base}/api/scenarios`, {
     method: 'POST', headers: authed(cookie),
     body: JSON.stringify({
-      title: 'Gating fixture', description: 'x', category: 'Fire', subcategory: 'Structure', visibility: 'public',
+      title: 'Gating fixture', description: 'x', category: 'Fire', subcategory: 'Structure', visibility: 'public', objective_primary: 'Scene Size-Up',
       questions: [
         { prompt: 'Q1?', kind: 'text', instructor_answer: 'A1' },
         { prompt: 'Q2?', kind: 'text', instructor_answer: 'A2' },
@@ -53,7 +53,7 @@ test('live session: answers withheld until the participant has submitted every q
   const created = await fetch(`${base}/api/scenarios`, {
     method: 'POST', headers: authed(hostCookie),
     body: JSON.stringify({
-      title: 'Gating live', description: 'x', category: 'Fire', subcategory: 'Structure', visibility: 'public',
+      title: 'Gating live', description: 'x', category: 'Fire', subcategory: 'Structure', visibility: 'public', objective_primary: 'Scene Size-Up',
       questions: [
         { prompt: 'Q1?', kind: 'text', instructor_answer: 'A1' },
         { prompt: 'Q2?', kind: 'text', instructor_answer: 'A2' },
@@ -101,7 +101,7 @@ test('session detail REST: gated on completeness while live, unlocked for everyo
   const created = await fetch(`${base}/api/scenarios`, {
     method: 'POST', headers: authed(hostCookie),
     body: JSON.stringify({
-      title: 'Gating archive', description: 'x', category: 'Fire', subcategory: 'Structure', visibility: 'public',
+      title: 'Gating archive', description: 'x', category: 'Fire', subcategory: 'Structure', visibility: 'public', objective_primary: 'Scene Size-Up',
       questions: [
         { prompt: 'Q1?', kind: 'text', instructor_answer: 'A1' },
         { prompt: 'Q2?', kind: 'text', instructor_answer: 'A2' },
