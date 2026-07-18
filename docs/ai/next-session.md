@@ -1,6 +1,17 @@
 # Next session
 
-_Updated 2026-07-15. Read `current-focus.md` and `decisions.md` first._
+_Updated 2026-07-18. Read `current-focus.md` and `decisions.md` first._
+
+## Start here: hardening plan (2026-07-18)
+
+**`plan-hardening.md`** is the worked plan for next session: five prioritized
+workstreams (H1–H5) mitigating the most likely 3-month failure modes —
+centralizing the leaves-Private objective gate before Track D builds on it,
+objective-rename drift safety, root-causing the media size-cap flake (likely
+`file.file.truncated` not checked after `toBuffer()`), a Playwright smoke
+suite, and a volume-headroom guardrail. It includes sizes, acceptance
+criteria, and the three owner decisions to collect up front. Do H1 before or
+with Track D.
 
 ## Completed (2026-07-15)
 - **Track C (slice 2) — per-question objective grain + enforced tagging** shipped.
