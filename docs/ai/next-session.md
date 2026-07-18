@@ -13,9 +13,8 @@ _Updated 2026-07-15. Read `current-focus.md` and `decisions.md` first._
   (`localStorage.pcCreatorTutorial`); destination selector section (button now
   "Create scenario" / "Save changes"). Verified end-to-end in a real browser
   (13 UI assertions + a live create). `npm test` 75 green.
-- **Pending owner action:** the old `Fireground_trainer-old` Railway project
-  still needs deleting from the Railway dashboard (no CLI/token in the cloud
-  session — owner must do it). See below.
+- **`Fireground_trainer-old` Railway project deleted** by the owner. The
+  fireground decommission is now complete — ProtoCall is the only live service.
 
 ## Completed (2026-07-14)
 - **Domain cutover:** `protocalltrainer.com` now serves ProtoCall (was the old
@@ -29,11 +28,6 @@ _Updated 2026-07-15. Read `current-focus.md` and `decisions.md` first._
 - **Docs:** `docs/ai/` established; `HANDOFF.md` retired (pointer only).
 
 ## In progress / pending a decision
-- **`Fireground_trainer-old` Railway project** is a broken (502, crash-looping)
-  husk with only demo data. Owner has approved deletion, but it must be done
-  from the Railway dashboard (Project → Settings → Danger → Delete Project) or
-  `railway delete` — no CLI/token exists in the cloud session, so a session
-  agent cannot do it. **Owner to delete.**
 - **Admin model** for Track D: is admin just the owner (seed from
   `SITE_ADMIN_EMAIL`), or promotable from the UI? Not yet decided.
 
