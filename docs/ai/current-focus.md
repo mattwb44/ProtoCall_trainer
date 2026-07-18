@@ -8,8 +8,8 @@ supply gates everything downstream.
 
 ## Tracks (dependency order)
 - **Track 0 — housekeeping.** ✅ VOICE.md + solo funnel logging shipped.
-- **Track A — consumption.** A1 (solo exit + revision) ✅ shipped/live.
-  A2 (unified After-Action reveal) — next.
+- **Track A — consumption.** A1 (solo exit + revision) ✅ and A2 (unified
+  After-Action reveal) ✅ shipped. Track A complete.
 - **Track B — creation.** ✅ Scene-first ordering, sticky scene reference
   (desktop rail + mobile peek), progressive disclosure of stage/role fields,
   dismissible creation tutorial, and destination selector all shipped in the
@@ -22,5 +22,5 @@ supply gates everything downstream.
   recommender. **Gated** on the solo funnel showing repeat usage.
 
 ## Recommended order
-0 → A → B → C → D; E only once funnel data justifies it. B (creation UX)
-shipped; A2 (unified After-Action reveal) still outstanding on Track A.
+0 → A → B → C → D; E only once funnel data justifies it. Tracks 0, A, and B
+are shipped. **Track C (objectives)** is next, then D.

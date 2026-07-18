@@ -2218,23 +2218,8 @@ async function renderSolo(scenarioId) {
     if (stageNames.length && soloStage < lastStage) { soloStage++; soloTab = soloStage; draw(); window.scrollTo(0, 0); return; }
     const answers = Object.fromEntries(qs.map(q => [q.id, saved[q.id]]));
     const btn = $('#solo-submit'); btn.disabled = true; btn.textContent = 'Submitting…';
-    if (me) {
-      const run = await fetch('/api/solo/runs', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ scenario_id: s.id, role_track: role }),
-      }).then(r => r.ok ? r.json() : null);
-      let last = null;
-      if (run) for (const q of qs) {
-        last = await fetch(`/api/solo/runs/${run.run_id}/answers`, {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ question_id: q.id, body: answers[q.id] }),
-        }).then(r => r.ok ? r.json() : null);
-      }
-      if (!run || !last?.complete) { toast('Could not save the run', 'bg-rose-600'); btn.disabled = false; btn.textContent = 'Submit Run — Reveal Official Answers'; return; }
-      toast('Run saved to your library');
-      location.hash = `#/session/${run.run_id}`;
-      return;
-    }
+    // A2: everyone — guest or signed-in — lands on the same stateless reveal.
+    // Signed-in players save explicitly from the after-action, not silently here.
     const r = await fetch(`/api/scenarios/${s.id}/solo-reveal`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ answers, role_track: role }),
@@ -2249,32 +2234,91 @@ async function renderSolo(scenarioId) {
 
 // Part 7: official answers render as a collapsible under the user's answer, so
 // the reader chooses when to compare — Question → your answer → reveal toggle.
-const officialDrop = body => `
-  <details class="group bg-emerald-950/40 border border-emerald-900 rounded-xl text-sm text-emerald-100">
+const officialDrop = (body, open = false) => `
+  <details class="group bg-emerald-950/40 border border-emerald-900 rounded-xl text-sm text-emerald-100"${open ? ' open' : ''}>
     <summary class="tap flex items-center gap-2 px-4 py-3 cursor-pointer text-xs font-bold text-emerald-400 select-none">
-      <i data-lucide="chevron-right" class="w-4 h-4 transition-transform group-open:rotate-90"></i>OFFICIAL ANSWER — tap to reveal</summary>
+      <i data-lucide="chevron-right" class="w-4 h-4 transition-transform group-open:rotate-90"></i>OFFICIAL ANSWER${open ? '' : ' — tap to reveal'}</summary>
     <p class="px-4 pb-3 pt-1 whitespace-pre-wrap">${esc(body)}</p>
   </details>`;
 
-function soloReveal(s, qs, answers, official, role) {
+// A2: the unified After-Action reveal. Both auth states land here from the
+// stateless reveal. Objectives frame the debrief, official answers are open by
+// default, and the save is explicit + deferred (never silent).
+async function soloReveal(s, qs, answers, official, role) {
+  window.scrollTo(0, 0);
+  const objChips = [s.objective_primary, s.objective_secondary].filter(Boolean)
+    .map(o => `<span class="text-xs font-semibold px-2.5 py-1 rounded-full bg-indigo-900/60 text-indigo-300">${esc(o)}</span>`).join('');
   app.innerHTML = `
-  <main class="max-w-3xl mx-auto p-4 sm:p-6 pb-24 space-y-4 anim-in">
-    <header>
-      <p class="text-xs font-bold text-emerald-400 flex items-center gap-1.5"><i data-lucide="shield-check" class="w-3.5 h-3.5"></i>RUN COMPLETE${role ? ` · <span class="text-amber-400">${esc(role)}</span>` : ''}</p>
+  <main class="max-w-3xl mx-auto p-4 sm:p-6 pb-28 space-y-4 anim-in">
+    <header class="space-y-2">
+      <p class="text-xs font-bold text-emerald-400 flex items-center gap-1.5"><i data-lucide="shield-check" class="w-3.5 h-3.5"></i>AFTER-ACTION${role ? ` · <span class="text-amber-400">${esc(role)}</span>` : ''}</p>
       <h1 class="text-xl font-bold leading-tight">${esc(s.title)}</h1>
+      <p class="text-sm text-slate-400">${esc(s.category)}${s.subcategory ? ` · ${esc(s.subcategory)}` : ''}</p>
+      ${objChips ? `<div class="flex items-center gap-2 flex-wrap pt-0.5"><span class="text-xs font-bold text-slate-500 self-center">OBJECTIVES</span>${objChips}</div>` : ''}
     </header>
-    <div class="bg-amber-500/10 border border-amber-500/40 rounded-2xl px-4 py-3 text-sm text-amber-200 flex items-start gap-2">
-      <i data-lucide="info" class="w-4 h-4 shrink-0 mt-0.5"></i>
-      <span>This run isn't saved. <a href="#/signup" class="underline font-semibold">Create a free account</a> and future solo runs land in your library.</span></div>
+    <div id="reveal-save"></div>
     ${qs.map((q, i) => `
     <div class="bg-slate-800 rounded-2xl p-4 space-y-3">
       <p class="font-semibold text-sm leading-snug"><span class="text-rose-400 font-bold">Q${i + 1}.</span> ${q.role_track ? `<span class="text-amber-400">${esc(q.role_track)}</span> · ` : ''}${esc(q.prompt)}</p>
-      <div class="bg-slate-900 rounded-xl px-4 py-3 text-sm"><p class="text-xs font-bold text-slate-500 mb-1">YOUR ANSWER</p>${esc(answers[q.id])}</div>
-      ${officialDrop(official[q.id])}
+      <div class="bg-slate-900 rounded-xl px-4 py-3 text-sm"><p class="text-xs font-bold text-slate-500 mb-1">YOUR ANSWER</p>${answers[q.id]?.trim() ? esc(answers[q.id]) : '<span class="text-slate-500 italic">— left blank —</span>'}</div>
+      ${officialDrop(official[q.id], true)}
     </div>`).join('')}
-    <a href="#/scenario/${esc(s.id)}" class="tap block text-center bg-slate-800 hover:bg-slate-700 rounded-xl py-3 font-semibold text-sm">Back to scenario</a>
+    <div id="reveal-next"></div>
   </main>`;
+  const saveBar = $('#reveal-save');
+  saveBar.innerHTML = me
+    ? `<div class="bg-slate-800 rounded-2xl px-4 py-3 flex items-center justify-between gap-3 flex-wrap">
+        <p class="text-sm text-slate-300">Keep this run?</p>
+        <div class="flex items-center gap-2">
+          <button id="rv-discard" class="tap text-sm font-semibold text-slate-400 hover:text-white px-3 py-2">Discard</button>
+          <button id="rv-save" class="tap text-sm font-bold bg-emerald-600 hover:bg-emerald-500 rounded-xl px-4 py-2 flex items-center gap-1.5"><i data-lucide="save" class="w-4 h-4"></i>Save to Runs Completed</button>
+        </div>
+      </div>`
+    : `<div class="bg-amber-500/10 border border-amber-500/40 rounded-2xl px-4 py-3 flex items-center justify-between gap-3 flex-wrap text-sm text-amber-200">
+        <span>Not logged in — this run won't be saved.</span>
+        <a href="#/signup" class="tap font-bold bg-amber-500 hover:bg-amber-400 text-slate-900 rounded-xl px-4 py-2 shrink-0">Save — Sign in</a>
+      </div>`;
   icons();
+  if (me) {
+    $('#rv-discard').onclick = () => { location.hash = `#/scenario/${s.id}`; };
+    $('#rv-save').onclick = async () => {
+      const btn = $('#rv-save'); btn.disabled = true; btn.textContent = 'Saving…';
+      const run = await fetch('/api/solo/runs', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ scenario_id: s.id, role_track: role }),
+      }).then(r => r.ok ? r.json() : null);
+      let last = null;
+      if (run) for (const q of qs) {
+        last = await fetch(`/api/solo/runs/${run.run_id}/answers`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ question_id: q.id, body: answers[q.id] }),
+        }).then(r => r.ok ? r.json() : null);
+      }
+      if (!run || !last?.complete) {
+        toast('Could not save the run', 'bg-rose-600');
+        btn.disabled = false; btn.innerHTML = '<i data-lucide="save" class="w-4 h-4"></i>Save to Runs Completed'; icons();
+        return;
+      }
+      saveBar.innerHTML = `<div class="bg-emerald-950/40 border border-emerald-900 rounded-2xl px-4 py-3 flex items-center justify-between gap-3 flex-wrap text-sm text-emerald-200">
+        <span class="flex items-center gap-2"><i data-lucide="check" class="w-4 h-4"></i>Saved.</span>
+        <a href="#/session/${run.run_id}" class="tap font-semibold underline shrink-0">Open in My Sessions</a></div>`;
+      icons();
+    };
+  }
+  // Non-personalized "Next": another public scenario in the same category.
+  try {
+    const list = await fetch(`/api/public/scenarios?category=${encodeURIComponent(s.category)}`)
+      .then(r => r.ok ? r.json() : []);
+    const pool = (Array.isArray(list) ? list : []).filter(x => x.id !== s.id);
+    const pick = pool[Math.floor(Math.random() * pool.length)];
+    $('#reveal-next').innerHTML = pick
+      ? `<a href="#/scenario/${esc(pick.id)}" class="tap flex items-center justify-between gap-3 bg-rose-600 hover:bg-rose-500 rounded-2xl px-5 py-4 font-bold">
+           <span class="min-w-0"><span class="text-xs font-semibold text-rose-200 block">NEXT CALL · ${esc(s.category)}</span><span class="truncate block">${esc(pick.title)}</span></span>
+           <i data-lucide="arrow-right" class="w-5 h-5 shrink-0"></i></a>
+         <a href="#/scenario/${esc(s.id)}" class="tap block text-center text-sm text-slate-400 hover:text-white py-2 mt-2">Back to this scenario</a>`
+      : `<a href="#/scenario/${esc(s.id)}" class="tap block text-center bg-slate-800 hover:bg-slate-700 rounded-xl py-3 font-semibold text-sm">Back to scenario</a>`;
+    icons();
+  } catch { /* leave Next empty on failure */ }
 }
 
 async function renderSessionDetail(id) {

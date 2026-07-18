@@ -3,6 +3,16 @@
 _Updated 2026-07-15. Read `current-focus.md` and `decisions.md` first._
 
 ## Completed (2026-07-15)
+- **Track A — A2 unified After-Action reveal** shipped (`public/index.html`):
+  both guest and signed-in players now land on the same stateless reveal
+  (`soloReveal`) — the silent auto-save-and-teleport for signed-in users is
+  gone. Save is explicit + deferred ("Save to Runs Completed" / "Discard";
+  guest gets "Save — Sign in"), persisting via the existing
+  `/api/solo/runs` + `/answers` endpoints only on click. Official answers open
+  by default (`officialDrop(body, open)`), the scenario's objectives frame the
+  debrief, and a non-personalized "Next call" pulls another public scenario in
+  the same category (`/api/public/scenarios?category=`). No server change.
+  Verified both auth paths end-to-end in a browser. **Track A complete.**
 - **Track B — creation flow UX** shipped in `renderCreator` (`public/index.html`):
   scene-first ordering (media + dispatch lead, degrading to dispatch-only with
   no image); sticky scene reference (desktop right rail + mobile collapsible
@@ -32,11 +42,14 @@ _Updated 2026-07-15. Read `current-focus.md` and `decisions.md` first._
   `SITE_ADMIN_EMAIL`), or promotable from the UI? Not yet decided.
 
 ## Recommended next steps (priority order)
-1. **A2 — unified After-Action reveal** (see `decisions.md` → Solo run UX). All
-   frontend + a minor server touch; no DELETE endpoint needed (deferred save).
-2. **Track C — objectives** (per-question grain + enforced tagging + rule-based
-   corpus-seeded keyword suggester), then **Track D**. Hold **Track E** until
-   `solo_events` shows repeat solo usage.
+1. **Track C — objectives** (see `decisions.md` → Objectives architecture):
+   per-question objective grain (scenario set = union of its questions'),
+   enforced tagging at creation (≥ the scenario primary), and a rule-based,
+   corpus-seeded, local keyword suggester (no external AI). Needs a real server
+   + DB touch (question-level objective columns / join, migration).
+2. **Track D — community moderation** (approval queue is largely in place; see
+   the admin-model open question above). Hold **Track E** until `solo_events`
+   shows repeat solo usage.
 
 ## Key files to review first
 - `public/index.html`: `renderCreator` (~L559, scene-first layout + rail +
