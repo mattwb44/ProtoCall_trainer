@@ -3,6 +3,19 @@
 _Updated 2026-07-15. Read `current-focus.md` and `decisions.md` first._
 
 ## Completed (2026-07-15)
+- **Track C (slice 1) — objective keyword suggester** shipped. New
+  `server/objectives.js`: a rule-based, local, explainable suggester blending a
+  hand-curated seed (`SEED_KEYWORDS`, one entry per learning objective) with a
+  corpus-learned model (`buildCorpusModel` — smoothed log-odds over tagged
+  public scenarios, cached 60s). Endpoint `POST /api/objectives/suggest`
+  ({category, text} → ranked {name, score, matched[]}). Creator has a "Suggest
+  objectives" button under the objective dropdowns that reads the draft
+  (title + dispatch + question prompts + instructor answers) and renders
+  tappable chips showing the matched words; tapping fills primary (then
+  secondary). 7 unit tests in `test/objectives.test.js`; full suite 82 green.
+  Verified API + UI in a browser. **Still open on Track C:** per-question
+  objective grain (DB migration) + enforced tagging at creation, and storing
+  suggested/accepted per `decisions.md`.
 - **Track A — A2 unified After-Action reveal** shipped (`public/index.html`):
   both guest and signed-in players now land on the same stateless reveal
   (`soloReveal`) — the silent auto-save-and-teleport for signed-in users is
@@ -42,11 +55,11 @@ _Updated 2026-07-15. Read `current-focus.md` and `decisions.md` first._
   `SITE_ADMIN_EMAIL`), or promotable from the UI? Not yet decided.
 
 ## Recommended next steps (priority order)
-1. **Track C — objectives** (see `decisions.md` → Objectives architecture):
-   per-question objective grain (scenario set = union of its questions'),
-   enforced tagging at creation (≥ the scenario primary), and a rule-based,
-   corpus-seeded, local keyword suggester (no external AI). Needs a real server
-   + DB touch (question-level objective columns / join, migration).
+1. **Track C — remaining** (see `decisions.md` → Objectives architecture): the
+   keyword suggester is done; still to build the per-question objective grain
+   (scenario set = union of its questions'; needs a question-level objective
+   column/join + migration) and enforced tagging at creation (≥ the scenario
+   primary). Optionally persist suggested/accepted objectives from the suggester.
 2. **Track D — community moderation** (approval queue is largely in place; see
    the admin-model open question above). Hold **Track E** until `solo_events`
    shows repeat solo usage.

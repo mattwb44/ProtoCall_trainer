@@ -667,6 +667,13 @@ async function renderCreator(id) {
               <select id="c-obj2" class="mt-1 w-full tap bg-slate-900 border border-slate-700 rounded-xl px-4 py-3">
                 <option value="">— none —</option>${objectives.map(o => `<option>${esc(o)}</option>`).join('')}</select></div>
           </div>
+          <div class="rounded-xl bg-slate-900/60 border border-slate-700 p-3 space-y-2">
+            <div class="flex items-center justify-between gap-2 flex-wrap">
+              <p class="text-xs text-slate-400">Not sure? Get suggestions from your dispatch and questions.</p>
+              <button id="c-obj-suggest" type="button" class="tap text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 rounded-lg px-3 py-1.5 flex items-center gap-1.5"><i data-lucide="wand-2" class="w-3.5 h-3.5"></i>Suggest objectives</button>
+            </div>
+            <div id="c-obj-suggestions" class="hidden flex-wrap gap-2"></div>
+          </div>
           <div class="sm:w-1/2 sm:pr-2"><label class="text-sm font-medium text-slate-300">Difficulty</label>
             <select id="c-diff" class="mt-1 w-full tap bg-slate-900 border border-slate-700 rounded-xl px-4 py-3">
               <option value="">— unset —</option><option>Introductory</option><option>Standard</option><option>Advanced</option></select></div>
@@ -842,7 +849,44 @@ async function renderCreator(id) {
     const open = sheet.classList.toggle('hidden');
     $('#scene-peek-chev').style.transform = open ? '' : 'rotate(180deg)';
   };
+  $('#c-obj-suggest').onclick = suggestObjectives;
   drawQs(); drawMedia(); drawBldg(); drawSceneRef(); icons();
+}
+// Track C: recommend objectives from the words the author used. Sends the
+// draft's text (dispatch + question prompts + instructor answers) to the local
+// rule-based suggester and renders explainable, tappable chips.
+async function suggestObjectives() {
+  const btn = $('#c-obj-suggest'); const wrap = $('#c-obj-suggestions');
+  const text = [
+    $('#c-title')?.value, $('#c-desc')?.value,
+    ...draftQs.map(q => `${q.prompt || ''} ${q.instructor_answer || ''}`),
+  ].filter(Boolean).join(' ').trim();
+  if (!text) { toast('Write a dispatch or a question first', 'bg-amber-500'); return; }
+  btn.disabled = true; btn.textContent = 'Reading…';
+  const { suggestions = [] } = await fetch('/api/objectives/suggest', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ category: $('#c-cat').value, text }),
+  }).then(r => r.ok ? r.json() : { suggestions: [] }).catch(() => ({ suggestions: [] }));
+  btn.disabled = false; btn.innerHTML = '<i data-lucide="wand-2" class="w-3.5 h-3.5"></i>Suggest objectives';
+  wrap.classList.remove('hidden'); wrap.classList.add('flex');
+  wrap.innerHTML = suggestions.length
+    ? suggestions.map(sg => `
+      <button type="button" data-obj-pick="${esc(sg.name)}" class="tap text-left bg-indigo-900/50 hover:bg-indigo-800/60 border border-indigo-700/60 rounded-xl px-3 py-2">
+        <span class="text-sm font-semibold text-indigo-100 flex items-center gap-1.5"><i data-lucide="plus" class="w-3.5 h-3.5"></i>${esc(sg.name)}</span>
+        ${sg.matched?.length ? `<span class="text-[11px] text-indigo-300/80 block mt-0.5">matched: ${sg.matched.map(esc).join(', ')}</span>` : ''}
+      </button>`).join('')
+    : '<p class="text-xs text-slate-500">No clear match yet — add more detail to the dispatch or questions, or pick manually.</p>';
+  // Tapping a chip fills primary (or secondary if primary is taken by another).
+  wrap.querySelectorAll('[data-obj-pick]').forEach(b => b.onclick = () => {
+    const name = b.dataset.objPick;
+    const o1 = $('#c-obj1'), o2 = $('#c-obj2');
+    const has = sel => [...sel.options].some(o => o.value === name);
+    if (!has(o1)) { toast('That objective is not in this category', 'bg-amber-500'); return; }
+    if (!o1.value || o1.value === name) o1.value = name;
+    else if (o2.value !== name) o2.value = name;
+    toast(`Set: ${name}`);
+  });
+  icons();
 }
 // The pinned reference (desktop rail + mobile peek sheet) mirrors the scene:
 // first image plus the dispatch text. Hidden until there's something to show.

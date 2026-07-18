@@ -19,6 +19,7 @@ import {
   createAuthToken, consumeAuthToken,
 } from './auth.js';
 import { createMailer } from './mailer.js';
+import { buildCorpusModel, suggestObjectives } from './objectives.js';
 import { createAnalyzer } from './analysis.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -596,6 +597,40 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
   };
 
   app.get('/api/objectives', req => objectiveNames(req.query?.category));
+
+  // Track C: corpus model for the objective suggester. Learned from every
+  // tagged, visible scenario's text; rebuilt lazily and cached briefly since
+  // the corpus changes slowly and the query touches all questions.
+  let objModelCache = { at: 0, model: null };
+  const corpusModel = () => {
+    if (objModelCache.model && Date.now() - objModelCache.at < 60_000) return objModelCache.model;
+    const rows = db.prepare(
+      `SELECT s.id, s.title, s.description, s.objective_primary, s.objective_secondary,
+              (SELECT group_concat(q.prompt || ' ' || q.instructor_answer, ' ')
+               FROM questions q WHERE q.scenario_id=s.id AND q.deleted=0) AS qtext
+       FROM scenarios s
+       WHERE s.deleted_at IS NULL AND s.shared_public=1
+         AND (s.objective_primary!='' OR s.objective_secondary!='')`).all();
+    const docs = rows.map(r => ({
+      objectives: [r.objective_primary, r.objective_secondary].filter(Boolean),
+      text: `${r.title} ${r.description} ${r.qtext ?? ''}`,
+    }));
+    objModelCache = { at: Date.now(), model: buildCorpusModel(docs) };
+    return objModelCache.model;
+  };
+
+  // Suggest objectives for a draft from the words used. Rule-based, local,
+  // explainable — returns the matched terms alongside each suggestion.
+  app.post('/api/objectives/suggest', (req, reply) => {
+    const { category = '', text = '' } = req.body ?? {};
+    if (typeof text !== 'string' || !text.trim()) return { suggestions: [] };
+    const candidates = objectiveNames(category);
+    if (!candidates.length) return { suggestions: [] };
+    const suggestions = suggestObjectives({
+      text: text.slice(0, 20_000), candidates, corpusModel: corpusModel(),
+    });
+    return { suggestions };
+  });
 
   // Part 6: remember the custom stage names a creator types, so the question
   // editor can offer them back on their next scenario.

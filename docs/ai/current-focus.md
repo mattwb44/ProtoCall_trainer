@@ -15,8 +15,10 @@ supply gates everything downstream.
   dismissible creation tutorial, and destination selector all shipped in the
   creator (`renderCreator`). Next: corpus-seeded keyword suggester lands with
   Track C.
-- **Track C — objectives.** Per-question grain + enforced tagging +
-  corpus-seeded keyword suggester.
+- **Track C — objectives.** Keyword suggester ✅ shipped (rule-based, local,
+  explainable; hand-seed + corpus blend in `server/objectives.js`, "Suggest
+  objectives" in the creator). Still to do: per-question objective grain +
+  enforced tagging at creation.
 - **Track D — community moderation.** Approval queue + admin.
 - **Track E — study library.** Self-marking, objective roll-up, personal tags,
   recommender. **Gated** on the solo funnel showing repeat usage.
