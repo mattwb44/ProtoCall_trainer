@@ -12,6 +12,7 @@ import QRCode from 'qrcode';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createDb, seedIfEmpty, uuid } from './db.js';
+import { startBackupScheduler } from './backup.js';
 import { Rooms } from './rooms.js';
 import {
   hashPassword, verifyPassword, createAuthSession, destroyAuthSession,
@@ -23,10 +24,33 @@ import { createAnalyzer } from './analysis.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRateMax = 300, mailer = createMailer(), analyzer = createAnalyzer() } = {}) {
+export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRateMax = 300, mailer = createMailer(), analyzer = createAnalyzer(), backup } = {}) {
   const db = createDb(dbFile);
   seedIfEmpty(db);
-  // Operator bootstrap: promote the configured account to site_admin on boot (idempotent).
+
+  // Nightly on-volume DB snapshot (see server/backup.js). On by default for a
+  // real file DB; skipped for the in-memory test DB. `backup: false` disables
+  // it; `backup: { dir, keep, intervalMs }` overrides (used by tests).
+  const dbFileResolved = dbFile || process.env.DB_PATH || path.join(__dirname, '..', 'protocall.db');
+  let backupScheduler = null;
+  if (backup !== false) {
+    const cfg = backup && typeof backup === 'object' ? backup : {};
+    if (cfg.dir || dbFileResolved !== ':memory:') {
+      backupScheduler = startBackupScheduler(db, {
+        dir: cfg.dir || process.env.BACKUP_DIR || path.join(path.dirname(dbFileResolved), 'backups'),
+        keep: cfg.keep ?? (Number(process.env.BACKUP_KEEP) || 14),
+        ...(cfg.intervalMs ? { intervalMs: cfg.intervalMs } : {}),
+      });
+    }
+  }
+  // Operator bootstrap: promote the configured account to site_admin on boot
+  // (idempotent). Decision (docs/ai/decisions.md → Community / admin model):
+  // site_admin is env-bootstrapped ONLY — there is deliberately no in-app
+  // "promote to site_admin" action. Site-wide moderation is single-operator at
+  // this scale, and a UI to mint a superuser is attack surface we don't need
+  // yet. Department-scoped moderation already scales via dept_admin (granted
+  // through the department-verification flow). A self-serve site_admin grant is
+  // the documented next step for when a second site-wide moderator exists.
   if (process.env.SITE_ADMIN_EMAIL) {
     const r = db.prepare("UPDATE users SET role='site_admin' WHERE email=? AND role!='site_admin'")
       .run(process.env.SITE_ADMIN_EMAIL);
@@ -672,6 +696,12 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
     return reply.code(400).send({ error: 'action must be approve or request_changes' });
   });
 
+  // Objectives are immutable (docs/ai/decisions.md → Objectives architecture).
+  // Scenarios (and, in Track C, questions) tag objectives by NAME, denormalized
+  // as a plain string — so a rename would silently orphan every scenario using
+  // the old wording. There is deliberately no rename/delete endpoint: to change
+  // wording, add a new objective and re-tag; retiring an old one is a future
+  // "deprecate" (hide from pickers, keep existing tags), never a rename.
   app.post('/api/objectives', (req, reply) => {
     if (!requireSiteAdmin(req, reply)) return;
     const name = req.body?.name?.trim();
@@ -1342,7 +1372,9 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
     });
   });
 
-  return { app, io, db };
+  app.addHook('onClose', () => backupScheduler?.stop());
+
+  return { app, io, db, backup: backupScheduler };
 }
 
 // Multi-node fan-out is one env var away: set REDIS_URL and the adapter loads.

@@ -14,6 +14,18 @@ full rationale lives in the PRDs (`PRD-v*.md`), `SPEC.md`, and `VOICE.md`.
   later, deliberate migration, not a near-term need.
 - **Deploy model:** merges to `main` auto-deploy to `protocalltrainer.com` via
   Railway. Branch per PR, run `npm test` + a preview check, then merge.
+- **Backups: in-app nightly snapshot is the baseline, not Railway volume
+  snapshots.** A scheduler in the app process runs better-sqlite3's online
+  `db.backup()` (point-in-time-consistent while live) once a day to
+  `$BACKUP_DIR` (default `<dir of DB_PATH>/backups`, i.e. `/data/backups`),
+  rotating to keep `BACKUP_KEEP` (default 14). Chosen over Railway snapshots
+  because it's free on any plan, consistent for SQLite, and testable. Railway
+  volume snapshots, where available, are welcome defense-in-depth on top.
+  Honest limit: these sit on the same volume, so they cover crash / bad deploy /
+  fat-fingered deletes but **not** loss of the volume — the offsite copy is the
+  existing on-demand `GET /api/admin/backup` pull; an automated offsite sync is
+  a later ops task. (`server/backup.js`; boot catch-up only fires if the newest
+  snapshot is stale, so redeploys don't spam.)
 
 ## Solo run UX
 - **No punitive stage lock.** Progressive stage reveal stays (later stages
@@ -38,6 +50,12 @@ full rationale lives in the PRDs (`PRD-v*.md`), `SPEC.md`, and `VOICE.md`.
   analyze the draft once at creation, store suggested + accepted, don't re-run.
   No external AI / API dependency. (Embeddings/local-LLM deferred; revisit only
   if the keyword suggester visibly misses.)
+- **Objective names are immutable — create-only, never renamed.** Scenarios
+  (and, in Track C, questions) tag objectives by *name*, denormalized as a plain
+  string, so a rename would silently orphan every scenario using the old
+  wording. To change wording, add a new objective and re-tag. Retiring old
+  wording is a future "deprecate" flag (hide from pickers, keep existing tags),
+  never a rename or delete. There is deliberately no rename/delete endpoint.
 
 ## Creation flow UX
 - **Scene-first ordering:** media/dispatch at the top, degrading to
@@ -54,6 +72,14 @@ full rationale lives in the PRDs (`PRD-v*.md`), `SPEC.md`, and `VOICE.md`.
 - **Approval queue.** Scenarios submitted to Community enter `pending`; admins
   approve/reject (with reason); only approved + public show in community browse.
   Admin is bootstrapped from `SITE_ADMIN_EMAIL`.
+- **Track D admin model: `site_admin` is env-bootstrapped only — no in-app
+  promotion.** Site-wide moderation is single-operator at this scale, and a UI
+  to mint a superuser is attack surface we don't need yet. Department-scoped
+  moderation already scales via `dept_admin` (granted through the
+  department-verification flow, `dept_admin` sees only their department's
+  queue). A self-serve `site_admin` grant (an existing site admin promoting
+  another user, with an audit trail) is the documented next step for when a
+  second site-wide moderator actually exists — build it then, not now.
 
 ## Process
 - **Study-library features gated on evidence.** Self-marking, objective

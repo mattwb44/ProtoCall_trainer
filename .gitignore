@@ -1,5 +1,6 @@
 node_modules/
 protocall.db
 protocall.db-*
+backups/
 .DS_Store
 media/

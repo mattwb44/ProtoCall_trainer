@@ -16,7 +16,7 @@
 
 **Hardening.** `@fastify/helmet` for security headers (CSP disabled — the app intentionally uses CDN scripts and inline JS; revisit if that changes). `/healthz` endpoint (checks a real DB read) for Railway healthchecks/uptime monitors. Graceful SIGTERM shutdown: close sockets and the HTTP server so redeploys don't drop mid-session events.
 
-**Backups.** `GET /api/admin/backup` (site_admin only) streams a consistent SQLite snapshot produced by better-sqlite3's online backup API — safe while the app is live. Media files are already durable on the volume; the DB snapshot is the part that needs an offsite copy.
+**Backups.** Two layers, both on better-sqlite3's online backup API (consistent while the app is live). (1) `GET /api/admin/backup` (site_admin only) streams a snapshot on demand — this is the offsite pull. (2) An in-app nightly scheduler (`server/backup.js`) writes a rotating snapshot to the volume (`$BACKUP_DIR`, default `/data/backups`, keeping `BACKUP_KEEP`=14) so recovery from a crash / bad deploy / accidental deletion doesn't depend on someone remembering to click. Chosen over Railway volume snapshots as the baseline (free on any plan, SQLite-consistent, testable); volume snapshots are welcome defense-in-depth on top. Media files are already durable on the volume; the DB snapshot is the part that needs the offsite copy.
 
 **Redis adapter: env-gated, not default.** If `REDIS_URL` is set, Socket.IO loads `@socket.io/redis-adapter` at boot; without it, nothing changes. The day a second node exists, provisioning Railway Redis + setting one variable turns on cross-node fan-out. Zero cost until then.
 

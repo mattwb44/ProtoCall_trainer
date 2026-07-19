@@ -122,6 +122,9 @@ export function createDb(file = process.env.DB_PATH || path.join(__dirname, '..'
     resolved_at TEXT,
     resolution TEXT CHECK (resolution IN ('dismissed','unlisted') OR resolution IS NULL)
   );
+  -- Objectives are IMMUTABLE: scenarios/questions tag them by name (a
+  -- denormalized string), so names are create-only -- never renamed or deleted,
+  -- or existing tags orphan. See docs/ai/decisions.md, Objectives architecture.
   CREATE TABLE IF NOT EXISTS learning_objectives (
     id TEXT PRIMARY KEY,
     name TEXT UNIQUE NOT NULL COLLATE NOCASE,
