@@ -31,6 +31,18 @@ _Updated 2026-07-22. Read `current-focus.md` and `decisions.md` first._
   destination selector ("Destination" / "Community" / "Create scenario" ·
   "Save changes"). Save payload + element IDs unchanged, so server tests untouched.
   Both verified end-to-end in a headless browser.
+- **Track C — objectives (2 of 3 slices).**
+  - *Per-question grain:* `questions.objective` (immutable name, '' inherits
+    primary); scenario detail returns the `objectives` union; coverage counts
+    the union; creator has a per-question objective picker in "Advanced"; A2
+    reveal frames the union. 3 tests.
+  - *Suggester:* `server/objectives-suggest.js` keyword corpus +
+    `POST /api/objectives/suggest` (auth, category-scoped, explainable);
+    "Suggest objectives from the scene" button → click-to-apply chips. 4 tests.
+  - *Deferred (slice 3):* create-time enforcement of the scenario primary. The
+    one-line server guard is trivial, but ~40 existing tests build scenarios
+    with no primary — do it with a test-fixture sweep (introduce a shared
+    `scenarioBody` helper in `test/helpers.js` and thread a default objective).
 
 ## In progress / pending a decision
 - **`Fireground_trainer-old` Railway project** is a broken (502, crash-looping)
@@ -39,20 +51,23 @@ _Updated 2026-07-22. Read `current-focus.md` and `decisions.md` first._
   open follow-up on backups — an ops task, not a blocker.
 
 ## Recommended next steps (priority order)
-1. **Track C — objectives.** Per-question objective grain (union up to the
-   scenario), enforced tagging at creation (≥ the scenario primary), and the
-   rule-based corpus-seeded keyword suggester. Objectives are immutable
-   (`decisions.md`) — the suggester proposes from the existing controlled list.
+1. **Finish Track C — enforce the scenario primary at creation** (POST + author
+   PUT: `if (!t.objective_primary) 400`). Blocked only by test fixtures: add a
+   shared `scenarioBody` helper with a default `objective_primary` and sweep the
+   ~40 create sites, then flip the guard on. The suggester makes tagging one click.
 2. **Track D — community moderation.** Approval queue UI over the existing
    `pending` review workflow; `site_admin` is env-only (no promotion UI).
 3. Hold **Track E** until `solo_events` shows repeat solo usage.
 
 ## Key files to review first
 - `public/index.html`: `renderSolo` + `soloReveal` (A2 unified reveal +
-  `saveSoloRun`); `renderCreator` + `drawQs`/`drawSceneRef`/`creationTutorial`
-  (Track B creation flow). Single-file vanilla-JS frontend, hash routing.
-- `server/index.js`: solo endpoints (solo-start, solo-reveal, solo/runs);
-  `/api/objectives` (immutable, create-only) and `taxonomyOf` validation.
+  `saveSoloRun`); `renderCreator` + `drawQs`/`drawSceneRef`/`creationTutorial` +
+  the objective suggester (`#c-obj-suggest`) and per-question `objectiveSelect`
+  (Track B + C). Single-file vanilla-JS frontend, hash routing.
+- `server/index.js`: solo endpoints; `/api/objectives` (immutable, create-only),
+  `/api/objectives/suggest`, `taxonomyOf` + `questionObjectiveError` validation;
+  `/api/coverage` and `/api/scenarios/:id` compute the objective union.
+- `server/objectives-suggest.js`: the keyword corpus + `suggestObjectives`.
 - `server/db.js`: schema + idempotent `addColumn` migrations; `solo_events`
   table near the bottom of the `CREATE TABLE` block; `learning_objectives`
   (immutable — see the comment there).
@@ -60,4 +75,7 @@ _Updated 2026-07-22. Read `current-focus.md` and `decisions.md` first._
 - `server/backup.js`: nightly on-volume DB snapshots + rotation, started from
   `buildServer` (skipped for the in-memory test DB; `backup:false` disables).
 - `VOICE.md`: write user-facing copy to this voice.
-- Tests: `npm test` (node:test, currently 78 green).
+- Tests: `npm test` (node:test, currently 85 green). Heads-up: the multipart
+  size-cap assertion in `test/media-pdf.test.js` is order/timing-flaky under
+  `@fastify/multipart` v10 — unrelated to app logic; pin it down before it masks
+  a real regression.
