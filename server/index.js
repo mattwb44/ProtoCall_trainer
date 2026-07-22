@@ -13,6 +13,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createDb, seedIfEmpty, uuid } from './db.js';
 import { startBackupScheduler } from './backup.js';
+import { suggestObjectives } from './objectives-suggest.js';
 import { Rooms } from './rooms.js';
 import {
   hashPassword, verifyPassword, createAuthSession, destroyAuthSession,
@@ -635,6 +636,16 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
   };
 
   app.get('/api/objectives', req => objectiveNames(req.query?.category));
+
+  // Track C: rule-based objective suggester. Analyzes the draft (dispatch +
+  // questions) against a local keyword corpus and returns explainable
+  // suggestions scoped to the category's offered objectives — human-in-the-loop,
+  // no external AI. The author clicks a suggestion to accept it.
+  app.post('/api/objectives/suggest', (req, reply) => {
+    const user = requireUser(req, reply); if (!user) return;
+    const { text = '', category } = req.body ?? {};
+    return { suggestions: suggestObjectives(text, category ? objectiveNames(category) : null) };
+  });
 
   // Part 6: remember the custom stage names a creator types, so the question
   // editor can offer them back on their next scenario.
