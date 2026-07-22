@@ -1069,8 +1069,11 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
     rooms.submitResponse(ls.id, question_id, me.id, body.trim());
     // v7 stages: solo advances stage-by-stage — each completed stage reveals
     // its model answers; completing the whole set ends the run (the debrief).
+    // A2: the 'finished' funnel event is logged once, at solo-reveal (which
+    // every player now hits before the explicit save), so we don't re-log it
+    // here — saving is a separate, deferred action, not a second finish.
     const { answers, complete } = rooms.revealedAnswers(ls.id, me.id);
-    if (complete) { rooms.endSession(ls.id); logSolo('finished', ls.scenario_id, user.id); }
+    if (complete) rooms.endSession(ls.id);
     return { ok: true, complete,
              ...(Object.keys(answers).length ? { official_answers: answers } : {}) };
   });

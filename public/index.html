@@ -1438,6 +1438,22 @@ function renderAuth(mode) {
     if (body.claimed_sessions > 0) toast(`Welcome, ${body.display_name} — ${body.claimed_sessions} past session${body.claimed_sessions > 1 ? 's' : ''} saved to your library`);
     else toast(`Welcome, ${body.display_name}`);
     if (!login) toast('Check your email to verify your address', 'bg-slate-700');
+    // A2: a guest who hit "Save — Sign in" on an After-Action reveal has their
+    // completed run stashed — replay the deferred save now that they have an account.
+    const pending = sessionStorage.pendingSoloRun;
+    if (pending && me) {
+      sessionStorage.removeItem('pendingSoloRun');
+      try {
+        const p = JSON.parse(pending);
+        const runId = await saveSoloRun(p.scenario_id, p.qids, p.answers, p.role);
+        if (runId) {
+          toast('Your run was saved to your library');
+          sessionStorage.removeItem('authNext');
+          location.hash = `#/session/${runId}`;
+          return;
+        }
+      } catch { /* fall through to the normal redirect */ }
+    }
     location.hash = sessionStorage.authNext || '#/me';
     sessionStorage.removeItem('authNext');
   };
@@ -2132,24 +2148,10 @@ async function renderSolo(scenarioId) {
     if (current.some(q => !saved[q.id])) return toast(stageNames.length ? 'Answer every question in this stage first' : 'Answer every question first — no partial reveals', 'bg-amber-500');
     if (stageNames.length && soloStage < lastStage) { soloStage++; soloTab = soloStage; draw(); window.scrollTo(0, 0); return; }
     const answers = Object.fromEntries(qs.map(q => [q.id, saved[q.id]]));
-    const btn = $('#solo-submit'); btn.disabled = true; btn.textContent = 'Submitting…';
-    if (me) {
-      const run = await fetch('/api/solo/runs', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ scenario_id: s.id, role_track: role }),
-      }).then(r => r.ok ? r.json() : null);
-      let last = null;
-      if (run) for (const q of qs) {
-        last = await fetch(`/api/solo/runs/${run.run_id}/answers`, {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ question_id: q.id, body: answers[q.id] }),
-        }).then(r => r.ok ? r.json() : null);
-      }
-      if (!run || !last?.complete) { toast('Could not save the run', 'bg-rose-600'); btn.disabled = false; btn.textContent = 'Submit Run — Reveal Official Answers'; return; }
-      toast('Run saved to your library');
-      location.hash = `#/session/${run.run_id}`;
-      return;
-    }
+    const btn = $('#solo-submit'); btn.disabled = true; btn.textContent = 'Revealing…';
+    // A2: everyone — guest or signed-in — lands on the same stateless After-Action
+    // reveal. No silent auto-save-and-teleport; signed-in players save explicitly
+    // from the reveal (deferred save), so they see their answers vs. official first.
     const r = await fetch(`/api/scenarios/${s.id}/solo-reveal`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ answers, role_track: role }),
@@ -2162,34 +2164,105 @@ async function renderSolo(scenarioId) {
   draw();
 }
 
-// Part 7: official answers render as a collapsible under the user's answer, so
-// the reader chooses when to compare — Question → your answer → reveal toggle.
+// A2: on the After-Action reveal, the official answer is open by default — the
+// comparison is the point of the debrief — but stays collapsible to re-hide.
 const officialDrop = body => `
-  <details class="group bg-emerald-950/40 border border-emerald-900 rounded-xl text-sm text-emerald-100">
+  <details open class="group bg-emerald-950/40 border border-emerald-900 rounded-xl text-sm text-emerald-100">
     <summary class="tap flex items-center gap-2 px-4 py-3 cursor-pointer text-xs font-bold text-emerald-400 select-none">
-      <i data-lucide="chevron-right" class="w-4 h-4 transition-transform group-open:rotate-90"></i>OFFICIAL ANSWER — tap to reveal</summary>
+      <i data-lucide="chevron-right" class="w-4 h-4 transition-transform group-open:rotate-90"></i>OFFICIAL ANSWER</summary>
     <p class="px-4 pb-3 pt-1 whitespace-pre-wrap">${esc(body)}</p>
   </details>`;
 
+// Deferred save of a completed solo run (A2). Takes primitives so it can be
+// replayed after a guest signs in (see the auth handler). Returns the run id on
+// success, or null. Order of qids is preserved so stage gating stays intact.
+async function saveSoloRun(scenarioId, qids, answers, role) {
+  const run = await fetch('/api/solo/runs', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ scenario_id: scenarioId, role_track: role }),
+  }).then(r => r.ok ? r.json() : null);
+  if (!run) return null;
+  let last = null;
+  for (const qid of qids) {
+    last = await fetch(`/api/solo/runs/${run.run_id}/answers`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ question_id: qid, body: answers[qid] }),
+    }).then(r => r.ok ? r.json() : null);
+  }
+  return last?.complete ? run.run_id : null;
+}
+
+// A2 — the unified After-Action reveal. Same landing for guest and signed-in:
+// objectives frame → your answer vs. official (open) → explicit, deferred save →
+// a simple Next in the same category. No auto-save; nothing here is stored until
+// the player asks for it.
 function soloReveal(s, qs, answers, official, role) {
+  const objectives = [s.objective_primary, s.objective_secondary].filter(Boolean);
+  const saveBlock = me
+    ? `<div id="reveal-actions" class="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-2">
+         <button id="rv-save" class="tap bg-emerald-600 hover:bg-emerald-500 rounded-xl py-3.5 font-bold flex items-center justify-center gap-2"><i data-lucide="save" class="w-5 h-5"></i>Save to Runs Completed</button>
+         <button id="rv-discard" class="tap bg-slate-800 hover:bg-slate-700 rounded-xl py-3.5 px-6 font-semibold text-sm text-slate-300">Discard</button>
+       </div>`
+    : `<div id="reveal-actions" class="bg-amber-500/10 border border-amber-500/40 rounded-2xl px-4 py-4 space-y-3">
+         <p class="text-sm text-amber-100 flex items-start gap-2"><i data-lucide="info" class="w-4 h-4 shrink-0 mt-0.5"></i><span>Keep this run — a free account saves it to your library, and every future solo run lands there too.</span></p>
+         <button id="rv-signin" class="tap w-full bg-rose-600 hover:bg-rose-500 rounded-xl py-3.5 font-bold flex items-center justify-center gap-2"><i data-lucide="save" class="w-5 h-5"></i>Save — Sign in</button>
+       </div>`;
   app.innerHTML = `
-  <main class="max-w-3xl mx-auto p-4 sm:p-6 pb-24 space-y-4 anim-in">
+  <main class="max-w-3xl mx-auto p-4 sm:p-6 pb-28 space-y-4 anim-in">
     <header>
-      <p class="text-xs font-bold text-emerald-400 flex items-center gap-1.5"><i data-lucide="shield-check" class="w-3.5 h-3.5"></i>RUN COMPLETE${role ? ` · <span class="text-amber-400">${esc(role)}</span>` : ''}</p>
+      <p class="text-xs font-bold text-emerald-400 flex items-center gap-1.5"><i data-lucide="shield-check" class="w-3.5 h-3.5"></i>AFTER-ACTION${role ? ` · <span class="text-amber-400">${esc(role)}</span>` : ''}</p>
       <h1 class="text-xl font-bold leading-tight">${esc(s.title)}</h1>
     </header>
-    <div class="bg-amber-500/10 border border-amber-500/40 rounded-2xl px-4 py-3 text-sm text-amber-200 flex items-start gap-2">
-      <i data-lucide="info" class="w-4 h-4 shrink-0 mt-0.5"></i>
-      <span>This run isn't saved. <a href="#/signup" class="underline font-semibold">Create a free account</a> and future solo runs land in your library.</span></div>
+    ${objectives.length ? `
+    <div class="bg-slate-800/60 border border-slate-700 rounded-2xl px-4 py-3">
+      <p class="text-xs font-bold text-slate-400 mb-2 flex items-center gap-1.5"><i data-lucide="target" class="w-3.5 h-3.5"></i>WHAT THIS SCENARIO TRAINS</p>
+      <div class="flex flex-wrap gap-2">${objectives.map(o => `<span class="text-xs font-semibold bg-indigo-500/15 text-indigo-300 border border-indigo-500/30 rounded-full px-3 py-1">${esc(o)}</span>`).join('')}</div>
+    </div>` : ''}
+    <div class="space-y-4">
     ${qs.map((q, i) => `
     <div class="bg-slate-800 rounded-2xl p-4 space-y-3">
       <p class="font-semibold text-sm leading-snug"><span class="text-rose-400 font-bold">Q${i + 1}.</span> ${q.role_track ? `<span class="text-amber-400">${esc(q.role_track)}</span> · ` : ''}${esc(q.prompt)}</p>
-      <div class="bg-slate-900 rounded-xl px-4 py-3 text-sm"><p class="text-xs font-bold text-slate-500 mb-1">YOUR ANSWER</p>${esc(answers[q.id])}</div>
+      <div class="bg-slate-900 rounded-xl px-4 py-3 text-sm"><p class="text-xs font-bold text-slate-500 mb-1">YOUR ANSWER</p><p class="whitespace-pre-wrap">${esc(answers[q.id]) || '<span class="text-slate-500 italic">—</span>'}</p></div>
       ${officialDrop(official[q.id])}
     </div>`).join('')}
-    <a href="#/scenario/${esc(s.id)}" class="tap block text-center bg-slate-800 hover:bg-slate-700 rounded-xl py-3 font-semibold text-sm">Back to scenario</a>
+    </div>
+    ${saveBlock}
+    <div id="reveal-next"></div>
   </main>`;
   icons();
+
+  const saveBtn = $('#rv-save');
+  if (saveBtn) saveBtn.onclick = async () => {
+    saveBtn.disabled = true; saveBtn.textContent = 'Saving…';
+    const runId = await saveSoloRun(s.id, qs.map(q => q.id), answers, role);
+    if (!runId) { toast('Could not save the run', 'bg-rose-600'); saveBtn.disabled = false; saveBtn.innerHTML = '<i data-lucide="save" class="w-5 h-5"></i>Save to Runs Completed'; icons(); return; }
+    toast('Saved to Runs Completed');
+    $('#reveal-actions').innerHTML =
+      `<a href="#/session/${runId}" class="tap block text-center bg-slate-800 hover:bg-slate-700 rounded-xl py-3.5 font-semibold text-sm flex items-center justify-center gap-2"><i data-lucide="check" class="w-4 h-4 text-emerald-400"></i>Saved — view in your library</a>`;
+    icons();
+  };
+  const discardBtn = $('#rv-discard');
+  if (discardBtn) discardBtn.onclick = () => { location.hash = `#/scenario/${s.id}`; };
+  const signinBtn = $('#rv-signin');
+  if (signinBtn) signinBtn.onclick = () => {
+    // Stash the completed run so it saves automatically once the account exists.
+    sessionStorage.pendingSoloRun = JSON.stringify({ scenario_id: s.id, role, answers, qids: qs.map(q => q.id) });
+    sessionStorage.authNext = `#/scenario/${s.id}`;
+    location.hash = '#/signup';
+  };
+
+  // Simple, non-personalized Next: another public scenario in the same category.
+  if (s.category) fetch(`/api/public/scenarios?category=${encodeURIComponent(s.category)}`)
+    .then(r => r.ok ? r.json() : [])
+    .then(list => {
+      const next = (list || []).find(x => x.id !== s.id);
+      if (!next) return;
+      $('#reveal-next').innerHTML =
+        `<a href="#/scenario/${next.id}" class="tap flex items-center justify-between gap-3 bg-slate-800 hover:bg-slate-700 rounded-2xl px-4 py-3.5">
+           <span class="min-w-0"><span class="text-xs font-bold text-slate-400 block">NEXT IN ${esc(s.category.toUpperCase())}</span><span class="font-semibold text-sm truncate block">${esc(next.title)}</span></span>
+           <i data-lucide="arrow-right" class="w-5 h-5 text-slate-400 shrink-0"></i></a>`;
+      icons();
+    }).catch(() => {});
 }
 
 async function renderSessionDetail(id) {
