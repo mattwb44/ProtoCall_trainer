@@ -571,7 +571,13 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
         choices: q.choices ? JSON.parse(q.choices) : null,
         instructor_answer: mine || reviewer ? q.instructor_answer : undefined,
       }));
-    return { ...s, questions, media: mediaFor(s.id), mine, can_review: reviewer };
+    // Track C: the scenario's objective set is the union of its primary/secondary
+    // and every question's objective (a blank question objective inherits the
+    // primary, so it contributes nothing new). Order: primary, secondary, then
+    // the rest in question order — deduped, case-sensitive to the stored names.
+    const objectives = [...new Set(
+      [s.objective_primary, s.objective_secondary, ...questions.map(q => q.objective)].filter(Boolean))];
+    return { ...s, questions, objectives, media: mediaFor(s.id), mine, can_review: reviewer };
   });
 
   // ── v7 taxonomy: controlled learning objectives + filter labels ──
@@ -617,6 +623,15 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
     if (t.objective_secondary && t.objective_secondary === t.objective_primary) return { error: 'objectives must differ' };
     if (t.difficulty && !DIFFICULTIES.includes(t.difficulty)) return { error: 'unknown difficulty' };
     return { values: t };
+  };
+
+  // Track C: per-question objectives must come from the controlled list (blank
+  // is fine — it inherits the scenario primary). Returns an error string or null.
+  const questionObjectiveError = (questions = []) => {
+    const list = objectiveNames();
+    for (const q of questions)
+      if (q?.objective && !list.includes(q.objective)) return `unknown question objective: ${q.objective}`;
+    return null;
   };
 
   app.get('/api/objectives', req => objectiveNames(req.query?.category));
@@ -712,16 +727,23 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
   });
 
   // Coverage grid: objectives × categories over the public library — the
-  // "measurable curriculum, visible gaps" view from the PRD.
+  // "measurable curriculum, visible gaps" view from the PRD. Track C: a scenario
+  // counts under every objective in its union (primary/secondary + per-question),
+  // so multi-topic scenarios show up across all the objectives they actually train.
   app.get('/api/coverage', () => {
     const objectives = objectiveNames();
     const rows = db.prepare(
-      `SELECT category, objective_primary, objective_secondary FROM scenarios
+      `SELECT id, category, objective_primary, objective_secondary FROM scenarios
        WHERE shared_public=1 AND deleted_at IS NULL`).all();
+    const qByScenario = {};
+    for (const q of db.prepare(`SELECT scenario_id, objective FROM questions WHERE deleted=0 AND objective<>''`).all())
+      (qByScenario[q.scenario_id] ||= []).push(q.objective);
     const categories = [...new Set(rows.map(r => r.category))].sort();
     const grid = Object.fromEntries(objectives.map(o => [o, Object.fromEntries(categories.map(c => [c, 0]))]));
-    for (const r of rows) for (const o of [r.objective_primary, r.objective_secondary])
-      if (o && grid[o]) grid[o][r.category] += 1;
+    for (const r of rows) {
+      const set = new Set([r.objective_primary, r.objective_secondary, ...(qByScenario[r.id] ?? [])].filter(Boolean));
+      for (const o of set) if (grid[o]) grid[o][r.category] += 1;
+    }
     return { objectives, categories, grid };
   });
 
@@ -839,6 +861,8 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
     const tax = taxonomyOf(req.body);
     if (tax.error) return reply.code(400).send({ error: tax.error });
     const t = tax.values;
+    const qObjErr = questionObjectiveError(questions);
+    if (qObjErr) return reply.code(400).send({ error: qObjErr });
     const id = uuid();
     const tx = db.transaction(() => {
       db.prepare(`INSERT INTO scenarios (id, title, description, category, subcategory, image_url, visibility, shared_department, shared_public, author_id, department_id,
@@ -846,10 +870,10 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(id, title, description, category, subcategory, image_url,
                     shares.visibility, shares.dept ? 1 : 0, shares.pub ? 1 : 0, user.id, shares.department_id,
                     t.objective_primary, t.objective_secondary, t.difficulty, t.building_type);
-      const ins = db.prepare(`INSERT INTO questions (id, scenario_id, prompt, kind, choices, instructor_answer, role_track, stage, sort_order)
-                              VALUES (?,?,?,?,?,?,?,?,?)`);
+      const ins = db.prepare(`INSERT INTO questions (id, scenario_id, prompt, kind, choices, instructor_answer, role_track, stage, objective, sort_order)
+                              VALUES (?,?,?,?,?,?,?,?,?,?)`);
       questions.forEach((q, i) => ins.run(uuid(), id, q.prompt, q.kind ?? 'text',
-        q.choices ? JSON.stringify(q.choices) : null, q.instructor_answer ?? '', q.role_track ?? '', q.stage ?? '', i));
+        q.choices ? JSON.stringify(q.choices) : null, q.instructor_answer ?? '', q.role_track ?? '', q.stage ?? '', q.objective ?? '', i));
       replaceMedia(id, req.body.media);
       rememberStages(user.id, questions);
     });
@@ -877,6 +901,8 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
     const tax = taxonomyOf(req.body);
     if (tax.error) return reply.code(400).send({ error: tax.error });
     const t = tax.values;
+    const qObjErr = questionObjectiveError(questions);
+    if (qObjErr) return reply.code(400).send({ error: qObjErr });
     const existing = db.prepare('SELECT id FROM questions WHERE scenario_id=? AND deleted=0').all(s.id).map(q => q.id);
     const keptIds = new Set(questions.filter(q => q.id).map(q => q.id));
     // Reviewer edits leave scope/badge/status untouched. Author edits: leaving
@@ -895,15 +921,15 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
              shares.dept ? 1 : 0, shares.pub ? 1 : 0, dept, official, status,
              t.objective_primary, t.objective_secondary, t.difficulty, t.building_type, s.id);
       // Reconcile questions: update kept, insert new, soft-delete removed (responses may reference them).
-      const upd = db.prepare(`UPDATE questions SET prompt=?, kind=?, choices=?, instructor_answer=?, role_track=?, stage=?, sort_order=? WHERE id=? AND scenario_id=?`);
-      const ins = db.prepare(`INSERT INTO questions (id, scenario_id, prompt, kind, choices, instructor_answer, role_track, stage, sort_order)
-                              VALUES (?,?,?,?,?,?,?,?,?)`);
+      const upd = db.prepare(`UPDATE questions SET prompt=?, kind=?, choices=?, instructor_answer=?, role_track=?, stage=?, objective=?, sort_order=? WHERE id=? AND scenario_id=?`);
+      const ins = db.prepare(`INSERT INTO questions (id, scenario_id, prompt, kind, choices, instructor_answer, role_track, stage, objective, sort_order)
+                              VALUES (?,?,?,?,?,?,?,?,?,?)`);
       questions.forEach((q, i) => {
         const choices = q.choices ? JSON.stringify(q.choices) : null;
         if (q.id && existing.includes(q.id))
-          upd.run(q.prompt, q.kind ?? 'text', choices, q.instructor_answer ?? '', q.role_track ?? '', q.stage ?? '', i, q.id, s.id);
+          upd.run(q.prompt, q.kind ?? 'text', choices, q.instructor_answer ?? '', q.role_track ?? '', q.stage ?? '', q.objective ?? '', i, q.id, s.id);
         else
-          ins.run(uuid(), s.id, q.prompt, q.kind ?? 'text', choices, q.instructor_answer ?? '', q.role_track ?? '', q.stage ?? '', i);
+          ins.run(uuid(), s.id, q.prompt, q.kind ?? 'text', choices, q.instructor_answer ?? '', q.role_track ?? '', q.stage ?? '', q.objective ?? '', i);
       });
       const gone = existing.filter(id => !keptIds.has(id));
       if (gone.length) {

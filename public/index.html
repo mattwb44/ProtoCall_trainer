@@ -546,6 +546,8 @@ const STAGE_PRESETS = ['Dispatch', 'En Route', 'On Arrival / Size-Up', 'Initial 
 const ROLE_CHOICES = ['Firefighter', 'Driver / Engineer', 'Officer', 'EMT', 'Paramedic',
   'Battalion Chief', 'Dispatcher'];
 let myStagePresets = [];
+// Track C: the current category's controlled objectives, for per-question pickers.
+let objectiveOptions = [];
 // Textareas that grow with their content — the crews aren't fighting a tiny box.
 function autoGrow(el) { el.style.height = 'auto'; el.style.height = el.scrollHeight + 'px'; }
 const LETTERS = 'ABCDEFGHIJ';
@@ -555,7 +557,7 @@ function syncAnswer(q) {
   if (q.kind === 'multiple_choice' || q.kind === 'select_all')
     q.instructor_answer = (q._correct || []).map(ci => q.choices?.[ci]).filter(c => c && c.trim()).join(' | ');
 }
-const newQuestion = () => ({ prompt: '', kind: 'text', choices: null, instructor_answer: '', role_track: '', stage: '', _correct: [] });
+const newQuestion = () => ({ prompt: '', kind: 'text', choices: null, instructor_answer: '', role_track: '', stage: '', objective: '', _correct: [] });
 
 // Track B — dismissible creation tutorial. Off once dismissed (localStorage).
 function creationTutorial() {
@@ -625,7 +627,7 @@ async function renderCreator(id) {
     if (!existing || (!existing.mine && !existing.can_review)) { toast('Scenario not found', 'bg-rose-600'); location.hash = '#/library'; return; }
     editingAsReviewer = !existing.mine && existing.can_review;
     draftQs = existing.questions.map(q => {
-      const qq = { id: q.id, prompt: q.prompt, kind: q.kind, choices: q.choices, instructor_answer: q.instructor_answer, role_track: q.role_track ?? '', stage: q.stage ?? '', _correct: [] };
+      const qq = { id: q.id, prompt: q.prompt, kind: q.kind, choices: q.choices, instructor_answer: q.instructor_answer, role_track: q.role_track ?? '', stage: q.stage ?? '', objective: q.objective ?? '', _correct: [] };
       if ((q.kind === 'multiple_choice' || q.kind === 'select_all') && Array.isArray(q.choices)) {
         const corrects = (q.instructor_answer || '').split('|').map(s => s.trim()).filter(Boolean);
         qq._correct = q.choices.map((c, ci) => (corrects.includes(c) ? ci : -1)).filter(ci => ci >= 0);
@@ -638,6 +640,7 @@ async function renderCreator(id) {
   // and repopulate the dropdowns whenever the category changes.
   const initialCat = existing?.category ?? Object.keys(SUBCATS)[0];
   const objectives = await loadObjectives(initialCat);
+  objectiveOptions = objectives; // shared with the per-question objective pickers
   // v8 review banner: author sees status + submit/resubmit; reviewer sees
   // approve / request-changes actions on a pending scenario.
   const reviewBanner = () => {
@@ -775,6 +778,9 @@ async function renderCreator(id) {
       $(selId).innerHTML = `<option value="">— none —</option>` +
         list.map(o => `<option ${o === cur ? 'selected' : ''}>${esc(o)}</option>`).join('');
     });
+    // Track C: keep the per-question objective pickers on the same category list.
+    objectiveOptions = list;
+    drawQs();
   };
   $('#c-cat').onchange = () => { fillSub(); toggleBldg(); fillObjectives(); };
   fillSub(); toggleBldg();
@@ -917,6 +923,19 @@ function roleSelect(q, i) {
     </select>
     <input data-role-custom="${i}" value="${esc(custom ? q.role_track : '')}" placeholder="Custom role" class="${custom ? '' : 'hidden'} bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs w-32">`;
 }
+// Track C: per-question objective. Blank inherits the scenario's primary. If the
+// stored objective isn't in the current category's list (e.g. category changed),
+// keep it as a selectable option so it isn't silently dropped.
+function objectiveSelect(q, i) {
+  const opt = v => `<option value="${esc(v)}" ${q.objective === v ? 'selected' : ''}>${esc(v)}</option>`;
+  const orphan = q.objective && !objectiveOptions.includes(q.objective);
+  return `
+    <select data-obj="${i}" class="tap bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs w-52" title="Learning objective this question trains. Blank inherits the scenario's primary objective.">
+      <option value="" ${!q.objective ? 'selected' : ''}>— objective: inherit primary —</option>
+      ${objectiveOptions.map(opt).join('')}
+      ${orphan ? `<option value="${esc(q.objective)}" selected>${esc(q.objective)} (other category)</option>` : ''}
+    </select>`;
+}
 function choiceEditor(q, i) {
   const isMC = q.kind === 'multiple_choice';
   const rows = (q.choices || []).map((c, ci) => `
@@ -940,9 +959,9 @@ function drawQs() {
   $('#c-qs').innerHTML = draftQs.map((q, i) => `
   <div class="bg-slate-900 border border-slate-700 rounded-xl p-4 space-y-3">
     <div class="flex items-start justify-between gap-2">
-      <details class="min-w-0" ${(q.stage || q.role_track) ? 'open' : ''}>
-        <summary class="tap inline-flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-200 cursor-pointer select-none"><i data-lucide="sliders-horizontal" class="w-3.5 h-3.5"></i>Advanced <span class="text-slate-600">· stage &amp; role</span></summary>
-        <div class="flex items-center gap-2 flex-wrap mt-2">${stageSelect(q, i)}${roleSelect(q, i)}</div>
+      <details class="min-w-0" ${(q.stage || q.role_track || q.objective) ? 'open' : ''}>
+        <summary class="tap inline-flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-200 cursor-pointer select-none"><i data-lucide="sliders-horizontal" class="w-3.5 h-3.5"></i>Advanced <span class="text-slate-600">· objective, stage &amp; role</span></summary>
+        <div class="flex items-center gap-2 flex-wrap mt-2">${objectiveSelect(q, i)}${stageSelect(q, i)}${roleSelect(q, i)}</div>
       </details>
       <button data-delq="${i}" class="tap text-slate-500 hover:text-rose-400 p-1.5 shrink-0" title="Delete question"><i data-lucide="x" class="w-5 h-5"></i></button>
     </div>
@@ -977,6 +996,8 @@ function drawQs() {
     else { cust.classList.add('hidden'); q.role_track = sel.value; }
   });
   qs.querySelectorAll('[data-role-custom]').forEach(inp => inp.oninput = () => { draftQs[inp.dataset.roleCustom].role_track = inp.value.trim(); });
+  // objective: straight controlled-vocab pick (blank inherits the primary)
+  qs.querySelectorAll('[data-obj]').forEach(sel => sel.onchange = () => { draftQs[sel.dataset.obj].objective = sel.value; });
   // kind tabs
   qs.querySelectorAll('[data-kind]').forEach(el => el.onclick = () => {
     const q = draftQs[el.dataset.i], k = el.dataset.kind;
@@ -1030,6 +1051,7 @@ async function saveScenario() {
       return {
         ...(q.id ? { id: q.id } : {}),
         prompt: q.prompt, kind: q.kind, role_track: q.role_track, stage: q.stage,
+        objective: q.objective ?? '',
         instructor_answer: q.instructor_answer,
         choices: choice ? (q.choices || []).filter(c => c.trim()) : null,
       };
@@ -2274,7 +2296,9 @@ async function saveSoloRun(scenarioId, qids, answers, role) {
 // a simple Next in the same category. No auto-save; nothing here is stored until
 // the player asks for it.
 function soloReveal(s, qs, answers, official, role) {
-  const objectives = [s.objective_primary, s.objective_secondary].filter(Boolean);
+  // Track C: prefer the scenario's full objective union (per-question rollup);
+  // fall back to the headline primary/secondary for scenarios without it.
+  const objectives = (s.objectives?.length ? s.objectives : [s.objective_primary, s.objective_secondary]).filter(Boolean);
   const saveBlock = me
     ? `<div id="reveal-actions" class="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-2">
          <button id="rv-save" class="tap bg-emerald-600 hover:bg-emerald-500 rounded-xl py-3.5 font-bold flex items-center justify-center gap-2"><i data-lucide="save" class="w-5 h-5"></i>Save to Runs Completed</button>
