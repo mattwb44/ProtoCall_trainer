@@ -556,6 +556,61 @@ function syncAnswer(q) {
     q.instructor_answer = (q._correct || []).map(ci => q.choices?.[ci]).filter(c => c && c.trim()).join(' | ');
 }
 const newQuestion = () => ({ prompt: '', kind: 'text', choices: null, instructor_answer: '', role_track: '', stage: '', _correct: [] });
+
+// Track B — dismissible creation tutorial. Off once dismissed (localStorage).
+function creationTutorial() {
+  if (localStorage.pcCreateTutorialDismissed) return '';
+  return `
+  <div id="c-tut" class="relative bg-indigo-500/10 border border-indigo-500/30 rounded-2xl p-4 pr-10 text-sm text-indigo-100">
+    <button id="c-tut-x" title="Dismiss" class="tap absolute top-3 right-3 text-indigo-300/70 hover:text-white"><i data-lucide="x" class="w-4 h-4"></i></button>
+    <p class="font-semibold mb-1.5 flex items-center gap-2"><i data-lucide="sparkles" class="w-4 h-4"></i>Building a good scenario</p>
+    <ol class="list-decimal ml-4 space-y-0.5 text-[13px] text-indigo-200/90">
+      <li>Start with the <b>scene</b> — a photo and the dispatch. That's what crews react to.</li>
+      <li>Add the <b>details</b> and tag a <b>learning objective</b> so it's findable.</li>
+      <li>Write <b>questions</b> with model answers — open <b>Advanced</b> for stages/roles only if you need them.</li>
+      <li>Pick a <b>destination</b> — Private by default; share to your department or the community when it's ready.</li>
+    </ol>
+  </div>`;
+}
+
+// Track B — the sticky scene reference. Crews react to the scene, so keep it in
+// view while the creator writes questions. Desktop = pinned side rail; mobile =
+// a collapsible peek bar. Both degrade to dispatch-only when there's no image.
+// Reads live from the draft (primary media + the dispatch textarea).
+function sceneRefBody() {
+  const img = draftMedia[0]?.url;
+  const desc = ($('#c-desc')?.value ?? '').trim();
+  if (!img && !desc) return `<p class="text-xs text-slate-500 italic">Add a photo and a dispatch above — they'll pin here as you write questions.</p>`;
+  return `
+    ${img ? `<img src="${esc(img)}" class="w-full h-40 object-cover rounded-xl bg-slate-900">` : ''}
+    ${desc ? `<div><p class="text-[10px] font-bold text-rose-300 mb-1">DISPATCH</p><p class="text-sm text-slate-200 whitespace-pre-wrap">${esc(desc)}</p></div>`
+           : `<p class="text-xs text-slate-500 italic">No dispatch yet.</p>`}`;
+}
+function drawSceneRef() {
+  const rail = $('#scene-rail');
+  if (rail) rail.innerHTML = `
+    <div class="bg-slate-800 border border-slate-700 rounded-2xl p-4 space-y-3">
+      <p class="text-xs font-bold text-slate-400 flex items-center gap-1.5"><i data-lucide="image" class="w-3.5 h-3.5"></i>SCENE REFERENCE</p>
+      ${sceneRefBody()}
+    </div>`;
+  const peek = $('#scene-peek');
+  if (peek) {
+    const img = draftMedia[0]?.url;
+    const desc = ($('#c-desc')?.value ?? '').trim();
+    peek.innerHTML = (!img && !desc) ? '' : `
+      <details class="sticky top-14 z-20 bg-slate-900/95 backdrop-blur border border-slate-700 rounded-xl overflow-hidden group/peek">
+        <summary class="tap flex items-center gap-2.5 px-3 py-2 cursor-pointer select-none">
+          ${img ? `<img src="${esc(img)}" class="w-8 h-8 object-cover rounded-md shrink-0">` : '<i data-lucide="file-text" class="w-4 h-4 text-slate-400 shrink-0"></i>'}
+          <span class="text-[11px] font-bold text-slate-400 shrink-0">SCENE</span>
+          <span class="text-xs text-slate-300 truncate flex-1">${esc(desc) || 'Tap to view'}</span>
+          <i data-lucide="chevron-down" class="w-4 h-4 text-slate-400 shrink-0 transition-transform group-open/peek:rotate-180"></i>
+        </summary>
+        <div class="px-3 pb-3 space-y-3 border-t border-slate-800 pt-3">${sceneRefBody()}</div>
+      </details>`;
+  }
+  icons();
+}
+
 async function renderCreator(id) {
   if (!me) { sessionStorage.authNext = location.hash; location.hash = '#/login'; return; }
   editingId = id || null;
@@ -611,61 +666,74 @@ async function renderCreator(id) {
       ${canAct ? '<div id="rv-note-wrap" class="hidden"><textarea id="rv-note" rows="2" placeholder="What should the author change?" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-sm focus:border-amber-500 focus:outline-none"></textarea><button id="rv-changes-send" class="tap mt-2 text-sm font-bold bg-amber-500 hover:bg-amber-400 text-slate-900 rounded-xl px-4 py-2">Send back to author</button></div>' : ''}
     </section>`;
   };
+  const saveLabel = editingAsReviewer ? 'Save Reviewer Edits' : editingId ? 'Save changes' : 'Create scenario';
   app.innerHTML = `
-  <main class="max-w-3xl mx-auto p-4 sm:p-6 space-y-5 anim-in">
+  <main class="max-w-6xl mx-auto p-4 sm:p-6 anim-in">
     <h1 class="text-2xl font-bold">${editingId ? (existing.can_review && !existing.mine ? 'Review Scenario' : 'Edit Scenario') : 'Scenario Creator'}</h1>
-    ${reviewBanner()}
-    <section class="bg-slate-800 rounded-2xl p-4 sm:p-6 space-y-4">
-      <div><label class="text-sm font-medium text-slate-300">Title</label>
-        <input id="c-title" class="mt-1 w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 focus:border-rose-500 focus:outline-none"></div>
-      <div><label class="text-sm font-medium text-slate-300">Dispatch / Description</label>
-        <textarea id="c-desc" rows="3" class="mt-1 w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 focus:border-rose-500 focus:outline-none"></textarea></div>
-      <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <div><label class="text-sm font-medium text-slate-300">Category</label>
-          <select id="c-cat" class="mt-1 w-full tap bg-slate-900 border border-slate-700 rounded-xl px-4 py-3">
-            ${Object.keys(SUBCATS).map(c => `<option>${c}</option>`).join('')}</select></div>
-        <div><label class="text-sm font-medium text-slate-300">Subcategory</label>
-          <select id="c-sub" class="mt-1 w-full tap bg-slate-900 border border-slate-700 rounded-xl px-4 py-3"></select></div>
-      </div>
-      <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <div><label class="text-sm font-medium text-slate-300">Primary learning objective</label>
-          <select id="c-obj1" class="mt-1 w-full tap bg-slate-900 border border-slate-700 rounded-xl px-4 py-3">
-            <option value="">— none —</option>${objectives.map(o => `<option>${esc(o)}</option>`).join('')}</select></div>
-        <div><label class="text-sm font-medium text-slate-300">Secondary objective <span class="text-slate-500">(optional)</span></label>
-          <select id="c-obj2" class="mt-1 w-full tap bg-slate-900 border border-slate-700 rounded-xl px-4 py-3">
-            <option value="">— none —</option>${objectives.map(o => `<option>${esc(o)}</option>`).join('')}</select></div>
-      </div>
-      <div class="sm:w-1/2 sm:pr-2"><label class="text-sm font-medium text-slate-300">Difficulty</label>
-        <select id="c-diff" class="mt-1 w-full tap bg-slate-900 border border-slate-700 rounded-xl px-4 py-3">
-          <option value="">— unset —</option><option>Introductory</option><option>Standard</option><option>Advanced</option></select></div>
-      <div id="c-bldg-wrap">
-        <label class="text-sm font-medium text-slate-300">Building type</label>
-        <p class="text-xs text-slate-500 mb-2">Check everything that fits — leave blank if it doesn't apply.</p>
-        <div id="c-bldg-tree" class="space-y-2"></div>
-      </div>
-      <div>
-        <label class="text-sm font-medium text-slate-300">Media <span class="text-slate-500">(photo · EKG strip · map)</span></label>
-        <div id="c-media" class="mt-2 space-y-2"></div>
-        <label id="c-drop" class="mt-2 tap flex items-center justify-center gap-2 border-2 border-dashed border-slate-600 rounded-xl p-5 text-slate-400 hover:border-amber-500 hover:text-amber-400 cursor-pointer transition">
-          <i data-lucide="image-plus" class="w-5 h-5"></i><span id="c-upload-label">Drag an image here, or click to browse</span>
-          <input id="c-file" type="file" accept="image/png,image/jpeg,image/webp,image/gif" class="hidden">
-        </label>
-      </div>
-    </section>
-    <section class="bg-slate-800 rounded-2xl p-4 sm:p-6 space-y-3">
-      <h2 class="font-semibold">Questions</h2>
-      <div id="c-qs" class="space-y-3"></div>
-      <button id="c-addq" class="tap w-full flex items-center justify-center gap-1.5 text-sm bg-rose-600 hover:bg-rose-500 px-4 py-3 rounded-xl font-semibold"><i data-lucide="plus" class="w-4 h-4"></i>Add Question</button>
-    </section>
-    <section class="bg-slate-800 rounded-2xl p-4 sm:p-6 space-y-3 ${editingAsReviewer ? 'hidden' : ''}">
-      <div>
-        <p class="font-medium">Visibility</p>
-        <p class="text-sm text-slate-400" id="vis-hint"></p>
-      </div>
-      <div id="vis-seg" class="grid ${me?.department ? 'grid-cols-3' : 'grid-cols-2'} gap-2"></div>
-    </section>
-    <button id="c-save" class="tap w-full bg-emerald-600 hover:bg-emerald-500 rounded-2xl py-4 font-bold text-lg flex items-center justify-center gap-2">
-      <i data-lucide="save" class="w-5 h-5"></i>${editingAsReviewer ? 'Save Reviewer Edits' : 'Save to Library'}</button>
+    <div class="mt-4 lg:grid lg:grid-cols-[minmax(0,1fr)_19rem] lg:gap-6 lg:items-start">
+    <div class="space-y-5 min-w-0">
+      ${reviewBanner()}
+      ${creationTutorial()}
+      <div id="scene-peek" class="lg:hidden"></div>
+      <!-- Scene-first: the photo and dispatch lead, because that's the scenario. -->
+      <section class="bg-slate-800 rounded-2xl p-4 sm:p-6 space-y-4">
+        <div class="flex items-center gap-2"><i data-lucide="image" class="w-5 h-5 text-rose-400"></i><h2 class="font-semibold">The scene</h2></div>
+        <div>
+          <label class="text-sm font-medium text-slate-300">Media <span class="text-slate-500">(photo · EKG strip · map)</span></label>
+          <div id="c-media" class="mt-2 space-y-2"></div>
+          <label id="c-drop" class="mt-2 tap flex items-center justify-center gap-2 border-2 border-dashed border-slate-600 rounded-xl p-5 text-slate-400 hover:border-amber-500 hover:text-amber-400 cursor-pointer transition">
+            <i data-lucide="image-plus" class="w-5 h-5"></i><span id="c-upload-label">Drag an image here, or click to browse</span>
+            <input id="c-file" type="file" accept="image/png,image/jpeg,image/webp,image/gif" class="hidden">
+          </label>
+        </div>
+        <div><label class="text-sm font-medium text-slate-300">Dispatch / Description</label>
+          <textarea id="c-desc" rows="3" placeholder="What's toned out — the call as crews first hear it." class="mt-1 w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 focus:border-rose-500 focus:outline-none"></textarea></div>
+      </section>
+      <section class="bg-slate-800 rounded-2xl p-4 sm:p-6 space-y-4">
+        <h2 class="font-semibold">Details</h2>
+        <div><label class="text-sm font-medium text-slate-300">Title</label>
+          <input id="c-title" class="mt-1 w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 focus:border-rose-500 focus:outline-none"></div>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div><label class="text-sm font-medium text-slate-300">Category</label>
+            <select id="c-cat" class="mt-1 w-full tap bg-slate-900 border border-slate-700 rounded-xl px-4 py-3">
+              ${Object.keys(SUBCATS).map(c => `<option>${c}</option>`).join('')}</select></div>
+          <div><label class="text-sm font-medium text-slate-300">Subcategory</label>
+            <select id="c-sub" class="mt-1 w-full tap bg-slate-900 border border-slate-700 rounded-xl px-4 py-3"></select></div>
+        </div>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div><label class="text-sm font-medium text-slate-300">Primary learning objective</label>
+            <select id="c-obj1" class="mt-1 w-full tap bg-slate-900 border border-slate-700 rounded-xl px-4 py-3">
+              <option value="">— none —</option>${objectives.map(o => `<option>${esc(o)}</option>`).join('')}</select></div>
+          <div><label class="text-sm font-medium text-slate-300">Secondary objective <span class="text-slate-500">(optional)</span></label>
+            <select id="c-obj2" class="mt-1 w-full tap bg-slate-900 border border-slate-700 rounded-xl px-4 py-3">
+              <option value="">— none —</option>${objectives.map(o => `<option>${esc(o)}</option>`).join('')}</select></div>
+        </div>
+        <div class="sm:w-1/2 sm:pr-2"><label class="text-sm font-medium text-slate-300">Difficulty</label>
+          <select id="c-diff" class="mt-1 w-full tap bg-slate-900 border border-slate-700 rounded-xl px-4 py-3">
+            <option value="">— unset —</option><option>Introductory</option><option>Standard</option><option>Advanced</option></select></div>
+        <div id="c-bldg-wrap">
+          <label class="text-sm font-medium text-slate-300">Building type</label>
+          <p class="text-xs text-slate-500 mb-2">Check everything that fits — leave blank if it doesn't apply.</p>
+          <div id="c-bldg-tree" class="space-y-2"></div>
+        </div>
+      </section>
+      <section class="bg-slate-800 rounded-2xl p-4 sm:p-6 space-y-3">
+        <h2 class="font-semibold">Questions</h2>
+        <div id="c-qs" class="space-y-3"></div>
+        <button id="c-addq" class="tap w-full flex items-center justify-center gap-1.5 text-sm bg-rose-600 hover:bg-rose-500 px-4 py-3 rounded-xl font-semibold"><i data-lucide="plus" class="w-4 h-4"></i>Add Question</button>
+      </section>
+      <section class="bg-slate-800 rounded-2xl p-4 sm:p-6 space-y-3 ${editingAsReviewer ? 'hidden' : ''}">
+        <div>
+          <p class="font-medium">Destination</p>
+          <p class="text-sm text-slate-400" id="vis-hint"></p>
+        </div>
+        <div id="vis-seg" class="grid ${me?.department ? 'grid-cols-3' : 'grid-cols-2'} gap-2"></div>
+      </section>
+      <button id="c-save" class="tap w-full bg-emerald-600 hover:bg-emerald-500 rounded-2xl py-4 font-bold text-lg flex items-center justify-center gap-2">
+        <i data-lucide="save" class="w-5 h-5"></i>${saveLabel}</button>
+    </div>
+    <aside id="scene-rail" class="hidden lg:block lg:sticky lg:top-20"></aside>
+    </div>
   </main>`;
   const rvAct = async (action, note, official = false) => {
     const r = await fetch(`/api/scenarios/${editingId}/review`, {
@@ -734,7 +802,7 @@ async function renderCreator(id) {
     $('#vis-seg').innerHTML =
       btn('private', 'Private', priv, 'bg-slate-600')
       + (me?.department ? btn('department', 'Department', draftShares.dept, 'bg-emerald-600') : '')
-      + btn('public', 'Public', draftShares.pub, 'bg-rose-600');
+      + btn('public', 'Community', draftShares.pub, 'bg-rose-600');
     const shared = [];
     if (draftShares.dept) shared.push(`every member of ${me.department.name}`);
     if (draftShares.pub) shared.push('the whole community library');
@@ -780,7 +848,12 @@ async function renderCreator(id) {
     if (e.dataTransfer?.files?.length) uploadImage(e.dataTransfer.files[0]);
   });
   $('#c-save').onclick = saveScenario;
-  drawQs(); drawMedia(); drawBldg(); icons();
+  // Track B: dismissible tutorial + live scene reference (rail on desktop, peek
+  // bar on mobile) that mirrors the dispatch/media as the creator writes questions.
+  const tutX = $('#c-tut-x');
+  if (tutX) tutX.onclick = () => { localStorage.pcCreateTutorialDismissed = '1'; $('#c-tut')?.remove(); };
+  $('#c-desc').addEventListener('input', drawSceneRef);
+  drawQs(); drawMedia(); drawBldg(); drawSceneRef(); icons();
 }
 function drawBldg() {
   const wrap = $('#c-bldg-tree'); if (!wrap) return;
@@ -818,6 +891,7 @@ function drawMedia() {
     </div>`).join('');
   $('#c-media').querySelectorAll('[data-mkind]').forEach(el => el.onchange = () => draftMedia[el.dataset.mkind].kind = el.value);
   $('#c-media').querySelectorAll('[data-mdel]').forEach(el => el.onclick = () => { draftMedia.splice(el.dataset.mdel, 1); drawMedia(); });
+  drawSceneRef(); // keep the sticky scene reference in sync with the primary image
   icons();
 }
 function stageSelect(q, i) {
@@ -865,9 +939,12 @@ function drawQs() {
   const KINDS = [['text', 'Text Box'], ['multiple_choice', 'Multiple Choice'], ['select_all', 'Select All That Apply']];
   $('#c-qs').innerHTML = draftQs.map((q, i) => `
   <div class="bg-slate-900 border border-slate-700 rounded-xl p-4 space-y-3">
-    <div class="flex items-start justify-between gap-2 flex-wrap">
-      <div class="flex items-center gap-2 flex-wrap">${stageSelect(q, i)}${roleSelect(q, i)}</div>
-      <button data-delq="${i}" class="tap text-slate-500 hover:text-rose-400 p-1.5" title="Delete question"><i data-lucide="x" class="w-5 h-5"></i></button>
+    <div class="flex items-start justify-between gap-2">
+      <details class="min-w-0" ${(q.stage || q.role_track) ? 'open' : ''}>
+        <summary class="tap inline-flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-200 cursor-pointer select-none"><i data-lucide="sliders-horizontal" class="w-3.5 h-3.5"></i>Advanced <span class="text-slate-600">· stage &amp; role</span></summary>
+        <div class="flex items-center gap-2 flex-wrap mt-2">${stageSelect(q, i)}${roleSelect(q, i)}</div>
+      </details>
+      <button data-delq="${i}" class="tap text-slate-500 hover:text-rose-400 p-1.5 shrink-0" title="Delete question"><i data-lucide="x" class="w-5 h-5"></i></button>
     </div>
     <div class="flex items-center gap-1 bg-slate-800 rounded-lg p-1 text-xs w-fit flex-wrap">
       ${KINDS.map(([k, label]) => `<button data-kind="${k}" data-i="${i}" class="px-3 py-1.5 rounded-md ${q.kind === k ? 'bg-amber-600 font-semibold' : ''}">${label}</button>`).join('')}
