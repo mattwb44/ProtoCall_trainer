@@ -51,10 +51,45 @@ _Updated 2026-07-22. Read `current-focus.md` and `decisions.md` first._
   open follow-up on backups — an ops task, not a blocker.
 
 ## Recommended next steps (priority order)
-1. **Track D — community moderation.** Build the approval-queue UI over the
-   existing `pending` review workflow (`/api/review/queue`, `/api/scenarios/:id/review`).
+1. **Track D — community moderation.** Decisions are settled (see `decisions.md`
+   → Community + admin model), so this can run without a pause.
+
+   **Read this before starting — Track D is NOT greenfield.** The queue UI
+   already exists; do not rebuild it:
+   - `#/review` (`renderReview`, `public/index.html:2673`) — a working reviewer
+     queue with **Approve / Approve as Official / Request changes**, backed by
+     `GET /api/review/queue` and `POST /api/scenarios/:id/review`
+     (`server/index.js:686,702`). Nav item is role-gated (`chiefOrAdmin`).
+   - `#/moderation` (`renderModeration`, `public/index.html:2712`) — a
+     `site_admin` page for **content reports** + **department verification**
+     (`/api/moderation/reports`, `/api/moderation/departments`).
+   - `POST /api/scenarios/:id/submit-review` (`server/index.js:673`) already
+     moves a scenario to `review_status='pending'`.
+
+   **The actual gap (this is the work):** community visibility is *not gated on
+   approval*. Both browse queries filter on `shared_public=1` only
+   (`/api/scenarios` `server/index.js:533`, `/api/public/scenarios:549`), so a
+   scenario shared to Community shows in the public library **instantly**. The
+   `pending` flow is a *separate, author-initiated* path that today only grants
+   the Official badge — it does not gate visibility. That contradicts the
+   settled decision (`decisions.md` → Community: *"submitted to Community enter
+   `pending`… only approved + public show in community browse"*).
+
+   **Proposed slices (verify against the decision, then build):**
+   1. *Gate on approval.* Sharing to Community should set `review_status='pending'`
+      (not instantly public), and the two community browse queries should require
+      an approved state, so pending community scenarios are hidden from browse
+      until a moderator approves. Author still sees their own (the `OR author_id`
+      branch). Keep department + private paths unchanged.
+   2. *Reject with reason → author revision loop.* `request_changes` already
+      writes `review_note` + `changes_requested`; surface it to the author (the
+      CHANGES badge exists at `public/index.html:288`) and let them resubmit.
+   3. *Tests + headless verify* the gate: shared-to-community is invisible in
+      `/api/public/scenarios` until approved; approve makes it appear; reject
+      routes the note back.
+
    `site_admin` is env-only (no promotion UI — see `decisions.md`); `dept_admin`
-   covers department-scoped moderation.
+   already scopes the queue to their own department (`server/index.js:689-691`).
 2. Hold **Track E** until `solo_events` shows repeat solo usage.
 
 Note on test fixtures: scenario creates/edits now require `objective_primary`.
@@ -78,7 +113,14 @@ inline fixtures keep multiplying.
 - `server/backup.js`: nightly on-volume DB snapshots + rotation, started from
   `buildServer` (skipped for the in-memory test DB; `backup:false` disables).
 - `VOICE.md`: write user-facing copy to this voice.
-- Tests: `npm test` (node:test, currently 85 green). Heads-up: the multipart
+- `public/index.html`: `renderReview` (`:2673`) + `renderModeration` (`:2712`)
+  and the destination selector (`vis-seg`, `draftShares`, `:802-826`) — the
+  Track D surfaces. Community browse is `renderPublic` (`#/public`, `:1846`).
+- `server/index.js`: the review/moderation endpoints (`submit-review`,
+  `/api/review/queue`, `/api/scenarios/:id/review`, `:673-723`); the community
+  browse queries that need the approval gate (`:526-550`).
+- Tests: `npm test` (node:test, **86 tests, 85 green**). Heads-up: the multipart
   size-cap assertion in `test/media-pdf.test.js` is order/timing-flaky under
-  `@fastify/multipart` v10 — unrelated to app logic; pin it down before it masks
-  a real regression.
+  `@fastify/multipart` v10 — it was already flaky on the baseline before this
+  work, is unrelated to app logic, and is the one non-passing test; pin it down
+  before it masks a real regression.
