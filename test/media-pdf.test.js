@@ -57,6 +57,7 @@ test('scenario media: saved ordered, appears in detail and live room state, clon
     method: 'POST', headers: authed(cookie),
     body: JSON.stringify({
       title: 'STEMI Recognition', visibility: 'public', category: 'EMS', subcategory: 'Cardiac',
+      objective_primary: 'Cardiac Care',
       questions: [{ prompt: 'Interpret the 12-lead.', instructor_answer: 'Anterior STEMI' }],
       media: [{ kind: 'ekg', url: u1.url }, { kind: 'photo', url: u2.url }],
     }),
@@ -85,6 +86,7 @@ test('editing: fields update; answered questions soft-delete; history intact; no
     method: 'POST', headers: authed(cookie),
     body: JSON.stringify({
       title: 'Rollover MVA', visibility: 'private', category: 'Motor Vehicle Accidents', subcategory: 'Rollover',
+      objective_primary: 'Scene Size-Up',
       questions: [{ prompt: 'First action on approach?', instructor_answer: 'Scene safety, 360' },
                   { prompt: 'Stabilize how?', instructor_answer: 'Cribbing' }],
     }),
@@ -114,7 +116,7 @@ test('editing: fields update; answered questions soft-delete; history intact; no
     method: 'PUT', headers: authed(cookie),
     body: JSON.stringify({
       title: 'Rollover MVA — Night Ops', visibility: 'private',
-      category: 'Motor Vehicle Accidents', subcategory: 'Rollover',
+      category: 'Motor Vehicle Accidents', subcategory: 'Rollover', objective_primary: 'Scene Size-Up',
       questions: [
         { id: q1.id, prompt: 'First action on approach at night?', instructor_answer: 'Scene safety, 360, lighting' },
         { prompt: 'When do you call for extrication?', instructor_answer: 'Entrapment confirmed' },
@@ -149,6 +151,7 @@ test('soft delete hides, blocks launch, restores; history still opens', async ()
     method: 'POST', headers: authed(cookie),
     body: JSON.stringify({
       title: 'Wildland Anchor Point', visibility: 'public', category: 'Fireground', subcategory: 'Wildland',
+      objective_primary: 'Scene Size-Up',
       questions: [{ prompt: 'LCES stands for?', instructor_answer: 'Lookouts, Communications, Escape routes, Safety zones' }],
     }),
   }).then(r => r.json());

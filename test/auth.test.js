@@ -95,6 +95,7 @@ test('ownership: private hidden from others; public launchable; clone deep-copie
     method: 'POST', headers: authed(authorCookie),
     body: JSON.stringify({
       title, visibility, category: 'EMS', subcategory: 'Cardiac',
+      objective_primary: 'Scene Size-Up',
       questions: [{ prompt: 'Rhythm?', kind: 'text', instructor_answer: 'V-fib' }],
     }),
   }).then(r => r.json());

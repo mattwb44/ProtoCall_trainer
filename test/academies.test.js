@@ -19,7 +19,8 @@ const mkScenario = (cookie, extra = {}) =>
     method: 'POST', headers: authed(cookie),
     body: JSON.stringify({
       title: 'Academy fixture', description: 'd', category: 'Fire', subcategory: 'Structure',
-      visibility: 'public', questions: [{ prompt: 'Q?', instructor_answer: 'A' }], ...extra,
+      visibility: 'public', objective_primary: 'Scene Size-Up',
+      questions: [{ prompt: 'Q?', instructor_answer: 'A' }], ...extra,
     }),
   }).then(r => r.json());
 

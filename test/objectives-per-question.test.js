@@ -65,6 +65,33 @@ test('unknown per-question objective is rejected on create and update', async ()
   assert.equal(upd.status, 400);
 });
 
+test('a primary objective is enforced at creation and on author edits', async () => {
+  const { cookie } = await signup(base, { email: 'enforce@obj.test' });
+  const post = b => fetch(`${base}/api/scenarios`, { method: 'POST', headers: authed(cookie), body: b });
+
+  // create without a primary objective is rejected
+  const noPrimary = await post(JSON.stringify({
+    title: 'Untagged', category: 'Fire', subcategory: 'Structure',
+    questions: [{ prompt: 'Q?', kind: 'text', instructor_answer: 'A' }],
+  }));
+  assert.equal(noPrimary.status, 400);
+
+  // with a primary it succeeds
+  const ok = await post(body());
+  assert.equal(ok.status, 201);
+  const { id } = await ok.json();
+
+  // an author edit that drops the primary is rejected too
+  const dropped = await fetch(`${base}/api/scenarios/${id}`, {
+    method: 'PUT', headers: authed(cookie),
+    body: JSON.stringify({
+      title: 'Untag me', category: 'Fire', subcategory: 'Structure',
+      questions: [{ prompt: 'Q?', kind: 'text', instructor_answer: 'A' }],
+    }),
+  });
+  assert.equal(dropped.status, 400);
+});
+
 test('coverage counts a scenario under every objective in its union', async () => {
   const { cookie } = await signup(base, { email: 'cov2@obj.test' });
   const cell = (cov, o) => cov.grid[o]?.['Fire'] ?? 0;

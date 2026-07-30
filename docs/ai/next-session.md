@@ -31,18 +31,18 @@ _Updated 2026-07-22. Read `current-focus.md` and `decisions.md` first._
   destination selector ("Destination" / "Community" / "Create scenario" ·
   "Save changes"). Save payload + element IDs unchanged, so server tests untouched.
   Both verified end-to-end in a headless browser.
-- **Track C — objectives (2 of 3 slices).**
+- **Track C — objectives (complete, all 3 slices).**
   - *Per-question grain:* `questions.objective` (immutable name, '' inherits
     primary); scenario detail returns the `objectives` union; coverage counts
     the union; creator has a per-question objective picker in "Advanced"; A2
-    reveal frames the union. 3 tests.
+    reveal frames the union.
   - *Suggester:* `server/objectives-suggest.js` keyword corpus +
     `POST /api/objectives/suggest` (auth, category-scoped, explainable);
-    "Suggest objectives from the scene" button → click-to-apply chips. 4 tests.
-  - *Deferred (slice 3):* create-time enforcement of the scenario primary. The
-    one-line server guard is trivial, but ~40 existing tests build scenarios
-    with no primary — do it with a test-fixture sweep (introduce a shared
-    `scenarioBody` helper in `test/helpers.js` and thread a default objective).
+    "Suggest objectives from the scene" button → click-to-apply chips.
+  - *Enforcement:* a primary objective is required at creation and on author
+    edits (server: POST + author PUT; reviewer edits exempt). Client blocks the
+    save with a nudge toward the suggester. The fixture sweep is done — ~10 test
+    files now pass a default `objective_primary` on their scenario creates/edits.
 
 ## In progress / pending a decision
 - **`Fireground_trainer-old` Railway project** is a broken (502, crash-looping)
@@ -51,13 +51,16 @@ _Updated 2026-07-22. Read `current-focus.md` and `decisions.md` first._
   open follow-up on backups — an ops task, not a blocker.
 
 ## Recommended next steps (priority order)
-1. **Finish Track C — enforce the scenario primary at creation** (POST + author
-   PUT: `if (!t.objective_primary) 400`). Blocked only by test fixtures: add a
-   shared `scenarioBody` helper with a default `objective_primary` and sweep the
-   ~40 create sites, then flip the guard on. The suggester makes tagging one click.
-2. **Track D — community moderation.** Approval queue UI over the existing
-   `pending` review workflow; `site_admin` is env-only (no promotion UI).
-3. Hold **Track E** until `solo_events` shows repeat solo usage.
+1. **Track D — community moderation.** Build the approval-queue UI over the
+   existing `pending` review workflow (`/api/review/queue`, `/api/scenarios/:id/review`).
+   `site_admin` is env-only (no promotion UI — see `decisions.md`); `dept_admin`
+   covers department-scoped moderation.
+2. Hold **Track E** until `solo_events` shows repeat solo usage.
+
+Note on test fixtures: scenario creates/edits now require `objective_primary`.
+New tests should pass one (any seeded objective, e.g. `'Scene Size-Up'`, is valid
+for any category). Consider extracting a shared `scenarioBody` helper if the
+inline fixtures keep multiplying.
 
 ## Key files to review first
 - `public/index.html`: `renderSolo` + `soloReveal` (A2 unified reveal +

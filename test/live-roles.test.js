@@ -23,6 +23,7 @@ async function trackedRoom() {
     method: 'POST', headers: authed(cookie),
     body: JSON.stringify({
       title: 'Role fixture', description: 'd', category: 'Fire', subcategory: 'Structure', visibility: 'public',
+      objective_primary: 'Scene Size-Up',
       questions: [
         { prompt: 'Common?', kind: 'text', instructor_answer: 'CA' },
         { prompt: 'FF?', kind: 'text', instructor_answer: 'FA', role_track: 'Firefighter' },

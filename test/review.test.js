@@ -18,7 +18,7 @@ const get = (path, cookie) => fetch(`${base}${path}`, { headers: { cookie } });
 const makeScenario = async (cookie, over = {}) => {
   const res = await post('/api/scenarios', cookie, {
     title: over.title ?? 'Review Me', category: 'Fireground', subcategory: 'Residential',
-    visibility: over.visibility ?? 'private',
+    visibility: over.visibility ?? 'private', objective_primary: 'Scene Size-Up',
     questions: [{ prompt: 'Q1?', instructor_answer: 'A1', stage: 'Arrival' }],
     ...over,
   });
@@ -51,7 +51,7 @@ after(async () => {
 
 test('author submits for review; empty scenarios and re-submits are rejected', async () => {
   const empty = await post('/api/scenarios', member, {
-    title: 'No Questions', category: 'EMS', subcategory: 'Trauma', questions: [],
+    title: 'No Questions', category: 'EMS', subcategory: 'Trauma', objective_primary: 'Scene Size-Up', questions: [],
   }).then(r => r.json());
   assert.equal((await post(`/api/scenarios/${empty.id}/submit-review`, member)).status, 400);
 
@@ -147,6 +147,7 @@ test('author edit after approval voids the badge and status', async () => {
     method: 'PUT', headers: authed(member),
     body: JSON.stringify({
       title: 'Void Me v2', category: 'Fireground', subcategory: 'Residential', visibility: 'private',
+      objective_primary: 'Scene Size-Up',
       questions: [{ prompt: 'Q1?', instructor_answer: 'A1' }],
     }),
   });

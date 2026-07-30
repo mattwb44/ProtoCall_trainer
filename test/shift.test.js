@@ -23,6 +23,7 @@ async function room() {
     method: 'POST', headers: authed(cookie),
     body: JSON.stringify({
       title: 'Shift fixture', description: 'd', category: 'Fire', subcategory: 'Structure', visibility: 'public',
+      objective_primary: 'Scene Size-Up',
       questions: [{ prompt: 'Q1?', kind: 'text', instructor_answer: 'A1' }],
     }),
   }).then(r => r.json());

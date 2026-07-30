@@ -872,6 +872,10 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
     const tax = taxonomyOf(req.body);
     if (tax.error) return reply.code(400).send({ error: tax.error });
     const t = tax.values;
+    // Track C: objective tagging is enforced at creation — every scenario needs
+    // at least a primary learning objective, so the library stays findable and
+    // coverage stays measurable. The suggester makes this a one-click choice.
+    if (!t.objective_primary) return reply.code(400).send({ error: 'a primary learning objective is required' });
     const qObjErr = questionObjectiveError(questions);
     if (qObjErr) return reply.code(400).send({ error: qObjErr });
     const id = uuid();
@@ -912,6 +916,9 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
     const tax = taxonomyOf(req.body);
     if (tax.error) return reply.code(400).send({ error: tax.error });
     const t = tax.values;
+    // Track C: enforce the primary objective on author edits too (reviewers keep
+    // the author's taxonomy and aren't blocked on legacy untagged scenarios).
+    if (!asReviewer && !t.objective_primary) return reply.code(400).send({ error: 'a primary learning objective is required' });
     const qObjErr = questionObjectiveError(questions);
     if (qObjErr) return reply.code(400).send({ error: qObjErr });
     const existing = db.prepare('SELECT id FROM questions WHERE scenario_id=? AND deleted=0').all(s.id).map(q => q.id);

@@ -1091,6 +1091,10 @@ async function saveScenario() {
     media: draftMedia,
   };
   if (!body.title) return toast('Title is required', 'bg-amber-500');
+  // Track C: a primary objective is required (enforced server-side too). Skip
+  // for reviewer edits — the server keeps the author's taxonomy on those.
+  if (!editingAsReviewer && !body.objective_primary)
+    return toast('Pick a primary learning objective — try “Suggest objectives from the scene”', 'bg-amber-500');
   if (body.objective_secondary && !body.objective_primary)
     return toast('Pick a primary objective first', 'bg-amber-500');
   if (body.objective_secondary && body.objective_secondary === body.objective_primary)
