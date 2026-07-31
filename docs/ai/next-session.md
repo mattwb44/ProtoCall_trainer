@@ -45,8 +45,8 @@ _Updated 2026-07-22. Read `current-focus.md` and `decisions.md` first._
     files now pass a default `objective_primary` on their scenario creates/edits.
 
 ## In progress / pending a decision
-- **`Fireground_trainer-old` Railway project** is a broken (502, crash-looping)
-  husk with only demo data. Awaiting owner go-ahead to **delete it** (irreversible).
+- **`Fireground_trainer-old` Railway project — deleted** by the owner (2026-07-31).
+  No longer a pending item.
 - **Offsite backup sync** (push nightly snapshots off the Railway volume) is the
   open follow-up on backups — an ops task, not a blocker.
 
