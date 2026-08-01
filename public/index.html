@@ -196,8 +196,7 @@ function renderSidebar() {
     ${me ? `<a href="#/create" class="sb-link tap flex items-center justify-center gap-2 w-full bg-rose-600 hover:bg-rose-500 rounded-xl py-2.5 font-bold text-sm mb-3"><i data-lucide="plus" class="w-4 h-4"></i>New Scenario</a>` : ''}
     ${item('#/', 'house', 'Home')}
     ${item('#/public', 'globe', 'Community')}
-    ${item('#/library', 'library', 'Library')}
-    ${me ? item('#/me', 'history', 'My Sessions') : ''}
+    ${me ? item('#/library', 'library', 'My Library') : ''}
     ${item('#/academies', 'graduation-cap', 'Academies')}
     ${item('#/coverage', 'grid-3x3', 'Coverage')}
     ${me ? item('#/department', 'building-2', me.department ? esc(me.department.name) : 'Department') : ''}
@@ -219,7 +218,8 @@ $('#sidebar-backdrop').onclick = () => openSidebar(false);
 /* ═══ Router ═══ */
 const routes = {
   '': renderLanding,
-  'library': renderLibrary,
+  // #/library → My Scenarios tab; #/library/sessions → My Sessions tab (renderMe).
+  'library': tab => tab === 'sessions' ? renderMe() : renderLibrary(),
   'create': id => renderCreator(id),
   'host': code => renderHost(code),
   'join': code => renderJoin(code),
@@ -227,8 +227,9 @@ const routes = {
   'signup': () => renderAuth('signup'),
   'verify': token => renderVerify(token),
   'reset': token => renderReset(token),
-  'me': renderMe,
-  'public': renderPublic,
+  // Back-compat: the old My Sessions URL redirects to the library tab.
+  'me': () => { location.hash = '#/library/sessions'; },
+  'public': tab => renderPublic(tab),
   'session': id => renderSessionDetail(id),
   'scenario': id => renderScenarioDetail(id),
   'solo': id => renderSolo(id),
@@ -404,22 +405,36 @@ const updateCatStrip = cur => {
 const bindCatStrip = onPick =>
   app.querySelectorAll('[data-cattab]').forEach(el => el.onclick = () => onPick(el.dataset.cattab));
 
+// My Library is a personal area — your own scenarios and your own session
+// history, behind login. Browsing everyone else's work lives on Community
+// (#/public). The header + tab bar are shared with the My Sessions tab
+// (renderMe) through myLibraryShell so the two tabs stay visually identical.
+const myLibraryShell = (active, inner) => `
+  <main class="max-w-6xl mx-auto p-4 sm:p-6 anim-in">
+    <div class="flex items-center justify-between mb-4">
+      <div><h1 class="text-2xl font-bold">My Library</h1>
+        <p class="text-sm text-slate-400">Your scenarios and your training history — everything that's yours.</p></div>
+      <a href="#/create" class="tap flex md:hidden items-center gap-1.5 text-sm bg-rose-600 hover:bg-rose-500 px-4 py-2.5 rounded-xl font-medium"><i data-lucide="plus" class="w-4 h-4"></i>New</a>
+    </div>
+    <div class="flex gap-1 mb-5 border-b border-slate-800">
+      <a href="#/library" class="tap px-4 py-2.5 text-sm font-semibold border-b-2 -mb-px ${active === 'scenarios' ? 'border-rose-500 text-white' : 'border-transparent text-slate-400 hover:text-white'}">My Scenarios</a>
+      <a href="#/library/sessions" class="tap px-4 py-2.5 text-sm font-semibold border-b-2 -mb-px ${active === 'sessions' ? 'border-rose-500 text-white' : 'border-transparent text-slate-400 hover:text-white'}">My Sessions</a>
+    </div>
+    ${inner}
+  </main>`;
+
 async function renderLibrary() {
+  if (!me) { sessionStorage.authNext = '#/library'; location.hash = '#/login'; return; }
   const [scenarios, objectives] = await Promise.all([
-    fetch('/api/scenarios').then(r => r.json()),
+    fetch('/api/scenarios?scope=mine').then(r => r.json()),
     fetch('/api/objectives').then(r => r.json()).catch(() => []),
   ]);
-  const st = { q: '', cat: '', sub: '', diff: '', obj: '', own: 'all' };
-  const OWN = [['all', 'All'], ...(me ? [['mine', 'Mine']] : []),
-    ...(me?.department ? [['department', 'Department']] : []), ['official', 'Official']];
+  const st = { q: '', cat: '', sub: '', diff: '', obj: '' };
+  // Everything here is already the caller's own (scope=mine), so there is no
+  // ownership filter — just search + taxonomy. Pending scenarios stay visible
+  // to their author (the card flags them IN REVIEW).
   const visible = () => scenarios.filter(s => {
     if (s.deleted_at) return false;
-    // scenarios awaiting review stay out of the Library — authors find their
-    // own under the Mine filter (flagged IN REVIEW), reviewers in #/review
-    if (s.review_status === 'pending' && st.own !== 'mine') return false;
-    if (st.own === 'mine' && !s.mine) return false;
-    if (st.own === 'department' && !s.shared_department) return false;
-    if (st.own === 'official' && !s.is_official) return false;
     if (st.cat && s.category !== st.cat) return false;
     if (st.sub && s.subcategory !== st.sub) return false;
     if (st.diff && s.difficulty !== st.diff) return false;
@@ -427,7 +442,8 @@ async function renderLibrary() {
     if (st.q && !`${s.title} ${s.description}`.toLowerCase().includes(st.q.toLowerCase())) return false;
     return true;
   });
-  const deleted = me ? scenarios.filter(s => s.mine && s.deleted_at) : [];
+  const deleted = scenarios.filter(s => s.deleted_at);
+  const anyLive = scenarios.some(s => !s.deleted_at);
   const sel = 'tap w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-sm';
   const fields = `
     <input id="lf-q" placeholder="Search…" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-sm focus:border-rose-500 focus:outline-none">
@@ -436,22 +452,8 @@ async function renderLibrary() {
     <div><label class="text-xs font-semibold text-slate-400">Difficulty</label>
       <select id="lf-diff" class="${sel} mt-1"><option value="">All</option><option>Introductory</option><option>Standard</option><option>Advanced</option></select></div>
     <div><label class="text-xs font-semibold text-slate-400">Objective</label>
-      <select id="lf-obj" class="${sel} mt-1"><option value="">All</option>${objectives.map(o => `<option>${esc(o)}</option>`).join('')}</select></div>
-    <div><label class="text-xs font-semibold text-slate-400">Show</label>
-      <div id="lf-own" class="grid grid-cols-2 gap-1.5 mt-1">
-        ${OWN.map(([v, l]) => `<button data-own="${v}" class="tap text-xs font-semibold rounded-lg py-2 ${st.own === v ? 'bg-rose-600 text-white' : 'bg-slate-900 border border-slate-700 hover:border-slate-500'}">${l}</button>`).join('')}
-      </div></div>`;
-  app.innerHTML = `
-  <main class="max-w-6xl mx-auto p-4 sm:p-6 anim-in">
-    <div class="flex items-center justify-between mb-4">
-      <div><h1 class="text-2xl font-bold">Library</h1>
-        <p class="text-sm text-slate-400">Everything you can launch or train on — public, department, and your own.</p></div>
-      ${me ? '<a href="#/create" class="tap flex md:hidden items-center gap-1.5 text-sm bg-rose-600 hover:bg-rose-500 px-4 py-2.5 rounded-xl font-medium"><i data-lucide="plus" class="w-4 h-4"></i>New</a>' : ''}
-    </div>
-    ${me ? '' : `<div class="bg-amber-950/40 border border-amber-800/50 rounded-xl p-4 mb-4 text-sm text-amber-100 flex items-center gap-3">
-      <i data-lucide="log-in" class="w-5 h-5 text-amber-400 shrink-0"></i>
-      <span><a href="#/login" class="font-bold text-amber-300 hover:underline">Log in</a> to host live sessions and build your own scenarios. Joining a room never needs an account.</span>
-    </div>`}
+      <select id="lf-obj" class="${sel} mt-1"><option value="">All</option>${objectives.map(o => `<option>${esc(o)}</option>`).join('')}</select></div>`;
+  app.innerHTML = myLibraryShell('scenarios', `
     ${catStrip(st.cat)}
     <div class="flex gap-6 items-start">
       ${filterPanel(fields)}
@@ -462,17 +464,18 @@ async function renderLibrary() {
         </div>
         <div id="lib-deleted" class="mt-6"></div>
       </div>
-    </div>
-  </main>`;
+    </div>`);
   const drawGrid = () => {
     $('#lib-grid').innerHTML = visible().map(s => scenarioCard(s, {
-      corner: s.mine ? `<div class="flex items-center gap-0.5 -mt-1 -mr-1">
+      corner: `<div class="flex items-center gap-0.5 -mt-1 -mr-1">
         <a href="#/create/${s.id}" class="p-1.5 text-slate-400 hover:text-white" title="Edit"><i data-lucide="pencil" class="w-3.5 h-3.5"></i></a>
-        <button data-del="${s.id}" class="p-1.5 text-slate-400 hover:text-rose-400" title="Delete"><i data-lucide="trash-2" class="w-3.5 h-3.5"></i></button></div>` : '',
+        <button data-del="${s.id}" class="p-1.5 text-slate-400 hover:text-rose-400" title="Delete"><i data-lucide="trash-2" class="w-3.5 h-3.5"></i></button></div>`,
       footer: `<a href="#/scenario/${s.id}" class="tap flex-1 text-center text-sm font-semibold bg-slate-700 hover:bg-slate-600 rounded-xl py-2.5">Details</a>
         <button data-launch="${s.id}" class="tap flex-1 text-sm font-bold bg-emerald-600 hover:bg-emerald-500 rounded-xl py-2.5 flex items-center justify-center gap-1.5"><i data-lucide="radio-tower" class="w-4 h-4"></i>Launch</button>`,
-    })).join('') || '<p class="text-slate-500 italic col-span-full">No scenarios match these filters.</p>';
-    $('#lib-deleted').innerHTML = st.own === 'mine' && deleted.length ? `
+    })).join('') || (anyLive
+      ? '<p class="text-slate-500 italic col-span-full">No scenarios match these filters.</p>'
+      : '<p class="text-slate-500 italic col-span-full">Nothing here yet — <a href="#/create" class="text-rose-400 hover:underline">build a scenario</a> or <a href="#/public" class="text-rose-400 hover:underline">clone one from Community</a>.</p>');
+    $('#lib-deleted').innerHTML = deleted.length ? `
       <details><summary class="text-sm text-slate-500 cursor-pointer hover:text-slate-300">Deleted (${deleted.length})</summary>
       <div class="space-y-2 mt-2">${deleted.map(s => `
         <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4 flex items-center gap-3 opacity-80">
@@ -503,7 +506,6 @@ async function renderLibrary() {
     g('sub').onchange = e => { st.sub = e.target.value; drawGrid(); };
     g('diff').onchange = e => { st.diff = e.target.value; drawGrid(); };
     g('obj').onchange = e => { st.obj = e.target.value; drawGrid(); };
-    g('own')?.querySelectorAll('[data-own]').forEach(b => b.onclick = () => { st.own = b.dataset.own; renderLibraryFilters(); drawGrid(); });
   };
   bindCatStrip(cat => {
     st.cat = cat; st.sub = '';
@@ -511,11 +513,6 @@ async function renderLibrary() {
     updateCatStrip(cat);
     drawGrid();
   });
-  const renderLibraryFilters = () => ['lf-', 'lfm-'].forEach(pre =>
-    $(`#${pre}own`)?.querySelectorAll('[data-own]').forEach(b => {
-      const on = st.own === b.dataset.own;
-      b.className = `tap text-xs font-semibold rounded-lg py-2 ${on ? 'bg-rose-600 text-white' : 'bg-slate-900 border border-slate-700 hover:border-slate-500'}`;
-    }));
   bind('lf-'); bind('lfm-');
   drawGrid();
   icons();
@@ -1639,7 +1636,7 @@ function renderAuth(mode) {
         }
       } catch { /* fall through to the normal redirect */ }
     }
-    location.hash = sessionStorage.authNext || '#/me';
+    location.hash = sessionStorage.authNext || '#/library/sessions';
     sessionStorage.removeItem('authNext');
   };
   $('#a-go').onclick = go;
@@ -1662,7 +1659,7 @@ async function renderVerify(tokenArg) {
     ? `<i data-lucide="badge-check" class="w-10 h-10 mx-auto text-emerald-400"></i>
        <h1 class="text-lg font-bold">Email verified</h1>
        <p class="text-sm text-slate-400">Thanks${body.display_name ? ', ' + esc(body.display_name) : ''} — your address is confirmed.</p>
-       <a href="#/me" class="tap inline-block mt-2 bg-rose-600 hover:bg-rose-500 rounded-xl px-5 py-2.5 font-semibold">Go to my sessions</a>`
+       <a href="#/library/sessions" class="tap inline-block mt-2 bg-rose-600 hover:bg-rose-500 rounded-xl px-5 py-2.5 font-semibold">Go to my sessions</a>`
     : `<i data-lucide="triangle-alert" class="w-10 h-10 mx-auto text-amber-400"></i>
        <h1 class="text-lg font-bold">Link expired</h1>
        <p class="text-sm text-slate-400">${esc(body.error || 'This verification link is invalid or has expired.')}</p>
@@ -1722,7 +1719,7 @@ async function renderReset(tokenArg) {
     me = await fetch('/api/me').then(r => r.json());
     renderNav();
     toast(`Password updated — welcome back, ${body.display_name}`);
-    location.hash = '#/me';
+    location.hash = '#/library/sessions';
   };
   $('#r-go').onclick = go;
   $('#r-pass').addEventListener('keydown', e => e.key === 'Enter' && go());
@@ -1730,14 +1727,10 @@ async function renderReset(tokenArg) {
 }
 
 async function renderMe() {
-  if (!me) { sessionStorage.authNext = '#/me'; location.hash = '#/login'; return; }
+  if (!me) { sessionStorage.authNext = '#/library/sessions'; location.hash = '#/login'; return; }
   const sessions = await fetch('/api/me/sessions').then(r => r.json());
-  app.innerHTML = `
-  <main class="max-w-2xl mx-auto p-4 sm:p-6 space-y-5 anim-in">
-    <div>
-      <h1 class="text-2xl font-bold">My Sessions</h1>
-      <p class="text-sm text-slate-400">Your hosted, joined, and solo runs. Your scenarios live in the <a href="#/library" class="text-rose-400 hover:underline">Library</a> under the Mine filter.</p>
-    </div>
+  app.innerHTML = myLibraryShell('sessions', `
+    <div class="max-w-2xl space-y-4">
     ${me.email_verified === false ? `
     <div class="bg-amber-500/10 border border-amber-500/40 rounded-2xl p-4 flex items-start gap-3">
       <i data-lucide="mail-warning" class="w-5 h-5 text-amber-400 shrink-0 mt-0.5"></i>
@@ -1758,8 +1751,8 @@ async function renderMe() {
         <span class="text-xs font-semibold px-2.5 py-1 rounded-full ${s.status === 'live' ? 'bg-emerald-900/60 text-emerald-300' : 'bg-slate-700 text-slate-300'}">${s.status}</span>
         ${(s.hosted || s.mode === 'solo') && s.status !== 'live' ? `<button data-delsession="${s.id}" title="Delete session" class="tap p-2 -m-1 text-slate-500 hover:text-rose-400"><i data-lucide="trash-2" class="w-4 h-4"></i></button>` : ''}
       </div>
-    </a>`).join('') || '<p class="text-sm text-slate-500 italic">No sessions yet — host one from the Library or try a scenario solo.</p>'}
-  </main>`;
+    </a>`).join('') || '<p class="text-sm text-slate-500 italic">No sessions yet — host one from a scenario or try one solo.</p>'}
+    </div>`);
   icons();
   const resend = $('#me-resend');
   if (resend) resend.onclick = async () => {
@@ -1866,10 +1859,14 @@ async function renderAccount() {
   };
 }
 
-async function renderPublic() {
+async function renderPublic(scopeArg) {
   const hq = new URLSearchParams(location.hash.split('?')[1] || '');
+  // Two scopes: the public catalogue, and (for department members) the set
+  // shared with their department — where department-shared-by-others scenarios
+  // live now that My Library is owner-only.
+  const scope = (scopeArg === 'department' && me?.department) ? 'department' : 'community';
   const [list, objectives] = await Promise.all([
-    fetch('/api/public/scenarios').then(r => r.json()),
+    fetch('/api/public/scenarios' + (scope === 'department' ? '?scope=department' : '')).then(r => r.json()),
     fetch('/api/objectives').then(r => r.json()).catch(() => []),
   ]);
   const st = { q: '', cat: hq.get('category') || '', sub: hq.get('subcategory') || '', diff: '', obj: '' };
@@ -1894,12 +1891,19 @@ async function renderPublic() {
   <main class="max-w-6xl mx-auto p-4 sm:p-6 anim-in">
     <div class="flex items-center justify-between mb-4">
       <div><h1 class="text-2xl font-bold">Community</h1>
-        <p class="text-sm text-slate-400">Public scenarios shared by the whole community.</p></div>
+        <p class="text-sm text-slate-400">${scope === 'department'
+          ? `Scenarios shared with ${esc(me.department.name)}.`
+          : 'Public scenarios shared by the whole community.'}</p></div>
       <div class="hidden sm:flex items-center">
         <a href="#/academies" class="tap flex items-center gap-1.5 text-sm text-slate-300 hover:text-white px-3 py-2"><i data-lucide="graduation-cap" class="w-4 h-4"></i>Academies</a>
         <a href="#/coverage" class="tap flex items-center gap-1.5 text-sm text-slate-300 hover:text-white px-3 py-2"><i data-lucide="grid-3x3" class="w-4 h-4"></i>Coverage</a>
       </div>
     </div>
+    ${me?.department ? `
+    <div class="flex gap-1 mb-4">
+      <a href="#/public" class="tap px-3.5 py-1.5 rounded-full text-sm font-semibold ${scope === 'community' ? 'bg-rose-600 text-white' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'}">Community</a>
+      <a href="#/public/department" class="tap px-3.5 py-1.5 rounded-full text-sm font-semibold ${scope === 'department' ? 'bg-rose-600 text-white' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'}">${esc(me.department.name)}</a>
+    </div>` : ''}
     ${catStrip(st.cat)}
     <div class="flex gap-6 items-start">
       ${filterPanel(fields)}
@@ -1913,13 +1917,17 @@ async function renderPublic() {
   </main>`;
   const drawGrid = () => {
     $('#pub-grid').innerHTML = visible().map(s => scenarioCard(s, {
-      corner: `<button data-vote="${s.id}" class="flex items-center gap-1 text-xs font-semibold px-2.5 py-1.5 rounded-full ${s.my_vote ? 'bg-amber-600 text-white' : 'bg-slate-700 hover:bg-slate-600'}">
+      // Votes and reports are community-catalogue actions; the department scope
+      // just lists what's shared with your crew, with clone / solo / launch.
+      corner: scope === 'department' ? '' : `<button data-vote="${s.id}" class="flex items-center gap-1 text-xs font-semibold px-2.5 py-1.5 rounded-full ${s.my_vote ? 'bg-amber-600 text-white' : 'bg-slate-700 hover:bg-slate-600'}">
         <i data-lucide="arrow-big-up" class="w-3.5 h-3.5"></i><span data-votecount="${s.id}">${s.votes}</span></button>`,
       footer: `<button data-clone="${s.id}" class="tap p-2.5 text-slate-400 hover:text-white" title="Clone to my library"><i data-lucide="copy-plus" class="w-4 h-4"></i></button>
-        <button data-report="${s.id}" class="tap p-2.5 text-slate-400 hover:text-rose-400" title="Report"><i data-lucide="flag" class="w-4 h-4"></i></button>
+        ${scope === 'department' ? '' : `<button data-report="${s.id}" class="tap p-2.5 text-slate-400 hover:text-rose-400" title="Report"><i data-lucide="flag" class="w-4 h-4"></i></button>`}
         <a href="#/scenario/${s.id}" class="tap flex-1 text-center text-sm font-bold bg-rose-600 hover:bg-rose-500 rounded-xl py-2.5">Try Solo</a>
         <button data-launch="${s.id}" class="tap flex-1 text-sm font-bold bg-emerald-600 hover:bg-emerald-500 rounded-xl py-2.5 flex items-center justify-center gap-1.5"><i data-lucide="radio-tower" class="w-4 h-4"></i>Launch</button>`,
-    })).join('') || '<p class="text-sm text-slate-500 italic col-span-full">No public scenarios match.</p>';
+    })).join('') || (scope === 'department'
+      ? '<p class="text-sm text-slate-500 italic col-span-full">Nothing shared with your department yet.</p>'
+      : '<p class="text-sm text-slate-500 italic col-span-full">No public scenarios match.</p>');
     icons();
     bindPublicActions();
     bindLaunchButtons();
@@ -2455,7 +2463,7 @@ function soloReveal(s, qs, answers, official, role) {
 async function renderSessionDetail(id) {
   if (!me) { sessionStorage.authNext = `#/session/${id}`; location.hash = '#/login'; return; }
   const res = await fetch(`/api/me/sessions/${id}`);
-  if (!res.ok) { toast('Session not found', 'bg-rose-600'); location.hash = '#/me'; return; }
+  if (!res.ok) { toast('Session not found', 'bg-rose-600'); location.hash = '#/library/sessions'; return; }
   const { session, questions, responses, notes, media, my_participant_id,
           analysis, analysis_available, my_debrief } = await res.json();
   const isHost = session.host_id === me.id;
@@ -2467,7 +2475,7 @@ async function renderSessionDetail(id) {
       : `<span class="text-xs font-bold px-2 py-0.5 rounded-full bg-slate-600/50 text-slate-300">DIVERGENT</span>`;
   app.innerHTML = `
   <main class="max-w-3xl mx-auto p-4 sm:p-6 space-y-4 anim-in pb-16">
-    <a href="#/me" class="text-sm text-slate-400 hover:text-white flex items-center gap-1"><i data-lucide="arrow-left" class="w-4 h-4"></i>My Sessions</a>
+    <a href="#/library/sessions" class="text-sm text-slate-400 hover:text-white flex items-center gap-1"><i data-lucide="arrow-left" class="w-4 h-4"></i>My Sessions</a>
     <div class="bg-slate-800 rounded-2xl p-5 flex items-start justify-between gap-3 flex-wrap">
       <div class="min-w-0">
         <h1 class="font-bold text-lg">${esc(session.title)}</h1>

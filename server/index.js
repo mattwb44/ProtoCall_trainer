@@ -576,15 +576,25 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
 
   app.get('/api/public/scenarios', req => {
     const user = currentUser(req);
-    const { category, subcategory } = req.query;
+    const { category, subcategory, scope } = req.query;
+    // Community browse has two scopes: the default public catalogue (approved +
+    // shared_public) and, for department members, everything shared to their
+    // department by anyone (Phase 2 — this is where department-shared-by-others
+    // scenarios live now that My Library is owner-only). Department shares never
+    // pass through the community approval gate, so they are not review-filtered.
+    const dept = scope === 'department';
+    if (dept && !user?.department_id) return [];
     let sql =
       `SELECT s.*, u.display_name AS author_name,
               (SELECT COUNT(*) FROM questions q WHERE q.scenario_id=s.id) AS question_count,
               (SELECT COUNT(*) FROM scenario_votes v WHERE v.scenario_id=s.id) AS votes,
               (SELECT COUNT(*) FROM scenario_votes v WHERE v.scenario_id=s.id AND v.user_id=?) AS my_vote
        FROM scenarios s LEFT JOIN users u ON u.id=s.author_id
-       WHERE ${APPROVED_PUBLIC} AND s.deleted_at IS NULL`;
+       WHERE ${dept
+        ? 's.shared_department=1 AND s.department_id=? AND s.deleted_at IS NULL'
+        : `${APPROVED_PUBLIC} AND s.deleted_at IS NULL`}`;
     const params = [user?.id ?? ''];
+    if (dept) params.push(user.department_id);
     if (category) { sql += ' AND s.category=?'; params.push(category); }
     if (subcategory) { sql += ' AND s.subcategory=?'; params.push(subcategory); }
     sql += ' ORDER BY votes DESC, s.created_at DESC';
