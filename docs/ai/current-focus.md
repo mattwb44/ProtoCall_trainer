@@ -7,11 +7,11 @@ backlog into settled decisions (see `decisions.md` and `CONTEXT.md`); this is
 the agreed build order for them.
 
 ## Phases (dependency order)
-- **Phase 1 — protect real users.** Track D approval gate + pending sweep +
-  reject/revision loop; the diagnosed bug batch (guest drawer trap, ended-view
-  exit, join sign-in hint, category-switch objective amnesia); required-field
-  indicators; offsite backup sync.
-- **Phase 2 — structure.** My Library ownership boundary + two tabs
+- **Phase 1 — protect real users. DONE** (`87ebeaa`). Track D approval gate +
+  pending sweep + reject/revision loop; the diagnosed bug batch (session-end
+  immersion trap, ended-view exit, join sign-in hint, category-switch objective
+  amnesia); required-field indicators; offsite backup sync.
+- **Phase 2 — structure. ← current.** My Library ownership boundary + two tabs
   (My Scenarios / My Sessions); persisted drafts + "Save as Draft" /
   "Finish Scenario" + publish step; session-card badges, alignment, solo
   progress bar; list/grid toggle, collapsed mobile filters, button sizing;

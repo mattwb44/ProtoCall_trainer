@@ -1,113 +1,84 @@
 # Next session
 
-_Updated 2026-07-22. Read `current-focus.md` and `decisions.md` first._
+_Updated 2026-08-01. Read `current-focus.md` and `decisions.md` first, then
+`CONTEXT.md` (glossary) at the repo root._
 
-## Completed (earlier session)
-- **Domain cutover:** `protocalltrainer.com` now serves ProtoCall (was the old
-  fireground app). `APP_URL` fixed to the real domain. Old fireground service
-  stopped.
-- **Track 0 + A1 shipped and live** (commit `bd43edf` on `main`, deployed):
-  - Solo: dropped punitive stage lock (earlier stages editable), always-available
-    Exit button (confirm only if answers exist).
-  - `VOICE.md` — the de-AI'd copy voice for this app.
-  - `solo_events` table + start/finish logging (the funnel for Track E gating).
-- **Docs:** `docs/ai/` established; `HANDOFF.md` retired (pointer only).
+**Branch: `claude/three-arch-decisions-vp35dd`, HEAD `87ebeaa`, pushed and in
+sync with origin. Not merged to `main`.** Working tree clean. `npm test` = 104
+passing.
 
-## Shipped this session
-- **Three batched arch decisions** (see `decisions.md`): objectives immutable
-  (create-only), `site_admin` env-bootstrapped only (no in-app promotion),
-  in-app nightly `db.backup()` to `$BACKUP_DIR` (rotating `BACKUP_KEEP`=14,
-  `server/backup.js`, 3 tests; on-demand `GET /api/admin/backup` is the offsite pull).
-- **A2 — unified After-Action reveal.** Guests and signed-in players land on the
-  same stateless reveal (no auto-save-teleport): objectives frame, your answer
-  vs. official (open by default), explicit deferred save ("Save to Runs
-  Completed"/"Discard" signed-in; "Save — Sign in" guest, stashed + replayed
-  after signup), simple same-category Next. `finished` funnel event logged once,
-  at solo-reveal. All in `renderSolo`/`soloReveal` + one server touch.
-- **Track B — creation flow.** Scene-first ordering; sticky scene reference
-  (desktop rail `#scene-rail` / mobile peek `#scene-peek`, dispatch-only when no
-  image); progressive disclosure (per-question "Advanced" stage/role, collapsed
-  by default); dismissible tutorial (`localStorage.pcCreateTutorialDismissed`);
-  destination selector ("Destination" / "Community" / "Create scenario" ·
-  "Save changes"). Save payload + element IDs unchanged, so server tests untouched.
-  Both verified end-to-end in a headless browser.
-- **Track C — objectives (complete, all 3 slices).**
-  - *Per-question grain:* `questions.objective` (immutable name, '' inherits
-    primary); scenario detail returns the `objectives` union; coverage counts
-    the union; creator has a per-question objective picker in "Advanced"; A2
-    reveal frames the union.
-  - *Suggester:* `server/objectives-suggest.js` keyword corpus +
-    `POST /api/objectives/suggest` (auth, category-scoped, explainable);
-    "Suggest objectives from the scene" button → click-to-apply chips.
-  - *Enforcement:* a primary objective is required at creation and on author
-    edits (server: POST + author PUT; reviewer edits exempt). Client blocks the
-    save with a nudge toward the suggester. The fixture sweep is done — ~10 test
-    files now pass a default `objective_primary` on their scenario creates/edits.
+## Where we are
+Tracks 0 / A1 / A2 / B / C shipped earlier (details in `decisions.md`). A
+grilling session on 2026-07-31 turned the owner's backlog into settled
+decisions and a five-phase build order (`current-focus.md`).
 
-## In progress / pending a decision
-- **`Fireground_trainer-old` Railway project — deleted** by the owner (2026-07-31).
-  No longer a pending item.
-- **Offsite backup sync** (push nightly snapshots off the Railway volume) is the
-  open follow-up on backups — an ops task, not a blocker.
+**Phase 1 is done, committed, and pushed** (`87ebeaa`):
+- **Community approval gate.** Sharing to Community is a *submission*, not an
+  instant publish. `gatedStatus` + `APPROVED_PUBLIC` in `server/index.js`;
+  `canSee` requires approved-and-public for strangers; author edits to a public
+  scenario re-enter the queue. A one-shot `approval_gate_sweep` migration
+  (guarded by the new `app_meta` flag table) sweeps the pre-gate catalogue into
+  the queue; the system seed ships pre-approved.
+- **Bug batch.** QR-join "logout" + stuck-at-end (root cause: `IMMERSIVE_ROUTES`
+  hid the sidebar with no release on session end — fixed with an
+  `immersionLifted` flag, an explicit "Done — back to Home", a not-signed-in
+  hint on join, guest drawer dropped to `z-10`). Category-switch objective
+  amnesia (picks now remembered per category).
+- **Required-field markers** in the creator; **offsite backup sync**
+  (`server/offsite.js`, hand-rolled SigV4, off unless `BACKUP_S3_*` is set).
 
-## User-reported bugs — FIXED in Phase 1
-- **QR-join "logout" + stuck-at-end.** Root cause was *not* the guest drawer: a
-  QR scan opens the join link in a different browser context (no session cookie
-  → arrives as guest), and `IMMERSIVE_ROUTES` sets the sidebar to `display:none`
-  on join/solo/host — a full-focus choice that never lifted when the session
-  ended, so every menu tap hit an invisible sidebar. Fixed with an
-  `immersionLifted` flag (set on `session_ended` and when rejoining an ended
-  session, re-armed on navigation), an explicit "Done — back to Home" button on
-  the ended view, a "you're not signed in" hint on join, and the guest drawer
-  dropped to z-10 so it can never sit over the menu.
-- **Category-switch objective amnesia** — per-category memory of objective and
-  subcategory picks; nothing carries across categories. Verified with the exact
-  reported repro (MVA → EMS → MVA restores the pick).
+## Next up: Phase 2 — structure
+Nothing implemented yet. The scope, in the order it makes sense to build:
 
-## Recommended next steps (priority order)
-Phases 2–5 in `current-focus.md`, in order. Phase 1 is done (approval gate +
-sweep, revision loop, bug batch, required-field markers, offsite backups).
+1. **My Library ownership boundary.** `/api/scenarios` (server/index.js:533)
+   returns `public OR mine OR dept` — that mixed query is why a brand-new
+   account sees other people's scenarios on a page called "Library". Plan
+   (decided, not yet written): add a `?scope=mine` option rather than change
+   the default, because the host flow and many tests depend on the current
+   semantics. `renderLibrary` is `public/index.html:407-452`.
+2. **Two tabs** on My Library: My Scenarios (drafts + published) and My Sessions
+   (hosted / joined / solo history). No separate My Sessions nav item.
+3. **Persisted drafts** + "Save as Draft" / "Finish Scenario", then a publish
+   step (Publish to Community / Publish to Department). Drafts require nothing;
+   every scenario always lands in the author's library regardless.
+4. **Session-card badges** (IN PROGRESS/COMPLETED + SOLO/HOSTED/JOINED),
+   right-column alignment, solo-only progress bar.
+5. **Browse UI**: list/grid toggle (default grid, remembered in localStorage),
+   collapsed mobile filters ("Filters · N" bottom sheet), "Review & Edit"
+   button height.
+6. **New home page**: hero → join card → 2×2 grid (incl. My Library +
+   Community) → the 4-step "How it works" grid copied **verbatim** from
+   `fireground_trainer/templates/home.html:277-298`. The owner explicitly
+   rejected rewriting that copy.
 
-Next up is **Phase 2 — structure**: My Library ownership boundary + two tabs,
-persisted drafts with "Save as Draft" / "Finish Scenario" + publish step,
-session-card badges/alignment/solo progress bar, list/grid toggle + collapsed
-mobile filters, and the new home page.
+Then Phases 3–5 per `current-focus.md`. Commit and push per phase.
 
-Hold **Track E** until `solo_events` shows repeat solo usage.
+## Working notes
+- **Test fixtures:** scenario creates/edits require `objective_primary` (any
+  seeded objective, e.g. `'Scene Size-Up'`, works for any category). Public
+  scenarios are no longer instantly visible — use `approvePublic(ctx.db, id)`
+  from `test/helpers.js` when a test needs a *visible* community scenario.
+- **Known flake:** the multipart size-cap assertion in `test/media-pdf.test.js`
+  is order/timing-sensitive under `@fastify/multipart` v10. It passed
+  consistently through Phase 1; a spurious failure there is not a regression.
+- **Preview:** `.claude/launch.json` runs `node server/index.js` directly
+  (port 3100) — `npm start` fails with `EPERM ... uv_cwd` in this sandbox. The
+  local gitignored `protocall.db` has a `preview@test.local` account promoted to
+  `site_admin`.
+- Ops follow-up: set `BACKUP_S3_*` on Railway to actually turn offsite backups
+  on (see `decisions.md` for the variable list).
 
-Note on test fixtures: scenario creates/edits require `objective_primary` (any
-seeded objective, e.g. `'Scene Size-Up'`, is valid for any category). Public
-scenarios are no longer instantly visible — use `approvePublic(ctx.db, id)` from
-`test/helpers.js` when a test needs a *visible* community scenario.
-
-## Key files to review first
-- `public/index.html`: `renderSolo` + `soloReveal` (A2 unified reveal +
-  `saveSoloRun`); `renderCreator` + `drawQs`/`drawSceneRef`/`creationTutorial` +
-  the objective suggester (`#c-obj-suggest`) and per-question `objectiveSelect`
-  (Track B + C). Single-file vanilla-JS frontend, hash routing.
-- `server/index.js`: solo endpoints; `/api/objectives` (immutable, create-only),
-  `/api/objectives/suggest`, `taxonomyOf` + `questionObjectiveError` validation;
-  `/api/coverage` and `/api/scenarios/:id` compute the objective union.
-- `server/objectives-suggest.js`: the keyword corpus + `suggestObjectives`.
-- `server/db.js`: schema + idempotent `addColumn` migrations; `solo_events`
-  table near the bottom of the `CREATE TABLE` block; `learning_objectives`
-  (immutable — see the comment there).
-- `server/rooms.js`: live/solo session logic (`revealedAnswers`, stages).
-- `server/backup.js`: nightly on-volume DB snapshots + rotation, started from
-  `buildServer` (skipped for the in-memory test DB; `backup:false` disables).
-- `VOICE.md`: write user-facing copy to this voice.
-- `public/index.html`: `renderReview` + `renderModeration` and the destination
-  selector (`vis-seg`, `draftShares`) — the moderation surfaces. Community
-  browse is `renderPublic` (`#/public`). `IMMERSIVE_ROUTES` + `immersionLifted`
-  govern whether the sidebar exists on session routes.
-- `server/index.js`: `gatedStatus` + `APPROVED_PUBLIC` are the approval gate;
-  `canSee` requires approved-and-public for strangers. Review endpoints:
-  `submit-review`, `/api/review/queue`, `/api/scenarios/:id/review`.
-- `server/db.js`: the one-shot `approval_gate_sweep` migration and the `app_meta`
-  flag table that keeps one-shot migrations one-shot.
-- Tests: `npm test` (node:test). `test/approval-gate.test.js` covers the gate,
-  the sweep's exactly-once guarantee, and the Official-badge workflow it must
-  not disturb. Heads-up: the multipart size-cap assertion in
-  `test/media-pdf.test.js` has been order/timing-flaky under `@fastify/multipart`
-  v10; it passed consistently through Phase 1, but if it fails spuriously that's
-  the known offender, not a regression.
+## Key files
+- `public/index.html` — single-file vanilla-JS frontend, hash routing.
+  `renderLibrary` (Phase 2 starting point), `renderPublic` (community browse),
+  `renderCreator` + `drawQs`/`drawSceneRef`, `renderSolo`/`soloReveal`,
+  `renderReview`/`renderModeration`, `IMMERSIVE_ROUTES` + `immersionLifted`.
+- `server/index.js` — `gatedStatus` + `APPROVED_PUBLIC` (the gate), `canSee`,
+  browse queries, review endpoints, objectives + suggester + validation.
+- `server/db.js` — schema, idempotent `addColumn` migrations, the `app_meta`
+  flag table and the one-shot `approval_gate_sweep`.
+- `server/rooms.js` — live/solo session logic. `server/backup.js` +
+  `server/offsite.js` — nightly snapshots and their offsite replication.
+- `VOICE.md` — write all user-facing copy to this voice.
+- Tests: `npm test` (node:test). `test/approval-gate.test.js` is the Phase 1
+  contract, including the Official-badge workflow the gate must not disturb.
