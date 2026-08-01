@@ -7,15 +7,23 @@ backlog into settled decisions (see `decisions.md` and `CONTEXT.md`); this is
 the agreed build order for them.
 
 ## Phases (dependency order)
-- **Phase 1 — protect real users. DONE** (`87ebeaa`). Track D approval gate +
-  pending sweep + reject/revision loop; the diagnosed bug batch (session-end
-  immersion trap, ended-view exit, join sign-in hint, category-switch objective
-  amnesia); required-field indicators; offsite backup sync.
-- **Phase 2 — structure. ← current.** My Library ownership boundary + two tabs
-  (My Scenarios / My Sessions); persisted drafts + "Save as Draft" /
-  "Finish Scenario" + publish step; session-card badges, alignment, solo
-  progress bar; list/grid toggle, collapsed mobile filters, button sizing;
-  new home page (2×2 grid + verbatim 4-step "How it works").
+- **Phase 1 — protect real users. DONE** (`87ebeaa`, merged to `main` in
+  `576022f`). Track D approval gate + pending sweep + reject/revision loop; the
+  diagnosed bug batch (session-end immersion trap, ended-view exit, join
+  sign-in hint, category-switch objective amnesia); required-field indicators;
+  offsite backup sync.
+- **Phase 2 — structure. ← current** (branch `claude/phase2-structure`).
+  - **(1/6) DONE** (`86515a4`): `?scope=mine` ownership boundary on
+    `/api/scenarios`.
+  - **(2/6) DONE** (`ef1998d`): My Library is now an owner-only two-tab area
+    (My Scenarios / My Sessions), the separate My Sessions nav item is gone
+    (`#/me` → `#/library/sessions`), and Community gained a Department scope
+    toggle (`?scope=department`) so department-shared-by-others scenarios stay
+    launchable.
+  - **Remaining:** persisted drafts + "Save as Draft" / "Finish Scenario" +
+    publish step; session-card badges, alignment, solo progress bar; list/grid
+    toggle, collapsed mobile filters, button sizing; new home page (2×2 grid +
+    verbatim 4-step "How it works").
 - **Phase 3 — live loop.** Roles-as-sets with intersection matching (schema
   first), then the host live view (crew mirror + roster + completion chips +
   boot).

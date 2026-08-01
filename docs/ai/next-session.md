@@ -3,55 +3,52 @@
 _Updated 2026-08-01. Read `current-focus.md` and `decisions.md` first, then
 `CONTEXT.md` (glossary) at the repo root._
 
-**Branch: `claude/three-arch-decisions-vp35dd`, HEAD `87ebeaa`, pushed and in
-sync with origin. Not merged to `main`.** Working tree clean. `npm test` = 104
-passing.
+**Branch: `claude/phase2-structure`, HEAD `ef1998d`. NOT pushed yet.** Working
+tree clean. `npm test` = 108 passing. **Phase 1 is merged to `main`** (`576022f`)
+— the approval gate is deployed once `main` ships.
 
 ## Where we are
 Tracks 0 / A1 / A2 / B / C shipped earlier (details in `decisions.md`). A
 grilling session on 2026-07-31 turned the owner's backlog into settled
-decisions and a five-phase build order (`current-focus.md`).
+decisions and a five-phase build order (`current-focus.md`). Phase 1 shipped
+and is now on `main`.
 
-**Phase 1 is done, committed, and pushed** (`87ebeaa`):
-- **Community approval gate.** Sharing to Community is a *submission*, not an
-  instant publish. `gatedStatus` + `APPROVED_PUBLIC` in `server/index.js`;
-  `canSee` requires approved-and-public for strangers; author edits to a public
-  scenario re-enter the queue. A one-shot `approval_gate_sweep` migration
-  (guarded by the new `app_meta` flag table) sweeps the pre-gate catalogue into
-  the queue; the system seed ships pre-approved.
-- **Bug batch.** QR-join "logout" + stuck-at-end (root cause: `IMMERSIVE_ROUTES`
-  hid the sidebar with no release on session end — fixed with an
-  `immersionLifted` flag, an explicit "Done — back to Home", a not-signed-in
-  hint on join, guest drawer dropped to `z-10`). Category-switch objective
-  amnesia (picks now remembered per category).
-- **Required-field markers** in the creator; **offsite backup sync**
-  (`server/offsite.js`, hand-rolled SigV4, off unless `BACKUP_S3_*` is set).
+**Phase 2 items 1–2 are done and committed** (on `claude/phase2-structure`):
+- **(1/6, `86515a4`) `?scope=mine` boundary.** `/api/scenarios?scope=mine`
+  returns only the caller's own scenarios (drafts, pending, dept, public, and
+  soft-deleted for restore); the bare endpoint keeps its mixed
+  public-OR-mine-OR-dept semantics. `test/library-scope.test.js` pins it.
+- **(2/6, `ef1998d`) My Library = owner-only, two tabs.** `#/library` is now
+  "My Library" with My Scenarios (`?scope=mine`, ownership filter removed) and
+  My Sessions (the old `#/me` page folded in via a shared `myLibraryShell`).
+  The separate My Sessions nav item is gone; `#/me` redirects to
+  `#/library/sessions`; the page is login-gated. Community (`renderPublic`)
+  gained a Community/Department scope toggle backed by
+  `/api/public/scenarios?scope=department` — that is where
+  department-shared-by-others scenarios live now (decision:
+  `decisions.md` "Library boundaries"). Covered in `departments.test.js`.
 
-## Next up: Phase 2 — structure
-Nothing implemented yet. The scope, in the order it makes sense to build:
-
-1. **My Library ownership boundary.** `/api/scenarios` (server/index.js:533)
-   returns `public OR mine OR dept` — that mixed query is why a brand-new
-   account sees other people's scenarios on a page called "Library". Plan
-   (decided, not yet written): add a `?scope=mine` option rather than change
-   the default, because the host flow and many tests depend on the current
-   semantics. `renderLibrary` is `public/index.html:407-452`.
-2. **Two tabs** on My Library: My Scenarios (drafts + published) and My Sessions
-   (hosted / joined / solo history). No separate My Sessions nav item.
+## Next up: Phase 2 — items 3–6
 3. **Persisted drafts** + "Save as Draft" / "Finish Scenario", then a publish
    step (Publish to Community / Publish to Department). Drafts require nothing;
-   every scenario always lands in the author's library regardless.
+   every scenario always lands in the author's library regardless. Once drafts
+   exist, split the My Scenarios tab into drafts vs published. Start in
+   `renderCreator` (`public/index.html`, ~line 620) and the create/PUT
+   endpoints in `server/index.js`; schema in `server/db.js`.
 4. **Session-card badges** (IN PROGRESS/COMPLETED + SOLO/HOSTED/JOINED),
-   right-column alignment, solo-only progress bar.
+   right-column alignment, solo-only progress bar. Cards are in the My Sessions
+   tab (renderMe) and `renderSessionDetail`.
 5. **Browse UI**: list/grid toggle (default grid, remembered in localStorage),
    collapsed mobile filters ("Filters · N" bottom sheet), "Review & Edit"
-   button height.
+   button height. Applies to both `renderLibrary` and `renderPublic` grids.
 6. **New home page**: hero → join card → 2×2 grid (incl. My Library +
    Community) → the 4-step "How it works" grid copied **verbatim** from
    `fireground_trainer/templates/home.html:277-298`. The owner explicitly
-   rejected rewriting that copy.
+   rejected rewriting that copy. Replaces `renderLanding` (`public/index.html`).
+   Note: `renderLanding`'s "Host a Session" card still points at `#/library`
+   from before the boundary change — item 6 rebuilds this, so it was left alone.
 
-Then Phases 3–5 per `current-focus.md`. Commit and push per phase.
+Then Phases 3–5 per `current-focus.md`. Commit per item; push when ready.
 
 ## Working notes
 - **Test fixtures:** scenario creates/edits require `objective_primary` (any
