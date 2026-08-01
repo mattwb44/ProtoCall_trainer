@@ -44,7 +44,10 @@ test('rotation keeps only the newest `keep` snapshots', async () => {
 test('scheduler catches up on boot when no snapshot exists, then stops cleanly', async () => {
   const fresh = freshDir();
   const db = createDb(':memory:');
-  const sched = startBackupScheduler(db, { dir: fresh, intervalMs: 60_000, log: {} });
+  // offsite:null explicitly — the scheduler otherwise builds its uploader from
+  // ambient env, so a developer with BACKUP_S3_* exported would upload throwaway
+  // test snapshots to the real bucket just by running the suite.
+  const sched = startBackupScheduler(db, { dir: fresh, intervalMs: 60_000, log: {}, offsite: null });
   await sched.runOnce(); // in-flight guard means this awaits the boot-time backup
   assert.ok(fs.readdirSync(fresh).some(f => /^protocall-.*\.db$/.test(f)), 'a snapshot was written');
   sched.stop();

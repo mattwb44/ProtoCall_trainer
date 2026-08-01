@@ -2,7 +2,7 @@ import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { io as ioc } from 'socket.io-client';
 import { buildServer } from '../server/index.js';
-import { signup, authed, emit, once } from './helpers.js';
+import { signup, authed, emit, once, approvePublic } from './helpers.js';
 
 // PRD-v7 stages: optional named stage headers over the question list. The host
 // advances stages live (participants only see questions up to the current
@@ -35,6 +35,7 @@ before(async () => {
   });
   assert.equal(r.status, 201);
   scenarioId = (await r.json()).id;
+  approvePublic(ctx.db, scenarioId);
 });
 after(async () => { ctx.io.close(); await ctx.app.close(); });
 

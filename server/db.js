@@ -176,8 +176,22 @@ export function createDb(file = process.env.DB_PATH || path.join(__dirname, '..'
   return db;
 }
 
+// One-shot data migrations (as opposed to the idempotent column adds below)
+// record themselves in app_meta so they never re-run — re-running a sweep would
+// undo the owner's review decisions.
+function hasFlag(db, key) {
+  return !!db.prepare('SELECT 1 FROM app_meta WHERE key=?').get(key);
+}
+function setFlag(db, key) {
+  db.prepare("INSERT OR IGNORE INTO app_meta (key, value) VALUES (?, datetime('now'))").run(key);
+}
+
 // Idempotent column additions for databases created before v2.
 function migrate(db) {
+  db.exec(`CREATE TABLE IF NOT EXISTS app_meta (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL DEFAULT ''
+  );`);
   const addColumn = (table, column, ddl) => {
     const cols = db.pragma(`table_info(${table})`).map(c => c.name);
     if (!cols.includes(column)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${ddl}`);
@@ -223,6 +237,19 @@ function migrate(db) {
   addColumn('scenarios', 'review_status', "review_status TEXT NOT NULL DEFAULT ''");
   addColumn('scenarios', 'review_note', "review_note TEXT NOT NULL DEFAULT ''");
   addColumn('scenarios', 'submitted_at', 'submitted_at TEXT');
+  // Phase 1 (approval gate): community visibility now requires approval, so
+  // everything already sitting in the public library predates the gate and was
+  // never reviewed. Decision (docs/ai/decisions.md → Community) is to *sweep,
+  // not grandfather*: they go to the review queue and community browse empties
+  // until the owner approves them. Authors keep seeing their own work. The
+  // system seed scenario is exempt — it ships as an approved example.
+  // One-shot: only touches rows with no review state at all.
+  if (!hasFlag(db, 'approval_gate_sweep')) {
+    db.exec(`UPDATE scenarios SET review_status='pending', submitted_at=COALESCE(submitted_at, datetime('now'))
+             WHERE shared_public=1 AND review_status='' AND author_id<>'system'`);
+    db.exec(`UPDATE scenarios SET review_status='approved' WHERE author_id='system' AND shared_public=1`);
+    setFlag(db, 'approval_gate_sweep');
+  }
   // v7 stages: optional named stage headers over the question list; a blank
   // stage inherits the previous question's stage. Sessions track the host's
   // (or solo player's) current stage index.
@@ -274,8 +301,10 @@ export const uuid = () => randomUUID();
 export function seedIfEmpty(db) {
   if (db.prepare('SELECT COUNT(*) n FROM scenarios').get().n > 0) return;
   const sid = uuid();
-  db.prepare(`INSERT INTO scenarios (id, title, description, category, subcategory, visibility, shared_public, author_id)
-              VALUES (?,?,?,?,?,'public',1,'system')`).run(
+  // Ships pre-approved: the seed is the one system-authored example allowed to
+  // sit in community browse without passing through the approval gate.
+  db.prepare(`INSERT INTO scenarios (id, title, description, category, subcategory, visibility, shared_public, author_id, review_status)
+              VALUES (?,?,?,?,?,'public',1,'system','approved')`).run(
     sid,
     'Two-Story Residential Fire — Trapped Occupant',
     "Two-story single-family wood-frame residence, fire at 14:00. Heavy dark smoke pushes from the roof and second-floor windows. A frantic bystander yells that an elderly person is trapped in a second-floor bedroom.",

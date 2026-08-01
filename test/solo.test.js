@@ -1,7 +1,7 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { buildServer } from '../server/index.js';
-import { signup, authed } from './helpers.js';
+import { signup, authed, approvePublic } from './helpers.js';
 
 // PRD-v7 solo play: guests run public scenarios statelessly (nothing persists);
 // signed-in runs persist as mode='solo' sessions in the library. Role tracks
@@ -37,6 +37,7 @@ async function makeScenario(cookie, { visibility = 'public', questions } = {}) {
 test('guest solo reveal: full submission required, nothing persists, private stays 404', async () => {
   const { cookie } = await signup(base, { email: 'soloauthor@solo.test' });
   const sid = await makeScenario(cookie);
+  approvePublic(ctx.db, sid);
   const detail = await fetch(`${base}/api/scenarios/${sid}`).then(r => r.json());
   const qs = detail.questions;
 
@@ -68,6 +69,7 @@ test('guest solo reveal: full submission required, nothing persists, private sta
 test('guest solo reveal with a role: common + that role only', async () => {
   const { cookie } = await signup(base, { email: 'roleauthor@solo.test' });
   const sid = await makeScenario(cookie);
+  approvePublic(ctx.db, sid);
   const qs = (await fetch(`${base}/api/scenarios/${sid}`).then(r => r.json())).questions;
   const engineerSet = qs.filter(q => !q.role_track || q.role_track === 'Engineer/Driver-Operator');
   assert.equal(engineerSet.length, 2);
@@ -86,6 +88,7 @@ test('guest solo reveal with a role: common + that role only', async () => {
 test('signed-in solo run: persists, completes, lands in library as solo, replayable with answers', async () => {
   const { cookie: author } = await signup(base, { email: 'runauthor@solo.test' });
   const sid = await makeScenario(author);
+  approvePublic(ctx.db, sid);
   const { cookie } = await signup(base, { email: 'player@solo.test' });
 
   const run = await fetch(`${base}/api/solo/runs`, {
@@ -129,6 +132,7 @@ test('signed-in solo run: persists, completes, lands in library as solo, replaya
 test('solo run guards: no double answers, no answering other tracks, no joining solo rooms', async () => {
   const { cookie: author } = await signup(base, { email: 'guardauthor@solo.test' });
   const sid = await makeScenario(author);
+  approvePublic(ctx.db, sid);
   const { cookie } = await signup(base, { email: 'guard@solo.test' });
   const run = await fetch(`${base}/api/solo/runs`, {
     method: 'POST', headers: authed(cookie),
@@ -173,6 +177,7 @@ test('archive shows no duplicates after the scenario is edited', async () => {
       { prompt: 'Original Q2?', kind: 'text', instructor_answer: 'A2' },
     ],
   });
+  approvePublic(ctx.db, sid);
   const { cookie } = await signup(base, { email: 'editplayer@solo.test' });
   const run = await fetch(`${base}/api/solo/runs`, {
     method: 'POST', headers: authed(cookie), body: JSON.stringify({ scenario_id: sid }),
@@ -206,6 +211,7 @@ test('archive shows no duplicates after the scenario is edited', async () => {
 test('session delete: owner only, hidden after, joined sessions not deletable by participants', async () => {
   const { cookie: author } = await signup(base, { email: 'delauthor@solo.test' });
   const sid = await makeScenario(author);
+  approvePublic(ctx.db, sid);
   const { cookie } = await signup(base, { email: 'delplayer@solo.test' });
   const run = await fetch(`${base}/api/solo/runs`, {
     method: 'POST', headers: authed(cookie), body: JSON.stringify({ scenario_id: sid, role_track: 'Captain' }),

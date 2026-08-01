@@ -5,7 +5,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { io as ioc } from 'socket.io-client';
 import { buildServer } from '../server/index.js';
-import { signup, authed, emit } from './helpers.js';
+import { signup, authed, emit, approvePublic } from './helpers.js';
 
 let ctx, base, mediaDir;
 
@@ -155,6 +155,7 @@ test('soft delete hides, blocks launch, restores; history still opens', async ()
       questions: [{ prompt: 'LCES stands for?', instructor_answer: 'Lookouts, Communications, Escape routes, Safety zones' }],
     }),
   }).then(r => r.json());
+  approvePublic(ctx.db, id);
   const { session_id } = await fetch(`${base}/api/sessions`, {
     method: 'POST', headers: authed(cookie), body: JSON.stringify({ scenario_id: id }),
   }).then(r => r.json());

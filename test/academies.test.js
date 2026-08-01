@@ -1,7 +1,7 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { buildServer } from '../server/index.js';
-import { signup, authed } from './helpers.js';
+import { signup, authed, approvePublic } from './helpers.js';
 
 // PRD-v7 academies: curated ordered collections of scenarios. Site-admin
 // academies are global; dept-admin academies are department-scoped. Entries
@@ -80,6 +80,7 @@ test('listing: guests see global only; dept members also see their dept academie
 
 test('owner curates ordered entries; drafts visible only to the owner; publishing enforces visibility', async () => {
   const pub = await mkScenario(chief.cookie, { title: 'Public One' });
+  approvePublic(ctx.db, pub.id);
   const deptScen = await mkScenario(chief.cookie, { title: 'Dept One', visibility: 'department' });
   const priv = await mkScenario(chief.cookie, { title: 'Private Draft', visibility: 'private' });
 
@@ -131,6 +132,7 @@ test('global academies publish public scenarios only', async () => {
   assert.equal(bad.status, 400, 'global academies require public scenarios to publish');
 
   const pub = await mkScenario(admin.cookie, { title: 'Global Lesson' });
+  approvePublic(ctx.db, pub.id);
   const ok = await fetch(`${base}/api/academies/${acad.id}`, {
     method: 'PUT', headers: authed(admin.cookie),
     body: JSON.stringify({ name: 'Fireground Fundamentals', entries: [{ scenario_id: pub.id, published: true }] }) });

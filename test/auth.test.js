@@ -2,7 +2,7 @@ import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { io as ioc } from 'socket.io-client';
 import { buildServer } from '../server/index.js';
-import { signup, authed, emit } from './helpers.js';
+import { signup, authed, emit, approvePublic } from './helpers.js';
 
 let ctx, base;
 
@@ -102,6 +102,7 @@ test('ownership: private hidden from others; public launchable; clone deep-copie
 
   const priv = await mk('Private Draft', 'private');
   const pub = await mk('Shared Cardiac Drill', 'public');
+  approvePublic(ctx.db, pub.id);
 
   // private 404s for non-author, works for author
   assert.equal((await fetch(`${base}/api/scenarios/${priv.id}`, { headers: { cookie: readerCookie } })).status, 404);

@@ -2,7 +2,7 @@ import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { io as ioc } from 'socket.io-client';
 import { buildServer } from '../server/index.js';
-import { signup, authed, emit } from './helpers.js';
+import { signup, authed, emit, approvePublic } from './helpers.js';
 
 let ctx, base;
 let chief, member, outsider, admin; // cookies
@@ -156,6 +156,7 @@ test('Part 6: a scenario can be shared with the department AND the public at onc
       questions: [{ prompt: 'Size-up priorities?', instructor_answer: 'Life safety, incident stabilization' }],
     }),
   }).then(r => r.json());
+  approvePublic(ctx.db, created.id);
 
   const detail = await fetch(`${base}/api/scenarios/${created.id}`, { headers: { cookie: chief } }).then(r => r.json());
   assert.equal(detail.shared_department, 1);

@@ -482,7 +482,9 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
   };
 
   const canSee = (s, user) =>
-    s.shared_public
+    // Phase 1: public alone is no longer enough — a scenario awaiting approval
+    // is not readable by strangers via direct link either.
+    (s.shared_public && s.review_status === 'approved')
     || (user && s.author_id === user.id)
     || (s.shared_department && user?.department_id && s.department_id === user.department_id)
     // reviewers can read a scenario that is (or was) in their review pipeline
@@ -509,6 +511,23 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
       department_id: dept ? user.department_id : null,
     };
   };
+  // Phase 1 approval gate: sharing to Community is a *submission*, not an
+  // instant publish. Anything flagged public must carry an approved/pending
+  // review state, and only 'approved' is visible in community browse. Author
+  // edits to a public scenario re-enter the queue (that is also the revision
+  // loop after request_changes — fix it, save it, it's resubmitted).
+  //
+  // Careful: review_status also drives the older Official-badge review, which a
+  // private/department scenario can be sitting in. So a *non*-public scenario
+  // keeps whatever review state it has (minus an approval, which an edit voids
+  // as before) — only a scenario actually leaving Community gets cleared.
+  const gatedStatus = ({ prev, pub, wasPub }) => {
+    if (pub) return 'pending';
+    if (wasPub) return '';
+    return prev === 'approved' ? '' : prev;
+  };
+  const APPROVED_PUBLIC = `s.shared_public=1 AND s.review_status='approved'`;
+
   const canLaunch = (s, user) => !s.deleted_at && canSee(s, user);
 
   const mediaFor = id => db.prepare(
@@ -530,7 +549,7 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
               (SELECT COUNT(*) FROM questions q WHERE q.scenario_id=s.id) AS question_count,
               (SELECT COUNT(*) FROM scenario_votes v WHERE v.scenario_id=s.id) AS votes
        FROM scenarios s LEFT JOIN users u ON u.id=s.author_id
-       WHERE (s.shared_public=1 AND s.deleted_at IS NULL) OR s.author_id=?
+       WHERE (${APPROVED_PUBLIC} AND s.deleted_at IS NULL) OR s.author_id=?
           OR (s.shared_department=1 AND s.department_id=? AND s.deleted_at IS NULL)
        ORDER BY s.is_official DESC, (s.author_id=?) DESC, s.created_at DESC`)
       .all(user?.id ?? '', user?.department_id ?? '', user?.id ?? '')
@@ -546,7 +565,7 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
               (SELECT COUNT(*) FROM scenario_votes v WHERE v.scenario_id=s.id) AS votes,
               (SELECT COUNT(*) FROM scenario_votes v WHERE v.scenario_id=s.id AND v.user_id=?) AS my_vote
        FROM scenarios s LEFT JOIN users u ON u.id=s.author_id
-       WHERE s.shared_public=1 AND s.deleted_at IS NULL`;
+       WHERE ${APPROVED_PUBLIC} AND s.deleted_at IS NULL`;
     const params = [user?.id ?? ''];
     if (category) { sql += ' AND s.category=?'; params.push(category); }
     if (subcategory) { sql += ' AND s.subcategory=?'; params.push(subcategory); }
@@ -881,10 +900,12 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
     const id = uuid();
     const tx = db.transaction(() => {
       db.prepare(`INSERT INTO scenarios (id, title, description, category, subcategory, image_url, visibility, shared_department, shared_public, author_id, department_id,
-                    objective_primary, objective_secondary, difficulty, building_type)
-                  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(id, title, description, category, subcategory, image_url,
+                    objective_primary, objective_secondary, difficulty, building_type, review_status, submitted_at)
+                  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(id, title, description, category, subcategory, image_url,
                     shares.visibility, shares.dept ? 1 : 0, shares.pub ? 1 : 0, user.id, shares.department_id,
-                    t.objective_primary, t.objective_secondary, t.difficulty, t.building_type);
+                    t.objective_primary, t.objective_secondary, t.difficulty, t.building_type,
+                    gatedStatus({ prev: '', pub: shares.pub, wasPub: false }),
+                    shares.pub ? new Date().toISOString().slice(0, 19).replace('T', ' ') : null);
       const ins = db.prepare(`INSERT INTO questions (id, scenario_id, prompt, kind, choices, instructor_answer, role_track, stage, objective, sort_order)
                               VALUES (?,?,?,?,?,?,?,?,?,?)`);
       questions.forEach((q, i) => ins.run(uuid(), id, q.prompt, q.kind ?? 'text',
@@ -930,13 +951,19 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
     const dept = shares.department_id;
     const official = asReviewer ? s.is_official
       : (s.review_status === 'approved' ? 0 : (shares.dept ? s.is_official : 0));
-    const status = asReviewer ? s.review_status : (s.review_status === 'approved' ? '' : s.review_status);
+    // Phase 1: an author edit to a public scenario re-enters the queue (an
+    // approved scenario loses its approval — no silent edits behind the badge —
+    // and a changes_requested one is resubmitted by the act of fixing it).
+    const status = asReviewer ? s.review_status
+      : gatedStatus({ prev: s.review_status, pub: shares.pub, wasPub: !!s.shared_public });
+    const submittedAt = !asReviewer && shares.pub && status === 'pending'
+      ? new Date().toISOString().slice(0, 19).replace('T', ' ') : s.submitted_at;
     const tx = db.transaction(() => {
       db.prepare(`UPDATE scenarios SET title=?, description=?, category=?, subcategory=?, image_url=?, visibility=?,
-                  shared_department=?, shared_public=?, department_id=?, is_official=?, review_status=?,
+                  shared_department=?, shared_public=?, department_id=?, is_official=?, review_status=?, submitted_at=?,
                   objective_primary=?, objective_secondary=?, difficulty=?, building_type=? WHERE id=?`)
         .run(title, description, category, subcategory, image_url, shares.visibility,
-             shares.dept ? 1 : 0, shares.pub ? 1 : 0, dept, official, status,
+             shares.dept ? 1 : 0, shares.pub ? 1 : 0, dept, official, status, submittedAt,
              t.objective_primary, t.objective_secondary, t.difficulty, t.building_type, s.id);
       // Reconcile questions: update kept, insert new, soft-delete removed (responses may reference them).
       const upd = db.prepare(`UPDATE questions SET prompt=?, kind=?, choices=?, instructor_answer=?, role_track=?, stage=?, objective=?, sort_order=? WHERE id=? AND scenario_id=?`);

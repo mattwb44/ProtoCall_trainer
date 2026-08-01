@@ -7,13 +7,18 @@
 // snapshots (where available) are welcome defense-in-depth on top, not the
 // primary mechanism.
 //
-// Caveat kept honest: these land on the same volume as the live DB, so they
-// survive an app crash / bad deploy / accidental row deletion but NOT loss of
-// the volume itself. The offsite copy is the existing on-demand pull
-// (`GET /api/admin/backup`); an automated offsite sync is a later ops task.
+// These land on the same volume as the live DB, so on their own they survive an
+// app crash / bad deploy / accidental row deletion but NOT loss of the volume.
+// That gap is closed by server/offsite.js: after each successful local
+// snapshot the scheduler PUTs it to S3-compatible object storage (R2 / B2 /
+// S3), enabled only when the BACKUP_S3_* env vars are fully set. The offsite
+// copy is strictly defence-in-depth — an upload failure is logged and never
+// aborts or degrades the local backup. `GET /api/admin/backup` remains the
+// on-demand manual pull.
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { createOffsiteUploaderFromEnv } from './offsite.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const FILE_RE = /^protocall-.*\.db$/;
@@ -61,16 +66,39 @@ function isStale(dir, intervalMs, now) {
 
 // Start the recurring backup. Returns { stop, runOnce }. The interval is
 // unref'd so it never keeps the process (or a test) alive on its own.
+// `offsite` defaults to the env-configured uploader (null when the BACKUP_S3_*
+// vars aren't set, which is the case in dev/test); pass `offsite: null` to force
+// it off or an object with `.upload(path)` to inject one.
 export function startBackupScheduler(db, {
   dir, intervalMs = DAY_MS, keep = 14, now = () => new Date(), log = console,
+  offsite = createOffsiteUploaderFromEnv({ log }),
 } = {}) {
   // Serialize: a slow backup that outruns the interval (or the boot catch-up
   // overlapping the first tick) must not start a second concurrent snapshot.
+  // The offsite upload runs inside the same in-flight promise, so uploads are
+  // serialized with each other and with the snapshots.
   let inFlight = null;
   const runOnce = () => {
     if (inFlight) return inFlight;
     inFlight = runBackup(db, dir, { keep, now })
-      .then(dest => { log.log?.(`DB backup written: ${dest}`); return dest; })
+      .then(async dest => {
+        log.log?.(`DB backup written: ${dest}`);
+        // Defence-in-depth only: anything that goes wrong offsite is logged and
+        // swallowed here so the local snapshot still counts as a success.
+        if (offsite) {
+          try {
+            const res = await offsite.upload(dest);
+            if (res?.ok) log.log?.(`Offsite backup uploaded: ${res.key} (HTTP ${res.status})`);
+            else {
+              const why = res?.error ? res.error : `HTTP ${res?.status}${res?.code ? ` ${res.code}` : ''}`;
+              log.error?.(`Offsite backup FAILED for ${res?.key ?? path.basename(dest)}: ${why}`);
+            }
+          } catch (err) {
+            log.error?.(`Offsite backup FAILED: ${err?.message ?? 'unknown error'}`);
+          }
+        }
+        return dest;
+      })
       .catch(err => { log.error?.(`DB backup failed: ${err.message}`); })
       .finally(() => { inFlight = null; });
     return inFlight;

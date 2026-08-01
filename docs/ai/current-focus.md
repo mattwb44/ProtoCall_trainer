@@ -1,28 +1,32 @@
 # Current focus
 
-**Milestone: Solo consumption + creation-flow overhaul.**
+**Milestone: post-grill build-out (Phases 1–5).**
 
-Making the solo run feel finished (a real ending, not a dead-end) and the
-scenario-creation flow smooth enough that the public library actually grows —
-supply gates everything downstream.
+Tracks 0/A/B/C shipped. A grilling session on 2026-07-31 turned the owner's
+backlog into settled decisions (see `decisions.md` and `CONTEXT.md`); this is
+the agreed build order for them.
 
-## Tracks (dependency order)
-- **Track 0 — housekeeping.** ✅ VOICE.md + solo funnel logging shipped.
-- **Track A — consumption.** A1 (solo exit + revision) ✅ shipped/live.
-  A2 (unified After-Action reveal) ✅ shipped (objectives frame, official-open,
-  explicit deferred save both auth states, guest sign-in replay, Next).
-- **Track B — creation.** ✅ shipped: scene-first + sticky reference (desktop
-  rail / mobile peek), progressive disclosure (Advanced stage/role), dismissible
-  creation tutorial, destination selector (Private · Department · Community).
-- **Track C — objectives.** ✅ Complete: per-question grain + union rollup
-  (lifts the 2-objective cap); corpus-seeded keyword suggester
-  (`/api/objectives/suggest`, explainable, local); create-time enforcement of
-  the scenario primary (client + server). Objectives immutable — see `decisions.md`.
-- **Track D — community moderation.** Approval queue + admin. (`site_admin`
-  env-bootstrapped only — see `decisions.md`.)
-- **Track E — study library.** Self-marking, objective roll-up, personal tags,
-  recommender. **Gated** on the solo funnel showing repeat usage.
+## Phases (dependency order)
+- **Phase 1 — protect real users.** Track D approval gate + pending sweep +
+  reject/revision loop; the diagnosed bug batch (guest drawer trap, ended-view
+  exit, join sign-in hint, category-switch objective amnesia); required-field
+  indicators; offsite backup sync.
+- **Phase 2 — structure.** My Library ownership boundary + two tabs
+  (My Scenarios / My Sessions); persisted drafts + "Save as Draft" /
+  "Finish Scenario" + publish step; session-card badges, alignment, solo
+  progress bar; list/grid toggle, collapsed mobile filters, button sizing;
+  new home page (2×2 grid + verbatim 4-step "How it works").
+- **Phase 3 — live loop.** Roles-as-sets with intersection matching (schema
+  first), then the host live view (crew mirror + roster + completion chips +
+  boot).
+- **Phase 4 — creation aids.** Hardcoded templates + duplicate-scenario;
+  category-scoped detail fields (Vehicle Type multi-select for MVA); top-down
+  map stamp editor (flattened on save).
+- **Phase 5 — onboarding.** Spotlight tour engine + first-login tour only
+  (deliberately after Phase 2 layouts settle).
 
-## Recommended order
-0 → A → B → C → D; E only once funnel data justifies it. A, B, and C are done;
-**D is next**.
+## Parked / gated
+- **Lobby mini-game** — parked; revisit only if dead waits persist after the
+  Phase 3 host view.
+- **Track E (study library)** — gated on `solo_events` showing repeat usage;
+  design lens is competence feedback, never rewards.

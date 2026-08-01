@@ -22,10 +22,21 @@ full rationale lives in the PRDs (`PRD-v*.md`), `SPEC.md`, and `VOICE.md`.
   because it's free on any plan, consistent for SQLite, and testable. Railway
   volume snapshots, where available, are welcome defense-in-depth on top.
   Honest limit: these sit on the same volume, so they cover crash / bad deploy /
-  fat-fingered deletes but **not** loss of the volume — the offsite copy is the
-  existing on-demand `GET /api/admin/backup` pull; an automated offsite sync is
-  a later ops task. (`server/backup.js`; boot catch-up only fires if the newest
-  snapshot is stale, so redeploys don't spam.)
+  fat-fingered deletes but **not** loss of the volume. (`server/backup.js`; boot
+  catch-up only fires if the newest snapshot is stale, so redeploys don't spam.)
+- **Offsite sync closes the volume-loss gap** (`server/offsite.js`, Phase 1).
+  After each successful local snapshot the scheduler PUTs it to S3-compatible
+  storage (Cloudflare R2 / B2 / S3) via hand-rolled SigV4 — no new dependency.
+  Strictly defence-in-depth: an upload failure is logged and never degrades the
+  local backup. **Off unless all four of `BACKUP_S3_ENDPOINT` (bare https
+  origin), `BACKUP_S3_BUCKET`, `BACKUP_S3_ACCESS_KEY_ID`,
+  `BACKUP_S3_SECRET_ACCESS_KEY` are set**; optional `BACKUP_S3_REGION`
+  (default `auto`, correct for R2) and `BACKUP_S3_PREFIX`. Half-configured warns
+  loudly rather than failing silent. Ops notes: issue a **write-only,
+  single-bucket** token (the app never needs list/get/delete), set a **bucket
+  lifecycle rule** for retention (the app deliberately can't delete offsite
+  copies), and confirm the first nightly run logs
+  `Offsite backup uploaded: <key>` — a signing/permission failure surfaces there.
 
 ## Solo run UX
 - **No punitive stage lock.** Progressive stage reveal stays (later stages
@@ -56,6 +67,18 @@ full rationale lives in the PRDs (`PRD-v*.md`), `SPEC.md`, and `VOICE.md`.
   wording. To change wording, add a new objective and re-tag. Retiring old
   wording is a future "deprecate" flag (hide from pickers, keep existing tags),
   never a rename or delete. There is deliberately no rename/delete endpoint.
+- **Objective minting stays `site_admin`-only.** Because objectives are immutable,
+  a bad mint is permanent — so authors never create objectives directly. An
+  author missing an objective reports it out-of-band; a "request an objective"
+  queue is the documented escalation path, built only when misses actually recur.
+- **"Supporting objectives"** is the canonical term for a scenario's objectives
+  beyond the primary (see `CONTEXT.md`). Tag-like in use, but always drawn from
+  the curated vocabulary — never free-form. Supporting objectives may cross
+  categories; the **primary must match the scenario's category**.
+- **Creator category switches: remember per category, validate on save.** The
+  draft keeps per-category memory of objective picks (and subcategory); switching
+  categories shows that category's remembered picks, never silently carries picks
+  across. Save validates only against the current category.
 
 ## Creation flow UX
 - **Scene-first ordering:** media/dispatch at the top, degrading to
@@ -64,9 +87,76 @@ full rationale lives in the PRDs (`PRD-v*.md`), `SPEC.md`, and `VOICE.md`.
   peek bar that expands to a sheet.
 - **Progressive disclosure** for stage/role fields (advanced, off by default) +
   a dismissible creation tutorial.
-- **Destination selector** (Private · Department · Community, default Private)
-  replaces the "Save to Library" button; primary reads "Create scenario" /
-  "Save changes".
+- **Two-button save: "Save as Draft" / "Finish Scenario"** (supersedes the
+  Track B pre-save destination selector). Draft requires nothing, is owner-only,
+  unshareable, unplayable, uncounted in coverage; all field validation fires at
+  Finish. After Finish, a publish step offers **Publish to Community** and
+  **Publish to Department** (shown only to department members; both selectable) —
+  and regardless of choices, the scenario is **always saved to My Library**.
+  Community publish routes through the Track D approval gate (`pending`).
+  Editing a published scenario never demotes it to draft; unpublish deferred
+  until someone needs it.
+- **Required-field set stays as-is** (title, category, subcategory, primary
+  objective; dispatch/description optional). The fix is visual: mandatory fields
+  are marked as required from the moment the creator opens — not discovered via
+  failed save.
+- **Category-scoped detail fields.** Each category declares which detail fields
+  apply: Building Type shows for structure-ish categories, hidden for MVA/EMS.
+  **Vehicle Type** is MVA-only, multi-select, fixed additive-only vocabulary
+  (no free text, no renames): Sedan · SUV · Pickup · Van · Motorcycle ·
+  Semi/18-wheeler · Bus · School bus · Commercial truck · Ambulance ·
+  Fire apparatus · Police vehicle · Train · **Train derailment** ·
+  Bicycle/pedestrian involved. Browse filtering is match-any.
+- **Top-down maps: stamp editor, flattened on save.** Five in-house flat-SVG
+  base maps (residential normal lot · residential corner lot · intersection ·
+  highway · commercial) + a fixed stampable icon set (apparatus, civilian
+  vehicles, PD, hydrant…) with drag + rotate only — no scaling, layers, or
+  freehand. Saving flattens to a plain image (`image_url`), so solo/live/review
+  pipelines are untouched. Consciously accepted trade-off: flattened maps are
+  not re-editable — re-place from the base map to change. Keeping placements
+  editable is exactly the escalation into a full diagram editor, which we reject.
+- **Scenario templates: hardcoded picker + duplicate-scenario; no wizard.**
+  Creation starts from Blank · Quick drill · Standard incident · Full multi-role
+  incident — templates seed draft structure (stages, role-tagged placeholder
+  questions) into the existing form; the full template opens Track B's
+  "Advanced" disclosure pre-populated. Template set is hardcoded (owner-approved),
+  not user-savable — "save as template" is just duplicate-scenario, which we
+  also build (copy any visible scenario to My Library and edit).
+- **Roles are sets on both sides, matched by intersection.** A question carries
+  a set of roles (empty = everyone); a participant carries a set of roles
+  (empty = everyone); a participant sees a question if either set is empty or
+  they intersect. Fixes the firefighter-medic case (one participant, two
+  tracks). Custom free-text roles stay (per-scenario flavor, not a vocabulary).
+
+## Home page
+- **Landing layout (top to bottom):** hero (ProtoCall + tagline) → join-a-live-
+  session card (stays first; invited crew is the most time-pressed visitor) →
+  2×2 action grid: Host a Session · Build a Scenario · My Library · Community →
+  **"How it works" 4-step grid ported verbatim from the old fireground home**
+  (Browse a scenario… / …or create your own / Then start a session (solo or
+  team) / Review results) — owner explicitly wants the original copy kept, not
+  rewritten.
+- **User-facing product name is "ProtoCall" everywhere** (landing h1 + title tag
+  fixed; "CrewTable" retired — see `CONTEXT.md` → Naming).
+
+## Libraries
+- **Library boundaries (fixes three QC reports at once):** My Library = owned
+  only (authored + duplicated + drafts); Community = approved public;
+  department-shared-by-others = a scope on the browse page, never in My Library.
+  The `/api/scenarios` mixed query (public OR mine OR dept) stops backing a page
+  called "Library". Seed scenario stays as an approved system example in
+  Community. Department membership stays invite-code-gated (already built:
+  `join_code` + verified-department requirement).
+- **Persisted drafts are a new feature.** Scenarios can be saved incomplete
+  (owner-only, in My Library). Publish-time validation unchanged.
+- **One personal area: "My Library" nav entry with two tabs** — My Scenarios
+  (drafts + published) and My Sessions (hosted/joined/solo history). No separate
+  My Sessions nav item.
+- **Session cards:** status badge reads IN PROGRESS / COMPLETED (never "live" —
+  it collided with the live *mode*); mode is its own badge (SOLO/HOSTED/JOINED);
+  all badges in a fixed right-side column; thin questions-answered progress bar
+  on in-progress solo runs only (no account-level progress — gamification stays
+  rejected).
 
 ## Community
 - **Approval queue.** Scenarios submitted to Community enter `pending`; admins
@@ -80,6 +170,38 @@ full rationale lives in the PRDs (`PRD-v*.md`), `SPEC.md`, and `VOICE.md`.
   queue). A self-serve `site_admin` grant (an existing site admin promoting
   another user, with an audit trail) is the documented next step for when a
   second site-wide moderator actually exists — build it then, not now.
+- **Approval-gate migration: sweep, don't grandfather.** When the gate lands,
+  every currently-public scenario moves to `pending` and community browse
+  empties until the owner approves them (one sitting via the existing review
+  queue; doubles as the seed-clutter purge). Authors keep seeing their own via
+  the `OR author_id` branch. No timing courtesy required — an empty community
+  page during the review pass is acceptable.
+
+## Live sessions
+- **Host live view = mirror + roster, three layers.** (1) Host sees what the
+  crew sees: scene image + dispatch + current stage's questions, official
+  answers collapsed host-only; QR/room code shrink to a corner card. (2) Named
+  roster of initials-chips with **boot** behind a tap-menu (boot invalidates the
+  participant token, not just the socket). (3) Completion: per-stage chip state
+  — grey → amber ring with fraction → green check — measured against *that
+  participant's* visible questions (role intersection); "N of M done" header;
+  tapping a chip expands their per-question detail. **No auto-advance, ever** —
+  the roster informs, the host decides.
+
+## Browse UI defaults
+- **List/grid toggle** on all scenario pages: default grid, remembered per user
+  (localStorage), list rows are single-line dense. **Mobile filters** collapse
+  to a "Filters · N" button opening a bottom sheet; category color tabs stay
+  visible. Review queue's "Review & Edit" button sized to standard.
+
+## Onboarding
+- **One reusable spotlight-tour engine; one tour shipped.** Engine: auto-popping
+  spotlight boxes with pointer, "step N/M" counter, once-per-account per tour,
+  dismissible anytime, replayable from Help. First (and only initial) tour:
+  **first-login orientation** (~6 steps: Home, join, host, My Library,
+  Community), written after the new home/library layouts land. The other tours
+  (community, my library, creation) are gated on completion data from the first
+  — if people insta-dismiss it, they don't get built.
 
 ## Process
 - **Study-library features gated on evidence.** Self-marking, objective
@@ -87,3 +209,12 @@ full rationale lives in the PRDs (`PRD-v*.md`), `SPEC.md`, and `VOICE.md`.
   (`solo_events`) shows real repeat usage. Gamified/compulsion mechanics are
   rejected for this professional audience — engagement comes from being fast,
   credible, and relevant.
+- **Track E design lens: competence feedback, never reward accumulation.**
+  Per self-determination theory (competence · autonomy · relatedness), the
+  study library shows *where you're getting stronger or thinner* per objective —
+  no points, streaks, badges, or leaderboards. Extrinsic rewards crowd out the
+  intrinsic motivation this audience already has.
+- **Lobby mini-game: parked, with a named re-entry condition.** Not banned (it's
+  a waiting-room toy, not a compulsion mechanic), but only revisited if real
+  sessions still show long dead waits *after* the new host live view (which
+  shrinks them) ships.
