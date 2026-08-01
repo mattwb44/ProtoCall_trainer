@@ -542,13 +542,31 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
     });
   };
 
+  const SCENARIO_LIST_SELECT =
+    `SELECT s.*, u.display_name AS author_name,
+            (SELECT COUNT(*) FROM questions q WHERE q.scenario_id=s.id) AS question_count,
+            (SELECT COUNT(*) FROM scenario_votes v WHERE v.scenario_id=s.id) AS votes
+     FROM scenarios s LEFT JOIN users u ON u.id=s.author_id`;
+
   app.get('/api/scenarios', req => {
     const user = currentUser(req);
+    // Phase 2 ownership boundary: ?scope=mine is My Library — *only* the caller's
+    // own scenarios (drafts, pending, department, public, even soft-deleted so the
+    // restore list still works). The default set stays the mixed
+    // public-OR-mine-OR-department list the host/launch flow relies on; changing
+    // that default would ripple through many callers and tests, so we add a scope
+    // instead of moving the floor.
+    if (req.query.scope === 'mine') {
+      if (!user) return [];
+      return db.prepare(
+        `${SCENARIO_LIST_SELECT}
+         WHERE s.author_id=?
+         ORDER BY s.is_official DESC, s.created_at DESC`)
+        .all(user.id)
+        .map(s => ({ ...s, mine: true }));
+    }
     return db.prepare(
-      `SELECT s.*, u.display_name AS author_name,
-              (SELECT COUNT(*) FROM questions q WHERE q.scenario_id=s.id) AS question_count,
-              (SELECT COUNT(*) FROM scenario_votes v WHERE v.scenario_id=s.id) AS votes
-       FROM scenarios s LEFT JOIN users u ON u.id=s.author_id
+      `${SCENARIO_LIST_SELECT}
        WHERE (${APPROVED_PUBLIC} AND s.deleted_at IS NULL) OR s.author_id=?
           OR (s.shared_department=1 AND s.department_id=? AND s.deleted_at IS NULL)
        ORDER BY s.is_official DESC, (s.author_id=?) DESC, s.created_at DESC`)
