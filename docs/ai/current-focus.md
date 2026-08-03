@@ -29,8 +29,12 @@ the agreed build order for them.
     SOLO / HOSTED / JOINED badges in a fixed right column; thin questions-
     answered bar on in-progress solo runs only (`q_total`/`q_answered` on
     `/api/me/sessions`, role-track accurate).
-  - **Remaining:** list/grid toggle, collapsed mobile filters, button sizing;
-    new home page (2×2 grid + verbatim 4-step "How it works").
+  - **(5/6) DONE** (`15b5001`): browse UI — list/grid toggle (localStorage
+    `pcBrowseView`, shared across My Library + Community), mobile "Filters · N"
+    bottom sheet (category tabs stay visible), Review & Edit button at standard
+    height.
+  - **Remaining:** new home page (hero → join → 2×2 grid → verbatim 4-step
+    "How it works").
 - **Phase 3 — live loop.** Roles-as-sets with intersection matching (schema
   first), then the host live view (crew mirror + roster + completion chips +
   boot).

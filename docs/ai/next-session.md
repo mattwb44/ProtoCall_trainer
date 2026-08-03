@@ -3,7 +3,7 @@
 _Updated 2026-08-01. Read `current-focus.md` and `decisions.md` first, then
 `CONTEXT.md` (glossary) at the repo root._
 
-**Branch: `claude/phase2-structure`, HEAD `7bdc1c0`, pushed.** Working tree
+**Branch: `claude/phase2-structure`, HEAD `15b5001`, pushed.** Working tree
 clean. `npm test` = 115 passing. **Phase 1 is merged to `main`** (`576022f`) —
 the approval gate is deployed once `main` ships.
 
@@ -41,10 +41,14 @@ right column; solo-only questions-answered progress bar. `/api/me/sessions` now
 returns role-track-accurate `q_total` + `q_answered`. (`renderSessionDetail`
 needed no change — its header shows mode as text, no "live" wording.)
 
-## Next up: Phase 2 — items 5–6
-5. **Browse UI**: list/grid toggle (default grid, remembered in localStorage),
-   collapsed mobile filters ("Filters · N" bottom sheet), "Review & Edit"
-   button height. Applies to both `renderLibrary` and `renderPublic` grids.
+## Phase 2 item 5 — DONE (`15b5001`)
+Browse UI shipped on both `renderLibrary` and `renderPublic`: list/grid toggle
+(localStorage `pcBrowseView`, shared helpers `viewToggle`/`scenarioRow`/
+`GRID_CLASS`), mobile "Filters · N" bottom sheet (`filterSheet`/
+`bindFilterSheet`/`updateFilterCount`; category tabs stay visible), and the
+Review-queue "Review & Edit" button at standard height.
+
+## Next up: Phase 2 — item 6 (last)
 6. **New home page**: hero → join card → 2×2 grid (incl. My Library +
    Community) → the 4-step "How it works" grid copied **verbatim** from
    `fireground_trainer/templates/home.html:277-298`. The owner explicitly
