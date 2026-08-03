@@ -315,6 +315,28 @@ const scenarioCard = (s, { corner = '', footer = '' } = {}) => {
   </div>`;
 };
 
+// Phase 2 browse view: a per-user grid/list preference (localStorage). List
+// rows are single-line dense; both views reuse the same data-* action buttons,
+// so the launch/edit/clone/vote handlers bind either way.
+const GRID_CLASS = 'grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4';
+const browseView = () => localStorage.pcBrowseView === 'list' ? 'list' : 'grid';
+const viewToggle = v => `
+  <div class="inline-flex bg-slate-800 rounded-xl p-0.5 shrink-0">
+    <button data-view="grid" class="tap p-1.5 rounded-lg ${v === 'grid' ? 'bg-slate-700 text-white' : 'text-slate-400 hover:text-white'}" title="Grid view" aria-label="Grid view"><i data-lucide="layout-grid" class="w-4 h-4"></i></button>
+    <button data-view="list" class="tap p-1.5 rounded-lg ${v === 'list' ? 'bg-slate-700 text-white' : 'text-slate-400 hover:text-white'}" title="List view" aria-label="List view"><i data-lucide="list" class="w-4 h-4"></i></button>
+  </div>`;
+const scenarioRow = (s, actions = '') => {
+  const cm = CAT_META[s.category];
+  return `
+  <div class="bg-slate-800 rounded-xl ${s.is_official ? 'ring-1 ring-emerald-600/60' : ''} ${cm ? `cat-card-edge cat-k-${cm.icon}` : ''} pl-4 pr-3 py-2.5 flex items-center gap-3">
+    <div class="min-w-0 flex-1">
+      <div class="flex items-center gap-2 min-w-0"><a href="#/scenario/${s.id}" class="font-semibold truncate hover:underline">${esc(s.title || '(untitled draft)')}</a><span class="flex items-center gap-1.5 shrink-0">${scenarioChips(s)}</span></div>
+      <p class="text-xs text-slate-500 truncate">${esc(s.category || '—')}${s.subcategory ? ' · ' + esc(s.subcategory) : ''} · ${s.question_count} q${s.objective_primary ? ' · ' + esc(s.objective_primary) : ''}</p>
+    </div>
+    <div class="flex items-center gap-1.5 shrink-0">${actions}</div>
+  </div>`;
+};
+
 const filterPanel = (fields, mobile = false) => `
   <div class="${mobile ? 'lg:hidden mb-4' : 'hidden lg:block w-56 shrink-0'}">
     <div class="bg-slate-800 rounded-2xl p-4 space-y-4 ${mobile ? '' : 'sticky top-[4.5rem]'}">
@@ -322,6 +344,42 @@ const filterPanel = (fields, mobile = false) => `
       ${fields}
     </div>
   </div>`;
+
+// Phase 2: on mobile the filter rail collapses to a "Filters · N" button that
+// opens a bottom sheet (the category tabs stay visible above). `prefix` scopes
+// the field ids (lfm-/pfm-) so the existing bind() wiring still finds them.
+const filterSheet = (fields, prefix) => `
+  <div class="lg:hidden mb-4">
+    <button id="${prefix}open" class="tap w-full flex items-center justify-center gap-2 bg-slate-800 hover:bg-slate-700 rounded-xl py-2.5 text-sm font-semibold">
+      <i data-lucide="sliders-horizontal" class="w-4 h-4"></i>Filters<span id="${prefix}n" class="text-rose-400"></span>
+    </button>
+  </div>
+  <div id="${prefix}sheet" class="fixed inset-0 z-40 hidden lg:!hidden">
+    <div id="${prefix}bg" class="absolute inset-0 bg-black/60"></div>
+    <div class="absolute inset-x-0 bottom-0 bg-slate-900 border-t border-slate-700 rounded-t-2xl p-4 space-y-4 max-h-[80vh] overflow-y-auto">
+      <div class="flex items-center justify-between">
+        <p class="text-sm font-black tracking-wider text-slate-400">FILTERS</p>
+        <button id="${prefix}close" class="tap p-1 text-slate-400 hover:text-white"><i data-lucide="x" class="w-5 h-5"></i></button>
+      </div>
+      ${fields}
+      <button id="${prefix}done" class="tap w-full bg-rose-600 hover:bg-rose-500 rounded-xl py-2.5 font-bold text-sm">Show results</button>
+    </div>
+  </div>`;
+// Open/close wiring for a filter sheet; `st` + the field keys drive the count.
+const bindFilterSheet = (prefix, st) => {
+  const sheet = $(`#${prefix}sheet`);
+  const show = on => sheet.classList.toggle('hidden', !on);
+  $(`#${prefix}open`).onclick = () => show(true);
+  $(`#${prefix}close`).onclick = () => show(false);
+  $(`#${prefix}done`).onclick = () => show(false);
+  $(`#${prefix}bg`).onclick = () => show(false);
+};
+const updateFilterCount = (prefix, st) => {
+  const el = $(`#${prefix}n`);
+  if (!el) return;
+  const n = [st.q, st.sub, st.diff, st.obj].filter(Boolean).length;
+  el.textContent = n ? ` · ${n}` : '';
+};
 
 /* ── Part 8: category strip — icon row (helmet/axe · star of life · MVA) with
    connecting lines, plus slanted F1-style tabs. Selecting a category fills its
@@ -432,6 +490,7 @@ async function renderLibrary() {
   ]);
   const wantDrafts = new URLSearchParams(location.hash.split('?')[1] || '').get('tab') === 'drafts';
   const st = { q: '', cat: '', sub: '', diff: '', obj: '', bucket: wantDrafts ? 'drafts' : 'published' };
+  let view = browseView();
   // Everything here is already the caller's own (scope=mine), so there is no
   // ownership filter — just search + taxonomy. The bucket toggle splits drafts
   // (work in progress) from published; a pending published scenario stays
@@ -459,21 +518,34 @@ async function renderLibrary() {
     <div><label class="text-xs font-semibold text-slate-400">Objective</label>
       <select id="lf-obj" class="${sel} mt-1"><option value="">All</option>${objectives.map(o => `<option>${esc(o)}</option>`).join('')}</select></div>`;
   app.innerHTML = myLibraryShell('scenarios', `
-    <div id="lib-bucket" class="flex gap-1.5 mb-4"></div>
+    <div class="flex items-center justify-between gap-3 mb-4">
+      <div id="lib-bucket" class="flex gap-1.5"></div>
+      <div id="lib-view"></div>
+    </div>
     ${catStrip(st.cat)}
     <div class="flex gap-6 items-start">
       ${filterPanel(fields)}
       <div class="flex-1 min-w-0">
-        ${filterPanel(fields.replaceAll('lf-', 'lfm-'), true)}
+        ${filterSheet(fields.replaceAll('lf-', 'lfm-'), 'lfm-')}
         <div id="cat-mat" class="cat-mat">
           <div id="lib-grid" class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4"></div>
         </div>
         <div id="lib-deleted" class="mt-6"></div>
       </div>
     </div>`);
+  // Compact right-side actions for the list view (same data-* attrs → same
+  // handlers as the grid buttons).
+  const rowActions = s => st.bucket === 'drafts'
+    ? `<a href="#/create/${s.id}" class="tap text-xs font-bold bg-emerald-600 hover:bg-emerald-500 rounded-lg px-3 py-1.5 flex items-center gap-1 whitespace-nowrap"><i data-lucide="pencil-line" class="w-3.5 h-3.5"></i>Continue</a>
+       <button data-del="${s.id}" class="tap p-1.5 text-slate-400 hover:text-rose-400" title="Delete"><i data-lucide="trash-2" class="w-4 h-4"></i></button>`
+    : `<a href="#/create/${s.id}" class="tap p-1.5 text-slate-400 hover:text-white" title="Edit"><i data-lucide="pencil" class="w-4 h-4"></i></a>
+       <button data-del="${s.id}" class="tap p-1.5 text-slate-400 hover:text-rose-400" title="Delete"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
+       <button data-launch="${s.id}" class="tap text-xs font-bold bg-emerald-600 hover:bg-emerald-500 rounded-lg px-3 py-1.5 flex items-center gap-1 whitespace-nowrap"><i data-lucide="radio-tower" class="w-3.5 h-3.5"></i>Launch</button>`;
   const drawGrid = () => {
     const isDraft = st.bucket === 'drafts';
-    $('#lib-grid').innerHTML = visible().map(s => scenarioCard(s, {
+    const grid = $('#lib-grid');
+    grid.className = view === 'list' ? 'space-y-2' : GRID_CLASS;
+    grid.innerHTML = visible().map(s => view === 'list' ? scenarioRow(s, rowActions(s)) : scenarioCard(s, {
       corner: `<div class="flex items-center gap-0.5 -mt-1 -mr-1">
         <a href="#/create/${s.id}" class="p-1.5 text-slate-400 hover:text-white" title="Edit"><i data-lucide="pencil" class="w-3.5 h-3.5"></i></a>
         <button data-del="${s.id}" class="p-1.5 text-slate-400 hover:text-rose-400" title="Delete"><i data-lucide="trash-2" class="w-3.5 h-3.5"></i></button></div>`,
@@ -495,6 +567,7 @@ async function renderLibrary() {
             <p class="text-xs text-slate-500">deleted ${esc(s.deleted_at)}</p></div>
           <button data-restore="${s.id}" class="tap bg-slate-700 hover:bg-slate-600 rounded-xl px-4 py-2.5 font-bold text-sm">Restore</button>
         </div>`).join('')}</div></details>` : '';
+    updateFilterCount('lfm-', st);
     icons();
     bindLaunchButtons();
     app.querySelectorAll('[data-del]').forEach(btn => btn.onclick = async () => {
@@ -532,8 +605,18 @@ async function renderLibrary() {
     $('#lib-bucket').querySelectorAll('[data-bucket]').forEach(b =>
       b.onclick = () => { st.bucket = b.dataset.bucket; drawBucket(); drawGrid(); });
   };
+  const drawView = () => {
+    $('#lib-view').innerHTML = viewToggle(view);
+    $('#lib-view').querySelectorAll('[data-view]').forEach(b => b.onclick = () => {
+      if (view === b.dataset.view) return;
+      view = b.dataset.view; localStorage.pcBrowseView = view;
+      drawView(); drawGrid();
+    });
+  };
   bind('lf-'); bind('lfm-');
+  bindFilterSheet('lfm-', st);
   drawBucket();
+  drawView();
   drawGrid();
   icons();
 }
@@ -1957,6 +2040,7 @@ async function renderPublic(scopeArg) {
     fetch('/api/objectives').then(r => r.json()).catch(() => []),
   ]);
   const st = { q: '', cat: hq.get('category') || '', sub: hq.get('subcategory') || '', diff: '', obj: '' };
+  let view = browseView();
   const visible = () => list.filter(s => {
     if (st.cat && s.category !== st.cat) return false;
     if (st.sub && s.subcategory !== st.sub) return false;
@@ -1986,24 +2070,33 @@ async function renderPublic(scopeArg) {
         <a href="#/coverage" class="tap flex items-center gap-1.5 text-sm text-slate-300 hover:text-white px-3 py-2"><i data-lucide="grid-3x3" class="w-4 h-4"></i>Coverage</a>
       </div>
     </div>
-    ${me?.department ? `
-    <div class="flex gap-1 mb-4">
-      <a href="#/public" class="tap px-3.5 py-1.5 rounded-full text-sm font-semibold ${scope === 'community' ? 'bg-rose-600 text-white' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'}">Community</a>
-      <a href="#/public/department" class="tap px-3.5 py-1.5 rounded-full text-sm font-semibold ${scope === 'department' ? 'bg-rose-600 text-white' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'}">${esc(me.department.name)}</a>
-    </div>` : ''}
+    <div class="flex items-center justify-between gap-3 mb-4">
+      <div class="flex gap-1">${me?.department ? `
+        <a href="#/public" class="tap px-3.5 py-1.5 rounded-full text-sm font-semibold ${scope === 'community' ? 'bg-rose-600 text-white' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'}">Community</a>
+        <a href="#/public/department" class="tap px-3.5 py-1.5 rounded-full text-sm font-semibold ${scope === 'department' ? 'bg-rose-600 text-white' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'}">${esc(me.department.name)}</a>` : ''}</div>
+      <div id="pub-view"></div>
+    </div>
     ${catStrip(st.cat)}
     <div class="flex gap-6 items-start">
       ${filterPanel(fields)}
       <div class="flex-1 min-w-0">
-        ${filterPanel(fields.replaceAll('pf-', 'pfm-'), true)}
+        ${filterSheet(fields.replaceAll('pf-', 'pfm-'), 'pfm-')}
         <div id="cat-mat" class="cat-mat">
           <div id="pub-grid" class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4"></div>
         </div>
       </div>
     </div>
   </main>`;
+  // Compact list-view actions reuse the same data-* attrs as the grid buttons.
+  const rowActions = s => `
+    ${scope === 'department' ? '' : `<button data-vote="${s.id}" class="tap flex items-center gap-1 text-xs font-semibold px-2 py-1.5 rounded-lg ${s.my_vote ? 'bg-amber-600 text-white' : 'bg-slate-700 hover:bg-slate-600'}"><i data-lucide="arrow-big-up" class="w-3.5 h-3.5"></i><span data-votecount="${s.id}">${s.votes}</span></button>`}
+    <button data-clone="${s.id}" class="tap p-1.5 text-slate-400 hover:text-white" title="Clone to my library"><i data-lucide="copy-plus" class="w-4 h-4"></i></button>
+    <a href="#/scenario/${s.id}" class="tap text-xs font-bold bg-rose-600 hover:bg-rose-500 rounded-lg px-3 py-1.5 whitespace-nowrap">Try Solo</a>
+    <button data-launch="${s.id}" class="tap text-xs font-bold bg-emerald-600 hover:bg-emerald-500 rounded-lg px-3 py-1.5 flex items-center gap-1 whitespace-nowrap"><i data-lucide="radio-tower" class="w-3.5 h-3.5"></i>Launch</button>`;
   const drawGrid = () => {
-    $('#pub-grid').innerHTML = visible().map(s => scenarioCard(s, {
+    const grid = $('#pub-grid');
+    grid.className = view === 'list' ? 'space-y-2' : GRID_CLASS;
+    grid.innerHTML = visible().map(s => view === 'list' ? scenarioRow(s, rowActions(s)) : scenarioCard(s, {
       // Votes and reports are community-catalogue actions; the department scope
       // just lists what's shared with your crew, with clone / solo / launch.
       corner: scope === 'department' ? '' : `<button data-vote="${s.id}" class="flex items-center gap-1 text-xs font-semibold px-2.5 py-1.5 rounded-full ${s.my_vote ? 'bg-amber-600 text-white' : 'bg-slate-700 hover:bg-slate-600'}">
@@ -2015,9 +2108,18 @@ async function renderPublic(scopeArg) {
     })).join('') || (scope === 'department'
       ? '<p class="text-sm text-slate-500 italic col-span-full">Nothing shared with your department yet.</p>'
       : '<p class="text-sm text-slate-500 italic col-span-full">No public scenarios match.</p>');
+    updateFilterCount('pfm-', st);
     icons();
     bindPublicActions();
     bindLaunchButtons();
+  };
+  const drawView = () => {
+    $('#pub-view').innerHTML = viewToggle(view);
+    $('#pub-view').querySelectorAll('[data-view]').forEach(b => b.onclick = () => {
+      if (view === b.dataset.view) return;
+      view = b.dataset.view; localStorage.pcBrowseView = view;
+      drawView(); drawGrid();
+    });
   };
   const subSels = [];
   const bind = pre => {
@@ -2036,7 +2138,9 @@ async function renderPublic(scopeArg) {
     drawGrid();
   });
   bind('pf-'); bind('pfm-');
+  bindFilterSheet('pfm-', st);
   updateCatStrip(st.cat); // deep links (?category=…) arrive pre-selected
+  drawView();
   drawGrid();
   icons();
 
@@ -2842,7 +2946,7 @@ async function renderReview() {
         : `<p class="text-sm text-amber-400/80 italic">No dispatch description — add one in Review &amp; Edit.</p>`}
       <div class="flex items-center justify-between gap-3 pt-1">
         <p class="text-xs text-slate-500 min-w-0 truncate">by ${esc(s.author_name ?? 'unknown')} · ${s.question_count} questions · ${new Date(s.submitted_at + 'Z').toLocaleDateString()}</p>
-        <a href="#/create/${s.id}" class="tap inline-flex items-center bg-sky-600 hover:bg-sky-500 rounded-lg px-3.5 py-1.5 font-semibold text-sm shrink-0 self-center whitespace-nowrap">Review &amp; Edit</a>
+        <a href="#/create/${s.id}" class="tap inline-flex items-center bg-sky-600 hover:bg-sky-500 rounded-xl px-4 py-2.5 font-semibold text-sm shrink-0 self-center whitespace-nowrap">Review &amp; Edit</a>
       </div>
     </div>`).join('') || `
     <div class="bg-slate-800 rounded-2xl p-8 text-center space-y-2">
