@@ -12,7 +12,8 @@ the agreed build order for them.
   diagnosed bug batch (session-end immersion trap, ended-view exit, join
   sign-in hint, category-switch objective amnesia); required-field indicators;
   offsite backup sync.
-- **Phase 2 — structure. ← current** (branch `claude/phase2-structure`).
+- **Phase 2 — structure. DONE** (branch `claude/phase2-structure`, all six
+  items shipped and pushed; not yet merged to `main`).
   - **(1/6) DONE** (`86515a4`): `?scope=mine` ownership boundary on
     `/api/scenarios`.
   - **(2/6) DONE** (`ef1998d`): My Library is now an owner-only two-tab area
@@ -33,9 +34,10 @@ the agreed build order for them.
     `pcBrowseView`, shared across My Library + Community), mobile "Filters · N"
     bottom sheet (category tabs stay visible), Review & Edit button at standard
     height.
-  - **Remaining:** new home page (hero → join → 2×2 grid → verbatim 4-step
-    "How it works").
-- **Phase 3 — live loop.** Roles-as-sets with intersection matching (schema
+  - **(6/6) DONE** (`e254318`): new home page — hero → join card → 2×2 action
+    grid (Host / Build / My Library / Community) → verbatim 4-step "How it
+    works" ported from the old fireground home.
+- **Phase 3 — live loop. ← next.** Roles-as-sets with intersection matching (schema
   first), then the host live view (crew mirror + roster + completion chips +
   boot).
 - **Phase 4 — creation aids.** Hardcoded templates + duplicate-scenario;
