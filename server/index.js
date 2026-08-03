@@ -528,7 +528,8 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
   };
   const APPROVED_PUBLIC = `s.shared_public=1 AND s.review_status='approved'`;
 
-  const canLaunch = (s, user) => !s.deleted_at && canSee(s, user);
+  // Drafts are unplayable — no live session, no solo run — even for the author.
+  const canLaunch = (s, user) => !s.deleted_at && !s.is_draft && canSee(s, user);
 
   const mediaFor = id => db.prepare(
     'SELECT id, kind, url, sort_order FROM scenario_media WHERE scenario_id=? ORDER BY sort_order').all(id);
@@ -912,28 +913,37 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
 
   app.post('/api/scenarios', (req, reply) => {
     const user = requireUser(req, reply); if (!user) return;
-    const { title, description = '', category, subcategory, image_url = '', questions = [] } = req.body ?? {};
-    if (!title || !category || !subcategory) return reply.code(400).send({ error: 'title, category, subcategory required' });
-    const shares = resolveShares(req.body ?? {}, user);
+    // Phase 2: `draft: true` saves incomplete work — owner-only, unshared, and
+    // exempt from every field requirement below. Finish (the default) validates.
+    const draft = req.body?.draft === true;
+    const { description = '', image_url = '', questions = [] } = req.body ?? {};
+    const title = (req.body?.title ?? '').trim();
+    const category = req.body?.category ?? '';
+    const subcategory = req.body?.subcategory ?? '';
+    if (!draft && (!title || !category || !subcategory))
+      return reply.code(400).send({ error: 'title, category, subcategory required' });
+    const shares = draft
+      ? { dept: false, pub: false, visibility: 'private', department_id: null }
+      : resolveShares(req.body ?? {}, user);
     if (shares.error) return reply.code(400).send({ error: shares.error });
     const tax = taxonomyOf(req.body);
     if (tax.error) return reply.code(400).send({ error: tax.error });
     const t = tax.values;
-    // Track C: objective tagging is enforced at creation — every scenario needs
-    // at least a primary learning objective, so the library stays findable and
-    // coverage stays measurable. The suggester makes this a one-click choice.
-    if (!t.objective_primary) return reply.code(400).send({ error: 'a primary learning objective is required' });
+    // Track C: objective tagging is enforced at Finish — every published scenario
+    // needs at least a primary learning objective, so the library stays findable
+    // and coverage stays measurable. Drafts are exempt until finished.
+    if (!draft && !t.objective_primary) return reply.code(400).send({ error: 'a primary learning objective is required' });
     const qObjErr = questionObjectiveError(questions);
     if (qObjErr) return reply.code(400).send({ error: qObjErr });
     const id = uuid();
     const tx = db.transaction(() => {
       db.prepare(`INSERT INTO scenarios (id, title, description, category, subcategory, image_url, visibility, shared_department, shared_public, author_id, department_id,
-                    objective_primary, objective_secondary, difficulty, building_type, review_status, submitted_at)
-                  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(id, title, description, category, subcategory, image_url,
+                    objective_primary, objective_secondary, difficulty, building_type, review_status, submitted_at, is_draft)
+                  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(id, title, description, category, subcategory, image_url,
                     shares.visibility, shares.dept ? 1 : 0, shares.pub ? 1 : 0, user.id, shares.department_id,
                     t.objective_primary, t.objective_secondary, t.difficulty, t.building_type,
                     gatedStatus({ prev: '', pub: shares.pub, wasPub: false }),
-                    shares.pub ? new Date().toISOString().slice(0, 19).replace('T', ' ') : null);
+                    shares.pub ? new Date().toISOString().slice(0, 19).replace('T', ' ') : null, draft ? 1 : 0);
       const ins = db.prepare(`INSERT INTO questions (id, scenario_id, prompt, kind, choices, instructor_answer, role_track, stage, objective, sort_order)
                               VALUES (?,?,?,?,?,?,?,?,?,?)`);
       questions.forEach((q, i) => ins.run(uuid(), id, q.prompt, q.kind ?? 'text',
@@ -952,12 +962,20 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
     // v8: an in-scope reviewer may edit a submitted scenario (content only).
     const asReviewer = !!s && s.author_id !== user.id && s.review_status !== '' && isReviewerOf(user, s);
     if (!s || (s.author_id !== user.id && !asReviewer)) return reply.code(404).send({ error: 'not found' });
+    // Phase 2 drafts: only a scenario that is *still* a draft can stay a draft or
+    // be finished. Editing a published scenario never demotes it (the draft flag
+    // is ignored), so a stray draft:true can't unpublish live work.
+    const draft = !!s.is_draft && req.body?.draft === true && !asReviewer;
     let { title, description = '', category, subcategory, image_url = '', questions = [], media: mediaList } = req.body ?? {};
-    if (!title || !category || !subcategory) return reply.code(400).send({ error: 'title, category, subcategory required' });
+    title = (title ?? '').trim(); category = category ?? ''; subcategory = subcategory ?? '';
+    if (!draft && (!title || !category || !subcategory)) return reply.code(400).send({ error: 'title, category, subcategory required' });
     // Reviewers can't publish/unpublish for the author — keep the author's shares.
+    // A draft is always private/unshared until finished.
     let shares;
     if (asReviewer) {
       shares = { dept: !!s.shared_department, pub: !!s.shared_public, visibility: s.visibility, department_id: s.department_id };
+    } else if (draft) {
+      shares = { dept: false, pub: false, visibility: 'private', department_id: null };
     } else {
       shares = resolveShares(req.body ?? {}, user);
       if (shares.error) return reply.code(400).send({ error: shares.error });
@@ -965,9 +983,9 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
     const tax = taxonomyOf(req.body);
     if (tax.error) return reply.code(400).send({ error: tax.error });
     const t = tax.values;
-    // Track C: enforce the primary objective on author edits too (reviewers keep
-    // the author's taxonomy and aren't blocked on legacy untagged scenarios).
-    if (!asReviewer && !t.objective_primary) return reply.code(400).send({ error: 'a primary learning objective is required' });
+    // Track C: enforce the primary objective at Finish (reviewers keep the
+    // author's taxonomy; drafts defer it until finished).
+    if (!asReviewer && !draft && !t.objective_primary) return reply.code(400).send({ error: 'a primary learning objective is required' });
     const qObjErr = questionObjectiveError(questions);
     if (qObjErr) return reply.code(400).send({ error: qObjErr });
     const existing = db.prepare('SELECT id FROM questions WHERE scenario_id=? AND deleted=0').all(s.id).map(q => q.id);
@@ -989,10 +1007,10 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
     const tx = db.transaction(() => {
       db.prepare(`UPDATE scenarios SET title=?, description=?, category=?, subcategory=?, image_url=?, visibility=?,
                   shared_department=?, shared_public=?, department_id=?, is_official=?, review_status=?, submitted_at=?,
-                  objective_primary=?, objective_secondary=?, difficulty=?, building_type=? WHERE id=?`)
+                  objective_primary=?, objective_secondary=?, difficulty=?, building_type=?, is_draft=? WHERE id=?`)
         .run(title, description, category, subcategory, image_url, shares.visibility,
              shares.dept ? 1 : 0, shares.pub ? 1 : 0, dept, official, status, submittedAt,
-             t.objective_primary, t.objective_secondary, t.difficulty, t.building_type, s.id);
+             t.objective_primary, t.objective_secondary, t.difficulty, t.building_type, draft ? 1 : 0, s.id);
       // Reconcile questions: update kept, insert new, soft-delete removed (responses may reference them).
       const upd = db.prepare(`UPDATE questions SET prompt=?, kind=?, choices=?, instructor_answer=?, role_track=?, stage=?, objective=?, sort_order=? WHERE id=? AND scenario_id=?`);
       const ins = db.prepare(`INSERT INTO questions (id, scenario_id, prompt, kind, choices, instructor_answer, role_track, stage, objective, sort_order)
@@ -1124,7 +1142,8 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
   app.post('/api/scenarios/:id/solo-reveal', (req, reply) => {
     const s = db.prepare('SELECT * FROM scenarios WHERE id=?').get(req.params.id);
     const user = currentUser(req);
-    if (!s || !canSee(s, user) || s.deleted_at) return reply.code(404).send({ error: 'not found' });
+    // Drafts are unplayable through every path, including a direct solo reveal.
+    if (!s || !canSee(s, user) || s.deleted_at || s.is_draft) return reply.code(404).send({ error: 'not found' });
     const { answers = {}, role_track = '' } = req.body ?? {};
     const qs = trackQuestions(s.id, role_track);
     if (!qs.length) return reply.code(400).send({ error: 'no questions for this role' });

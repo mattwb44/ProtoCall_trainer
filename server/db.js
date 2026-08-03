@@ -237,6 +237,10 @@ function migrate(db) {
   addColumn('scenarios', 'review_status', "review_status TEXT NOT NULL DEFAULT ''");
   addColumn('scenarios', 'review_note', "review_note TEXT NOT NULL DEFAULT ''");
   addColumn('scenarios', 'submitted_at', 'submitted_at TEXT');
+  // Phase 2: persisted drafts. A draft is owner-only, unshared, unplayable, and
+  // uncounted in coverage; all field validation is deferred to Finish. Existing
+  // rows default to 0 (published) — they were all created via the finish path.
+  addColumn('scenarios', 'is_draft', 'is_draft INTEGER NOT NULL DEFAULT 0');
   // Phase 1 (approval gate): community visibility now requires approval, so
   // everything already sitting in the public library predates the gate and was
   // never reviewed. Decision (docs/ai/decisions.md → Community) is to *sweep,
