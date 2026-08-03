@@ -3,8 +3,8 @@
 _Updated 2026-08-01. Read `current-focus.md` and `decisions.md` first, then
 `CONTEXT.md` (glossary) at the repo root._
 
-**Branch: `claude/phase2-structure`, HEAD `ef1998d`. NOT pushed yet.** Working
-tree clean. `npm test` = 108 passing. **Phase 1 is merged to `main`** (`576022f`)
+**Branch: `claude/phase2-structure`, HEAD `1100829`. NOT pushed yet.** Working
+tree clean. `npm test` = 115 passing. **Phase 1 is merged to `main`** (`576022f`)
 — the approval gate is deployed once `main` ships.
 
 ## Where we are
@@ -28,13 +28,14 @@ and is now on `main`.
   department-shared-by-others scenarios live now (decision:
   `decisions.md` "Library boundaries"). Covered in `departments.test.js`.
 
-## Next up: Phase 2 — items 3–6
-3. **Persisted drafts** + "Save as Draft" / "Finish Scenario", then a publish
-   step (Publish to Community / Publish to Department). Drafts require nothing;
-   every scenario always lands in the author's library regardless. Once drafts
-   exist, split the My Scenarios tab into drafts vs published. Start in
-   `renderCreator` (`public/index.html`, ~line 620) and the create/PUT
-   endpoints in `server/index.js`; schema in `server/db.js`.
+## Phase 2 item 3 — DONE (`1100829`)
+Persisted drafts shipped: `is_draft` column, draft-aware POST/PUT (never
+demotes a published scenario), `canLaunch`/`solo-reveal` block drafts on every
+path. Creator two-button save (Save as Draft / Finish → publish step); My
+Scenarios Published / Drafts bucket toggle (`?tab=drafts`); DRAFT chip +
+"Continue editing" cards. `test/drafts.test.js`.
+
+## Next up: Phase 2 — items 4–6
 4. **Session-card badges** (IN PROGRESS/COMPLETED + SOLO/HOSTED/JOINED),
    right-column alignment, solo-only progress bar. Cards are in the My Sessions
    tab (renderMe) and `renderSessionDetail`.

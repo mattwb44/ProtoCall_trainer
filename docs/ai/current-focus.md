@@ -20,8 +20,12 @@ the agreed build order for them.
     (`#/me` → `#/library/sessions`), and Community gained a Department scope
     toggle (`?scope=department`) so department-shared-by-others scenarios stay
     launchable.
-  - **Remaining:** persisted drafts + "Save as Draft" / "Finish Scenario" +
-    publish step; session-card badges, alignment, solo progress bar; list/grid
+  - **(3/6) DONE** (`1100829`): persisted drafts. New `is_draft` column;
+    two-button save ("Save as Draft" / "Finish Scenario" → publish step);
+    drafts are owner-only, unshared, unplayable, validation-deferred, and never
+    demote a published scenario. My Scenarios has a Published / Drafts bucket
+    toggle.
+  - **Remaining:** session-card badges, alignment, solo progress bar; list/grid
     toggle, collapsed mobile filters, button sizing; new home page (2×2 grid +
     verbatim 4-step "How it works").
 - **Phase 3 — live loop.** Roles-as-sets with intersection matching (schema
