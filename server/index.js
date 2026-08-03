@@ -1087,7 +1087,13 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
     return db.prepare(
       `SELECT DISTINCT ls.id, ls.room_code, ls.status, ls.started_at, ls.ended_at, ls.mode,
               sc.title, sc.category, sc.subcategory,
-              COALESCE(ls.host_id=?, 0) AS hosted
+              COALESCE(ls.host_id=?, 0) AS hosted,
+              -- Phase 2: for the in-progress solo progress bar — answers submitted
+              -- vs. the questions in this participant's role track (mirrors
+              -- trackQuestions: common questions plus the caller's own track).
+              (SELECT COUNT(*) FROM questions q WHERE q.scenario_id=ls.scenario_id AND q.deleted=0
+                 AND (p.role_track='' OR q.role_track='' OR q.role_track=p.role_track)) AS q_total,
+              (SELECT COUNT(DISTINCT r.question_id) FROM responses r WHERE r.session_id=ls.id) AS q_answered
        FROM live_sessions ls
        JOIN scenarios sc ON sc.id=ls.scenario_id
        LEFT JOIN participants p ON p.session_id=ls.id AND p.user_id=?

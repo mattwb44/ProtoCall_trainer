@@ -1808,18 +1808,37 @@ async function renderMe() {
       </div>
       <button id="me-resend" class="tap text-sm bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 rounded-xl px-3 py-2 font-semibold shrink-0">Resend</button>
     </div>` : ''}
-    ${sessions.map(s => `
+    ${sessions.map(s => {
+      // Phase 2 session cards: mode (SOLO/HOSTED/JOINED) and status (IN PROGRESS/
+      // COMPLETED — never "live", which collides with the live *mode*) are their
+      // own badges, stacked in a fixed right-side column. A thin questions-
+      // answered bar shows only on in-progress solo runs.
+      const mode = s.mode === 'solo' ? ['SOLO', 'bg-rose-900/60 text-rose-300']
+        : s.hosted ? ['HOSTED', 'bg-sky-900/60 text-sky-300']
+        : ['JOINED', 'bg-slate-700 text-slate-300'];
+      const live = s.status === 'live';
+      const badge = 'text-[10px] font-bold tracking-wider px-2.5 py-1 rounded-full whitespace-nowrap';
+      const soloBar = s.mode === 'solo' && live && s.q_total ? `
+          <div class="mt-2 max-w-[13rem]">
+            <div class="text-[10px] text-slate-500 mb-1">${s.q_answered}/${s.q_total} answered</div>
+            <div class="h-1 bg-slate-700 rounded-full overflow-hidden"><div class="h-full bg-rose-500 rounded-full" style="width:${Math.round(s.q_answered / s.q_total * 100)}%"></div></div>
+          </div>` : '';
+      return `
     <a href="#/session/${s.id}" class="block bg-slate-800 hover:bg-slate-700 rounded-2xl p-4">
-      <div class="flex items-center justify-between gap-3">
-        <div class="min-w-0">
+      <div class="flex items-start justify-between gap-3">
+        <div class="min-w-0 flex-1">
           <p class="font-bold truncate">${esc(s.title)}</p>
-          <p class="text-sm text-slate-400">${esc(s.started_at)} · ${s.mode === 'solo' ? 'solo run' : `room ${esc(s.room_code)} · ${s.hosted ? 'hosted by you' : 'participated'}`}</p>
+          <p class="text-sm text-slate-400 truncate">${esc(s.started_at)}${s.mode === 'solo' ? '' : ` · room ${esc(s.room_code)}`}</p>
+          ${soloBar}
         </div>
-        ${s.mode === 'solo' ? `<span class="text-xs font-semibold px-2.5 py-1 rounded-full bg-rose-900/60 text-rose-300">SOLO</span>` : ''}
-        <span class="text-xs font-semibold px-2.5 py-1 rounded-full ${s.status === 'live' ? 'bg-emerald-900/60 text-emerald-300' : 'bg-slate-700 text-slate-300'}">${s.status}</span>
-        ${(s.hosted || s.mode === 'solo') && s.status !== 'live' ? `<button data-delsession="${s.id}" title="Delete session" class="tap p-2 -m-1 text-slate-500 hover:text-rose-400"><i data-lucide="trash-2" class="w-4 h-4"></i></button>` : ''}
+        <div class="flex flex-col items-end gap-1.5 shrink-0">
+          <span class="${badge} ${mode[1]}">${mode[0]}</span>
+          <span class="${badge} ${live ? 'bg-emerald-900/60 text-emerald-300' : 'bg-slate-700 text-slate-400'}">${live ? 'IN PROGRESS' : 'COMPLETED'}</span>
+          ${(s.hosted || s.mode === 'solo') && !live ? `<button data-delsession="${s.id}" title="Delete session" class="tap p-1 -mr-1 text-slate-500 hover:text-rose-400"><i data-lucide="trash-2" class="w-4 h-4"></i></button>` : ''}
+        </div>
       </div>
-    </a>`).join('') || '<p class="text-sm text-slate-500 italic">No sessions yet — host one from a scenario or try one solo.</p>'}
+    </a>`;
+    }).join('') || '<p class="text-sm text-slate-500 italic">No sessions yet — host one from a scenario or try one solo.</p>'}
     </div>`);
   icons();
   const resend = $('#me-resend');
