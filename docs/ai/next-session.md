@@ -3,9 +3,14 @@
 _Updated 2026-08-03. Read `current-focus.md` and `decisions.md` first, then
 `CONTEXT.md` (glossary) at the repo root._
 
-**Branch: `claude/phase2-structure`, HEAD `e254318`, pushed. NOT merged to
-`main`.** Working tree clean. `npm test` = 115 passing. **Phase 1 is merged to
-`main`** (`576022f`) — the approval gate is deployed once `main` ships.
+**Branch: `claude/phase2-structure`, tip `748e73e` (`e254318` = item 6 code +
+docs on top), pushed and in sync with `origin`. NOT merged to `main`.** Working
+tree clean. `npm test` = 115 passing. **Phase 1 is merged to `main`**
+(`576022f`) — the approval gate is deployed once `main` ships.
+
+**First decision for the next session:** merge Phase 2 to `main` (clean branch
+off `main` — open a PR or fast-forward), or start Phase 3 directly. Ask the
+owner before doing either.
 
 ## Where we are
 Tracks 0 / A1 / A2 / B / C shipped earlier (details in `decisions.md`). A
