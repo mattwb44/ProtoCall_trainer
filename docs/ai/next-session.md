@@ -1,57 +1,56 @@
 # Next session
 
-_Updated 2026-08-01. Read `current-focus.md` and `decisions.md` first, then
+_Updated 2026-08-03. Read `current-focus.md` and `decisions.md` first, then
 `CONTEXT.md` (glossary) at the repo root._
 
-**Branch: `claude/three-arch-decisions-vp35dd`, HEAD `87ebeaa`, pushed and in
-sync with origin. Not merged to `main`.** Working tree clean. `npm test` = 104
-passing.
+**Branch: `claude/phase2-structure`, tip `748e73e` (`e254318` = item 6 code +
+docs on top), pushed and in sync with `origin`. NOT merged to `main`.** Working
+tree clean. `npm test` = 115 passing. **Phase 1 is merged to `main`**
+(`576022f`) — the approval gate is deployed once `main` ships.
+
+**First decision for the next session:** merge Phase 2 to `main` (clean branch
+off `main` — open a PR or fast-forward), or start Phase 3 directly. Ask the
+owner before doing either.
 
 ## Where we are
 Tracks 0 / A1 / A2 / B / C shipped earlier (details in `decisions.md`). A
 grilling session on 2026-07-31 turned the owner's backlog into settled
 decisions and a five-phase build order (`current-focus.md`).
 
-**Phase 1 is done, committed, and pushed** (`87ebeaa`):
-- **Community approval gate.** Sharing to Community is a *submission*, not an
-  instant publish. `gatedStatus` + `APPROVED_PUBLIC` in `server/index.js`;
-  `canSee` requires approved-and-public for strangers; author edits to a public
-  scenario re-enter the queue. A one-shot `approval_gate_sweep` migration
-  (guarded by the new `app_meta` flag table) sweeps the pre-gate catalogue into
-  the queue; the system seed ships pre-approved.
-- **Bug batch.** QR-join "logout" + stuck-at-end (root cause: `IMMERSIVE_ROUTES`
-  hid the sidebar with no release on session end — fixed with an
-  `immersionLifted` flag, an explicit "Done — back to Home", a not-signed-in
-  hint on join, guest drawer dropped to `z-10`). Category-switch objective
-  amnesia (picks now remembered per category).
-- **Required-field markers** in the creator; **offsite backup sync**
-  (`server/offsite.js`, hand-rolled SigV4, off unless `BACKUP_S3_*` is set).
+**Phase 2 (structure) is complete** — all six items on `claude/phase2-structure`,
+per-commit detail in `current-focus.md`. In short: `?scope=mine` ownership
+boundary; My Library as an owner-only two-tab area (My Scenarios / My Sessions)
+with the Community Department scope; persisted drafts (`is_draft`, two-button
+Save-as-Draft / Finish → publish); session-card badges + solo progress bar;
+list/grid toggle + mobile filter sheet; the new home page. Tests:
+`library-scope`, `drafts`, plus additions to `departments` and `solo`.
 
-## Next up: Phase 2 — structure
-Nothing implemented yet. The scope, in the order it makes sense to build:
+**Decisions worth remembering (may surprise a fresh session):**
+- `#/me` now redirects to `#/library/sessions`; My Library is login-gated.
+- Drafts are unshared/unplayable and validation-deferred; a published scenario
+  is never demoted to draft (server ignores a stray `draft:true` on it).
+- Browse view is one shared `localStorage.pcBrowseView` across both pages.
+- Home tiles "Host a Session" and "My Library" both point at `#/library` (no
+  separate host route) — trivially redirectable if the owner wants otherwise.
 
-1. **My Library ownership boundary.** `/api/scenarios` (server/index.js:533)
-   returns `public OR mine OR dept` — that mixed query is why a brand-new
-   account sees other people's scenarios on a page called "Library". Plan
-   (decided, not yet written): add a `?scope=mine` option rather than change
-   the default, because the host flow and many tests depend on the current
-   semantics. `renderLibrary` is `public/index.html:407-452`.
-2. **Two tabs** on My Library: My Scenarios (drafts + published) and My Sessions
-   (hosted / joined / solo history). No separate My Sessions nav item.
-3. **Persisted drafts** + "Save as Draft" / "Finish Scenario", then a publish
-   step (Publish to Community / Publish to Department). Drafts require nothing;
-   every scenario always lands in the author's library regardless.
-4. **Session-card badges** (IN PROGRESS/COMPLETED + SOLO/HOSTED/JOINED),
-   right-column alignment, solo-only progress bar.
-5. **Browse UI**: list/grid toggle (default grid, remembered in localStorage),
-   collapsed mobile filters ("Filters · N" bottom sheet), "Review & Edit"
-   button height.
-6. **New home page**: hero → join card → 2×2 grid (incl. My Library +
-   Community) → the 4-step "How it works" grid copied **verbatim** from
-   `fireground_trainer/templates/home.html:277-298`. The owner explicitly
-   rejected rewriting that copy.
+## Next up: Phase 3 — live loop
+Per `current-focus.md` and `decisions.md` → "Live sessions":
+1. **Roles-as-sets with intersection matching (schema first).** A question
+   carries a set of roles, a participant carries a set; a participant sees a
+   question if either set is empty or they intersect. Today `role_track` is a
+   single string (see `trackQuestions` in `server/index.js` and `role_track` on
+   `questions`/`participants` in `server/db.js`). Migrate to sets, keep custom
+   free-text roles.
+2. **Host live view = mirror + roster, three layers** (`renderHost` in
+   `public/index.html`, `server/rooms.js`): crew-mirror (scene + dispatch +
+   current-stage questions, official answers host-only collapsed), named roster
+   with **boot** (invalidate the participant token, not just the socket), and
+   per-stage completion chips measured against each participant's visible
+   questions (role intersection) — "N of M done", tap to expand. No
+   auto-advance, ever.
 
-Then Phases 3–5 per `current-focus.md`. Commit and push per phase.
+If merging Phase 2 first: it's a clean branch off `main`; open a PR or
+fast-forward. Commit per sub-step; push when ready.
 
 ## Working notes
 - **Test fixtures:** scenario creates/edits require `objective_primary` (any
@@ -70,9 +69,12 @@ Then Phases 3–5 per `current-focus.md`. Commit and push per phase.
 
 ## Key files
 - `public/index.html` — single-file vanilla-JS frontend, hash routing.
-  `renderLibrary` (Phase 2 starting point), `renderPublic` (community browse),
-  `renderCreator` + `drawQs`/`drawSceneRef`, `renderSolo`/`soloReveal`,
-  `renderReview`/`renderModeration`, `IMMERSIVE_ROUTES` + `immersionLifted`.
+  `renderLibrary` (My Library, two tabs) + `renderMe` (sessions tab) share
+  `myLibraryShell`; `renderPublic` (community browse, scope + view toggles);
+  `renderHost` (Phase 3 starting point) + `renderJoin`; `renderCreator` +
+  `drawQs`/`drawSceneRef`; `renderSolo`/`soloReveal`;
+  `renderReview`/`renderModeration`; `IMMERSIVE_ROUTES` + `immersionLifted`.
+  Shared browse helpers: `scenarioCard`/`scenarioRow`/`viewToggle`/`filterSheet`.
 - `server/index.js` — `gatedStatus` + `APPROVED_PUBLIC` (the gate), `canSee`,
   browse queries, review endpoints, objectives + suggester + validation.
 - `server/db.js` — schema, idempotent `addColumn` migrations, the `app_meta`

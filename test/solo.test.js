@@ -107,6 +107,15 @@ test('signed-in solo run: persists, completes, lands in library as solo, replaya
   assert.equal(a1.complete, false);
   assert.equal(a1.official_answers, undefined);
 
+  // Phase 2 progress-bar data: mid-run this in-progress solo session reports
+  // 1 of the 2 questions in the Captain track answered (the Engineer-only
+  // question is not counted against this track).
+  const mid = await fetch(`${base}/api/me/sessions`, { headers: { cookie } }).then(r => r.json());
+  const midEntry = mid.find(s => s.id === run.run_id);
+  assert.equal(midEntry.status, 'live', 'still in progress');
+  assert.equal(midEntry.q_total, 2, 'common + captain, not the engineer question');
+  assert.equal(midEntry.q_answered, 1);
+
   // second answer completes the run: reveal + session ends
   const a2 = await fetch(`${base}/api/solo/runs/${run.run_id}/answers`, {
     method: 'POST', headers: authed(cookie),

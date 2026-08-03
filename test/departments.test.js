@@ -105,7 +105,18 @@ test('department visibility: members see/launch/clone, outsiders 404', async () 
   assert.ok(!pub.find(s => s.id === deptScenarioId));
   const outList = await fetch(`${base}/api/scenarios`, { headers: { cookie: outsider } }).then(r => r.json());
   assert.ok(!outList.find(s => s.id === deptScenarioId));
+
+  // Phase 2: department-shared scenarios are launchable from the Community
+  // browse page under ?scope=department — for members, never for outsiders.
+  const deptScope = await fetch(`${base}/api/public/scenarios?scope=department`, { headers: { cookie: member } }).then(r => r.json());
+  assert.ok(deptScope.find(s => s.id === deptScenarioId), 'member sees it under the department scope');
+  assert.ok(!deptScope.find(s => s.id === seedId(pub)), 'the department scope excludes the public catalogue');
+  const outScope = await fetch(`${base}/api/public/scenarios?scope=department`, { headers: { cookie: outsider } }).then(r => r.json());
+  assert.deepEqual(outScope, [], 'a user with no department gets nothing from the department scope');
+  const anonScope = await fetch(`${base}/api/public/scenarios?scope=department`).then(r => r.json());
+  assert.deepEqual(anonScope, [], 'anonymous has no department scope');
 });
+const seedId = pub => pub[0]?.id;
 
 test('official badge: chief-only, department scenarios only, pins to top', async () => {
   assert.equal((await post(`/api/scenarios/${deptScenarioId}/official`, member, { official: true })).status, 403);
