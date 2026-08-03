@@ -3,9 +3,9 @@
 _Updated 2026-08-01. Read `current-focus.md` and `decisions.md` first, then
 `CONTEXT.md` (glossary) at the repo root._
 
-**Branch: `claude/phase2-structure`, HEAD `1100829`. NOT pushed yet.** Working
-tree clean. `npm test` = 115 passing. **Phase 1 is merged to `main`** (`576022f`)
-— the approval gate is deployed once `main` ships.
+**Branch: `claude/phase2-structure`, HEAD `7bdc1c0`, pushed.** Working tree
+clean. `npm test` = 115 passing. **Phase 1 is merged to `main`** (`576022f`) —
+the approval gate is deployed once `main` ships.
 
 ## Where we are
 Tracks 0 / A1 / A2 / B / C shipped earlier (details in `decisions.md`). A
@@ -35,10 +35,13 @@ path. Creator two-button save (Save as Draft / Finish → publish step); My
 Scenarios Published / Drafts bucket toggle (`?tab=drafts`); DRAFT chip +
 "Continue editing" cards. `test/drafts.test.js`.
 
-## Next up: Phase 2 — items 4–6
-4. **Session-card badges** (IN PROGRESS/COMPLETED + SOLO/HOSTED/JOINED),
-   right-column alignment, solo-only progress bar. Cards are in the My Sessions
-   tab (renderMe) and `renderSessionDetail`.
+## Phase 2 item 4 — DONE (`7bdc1c0`)
+Session cards: IN PROGRESS/COMPLETED + SOLO/HOSTED/JOINED badges in a fixed
+right column; solo-only questions-answered progress bar. `/api/me/sessions` now
+returns role-track-accurate `q_total` + `q_answered`. (`renderSessionDetail`
+needed no change — its header shows mode as text, no "live" wording.)
+
+## Next up: Phase 2 — items 5–6
 5. **Browse UI**: list/grid toggle (default grid, remembered in localStorage),
    collapsed mobile filters ("Filters · N" bottom sheet), "Review & Edit"
    button height. Applies to both `renderLibrary` and `renderPublic` grids.

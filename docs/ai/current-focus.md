@@ -25,9 +25,12 @@ the agreed build order for them.
     drafts are owner-only, unshared, unplayable, validation-deferred, and never
     demote a published scenario. My Scenarios has a Published / Drafts bucket
     toggle.
-  - **Remaining:** session-card badges, alignment, solo progress bar; list/grid
-    toggle, collapsed mobile filters, button sizing; new home page (2×2 grid +
-    verbatim 4-step "How it works").
+  - **(4/6) DONE** (`7bdc1c0`): session cards — IN PROGRESS / COMPLETED and
+    SOLO / HOSTED / JOINED badges in a fixed right column; thin questions-
+    answered bar on in-progress solo runs only (`q_total`/`q_answered` on
+    `/api/me/sessions`, role-track accurate).
+  - **Remaining:** list/grid toggle, collapsed mobile filters, button sizing;
+    new home page (2×2 grid + verbatim 4-step "How it works").
 - **Phase 3 — live loop.** Roles-as-sets with intersection matching (schema
   first), then the host live view (crew mirror + roster + completion chips +
   boot).
