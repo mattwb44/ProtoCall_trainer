@@ -275,6 +275,11 @@ function migrate(db) {
   // both the flag and the roles='[]' guard, so a redeploy never double-wraps.
   addColumn('questions', 'roles', "roles TEXT NOT NULL DEFAULT '[]'");
   addColumn('participants', 'roles', "roles TEXT NOT NULL DEFAULT '[]'");
+  // Phase 3 host live view: the host can boot a participant. Booting sets
+  // booted_at, which invalidates that participant's token (a rejoin with it is
+  // refused, not just the socket dropped) and hides them from the roster. Their
+  // already-submitted responses stay in the archive.
+  addColumn('participants', 'booted_at', 'booted_at TEXT');
   if (!hasFlag(db, 'roles_as_sets_backfill')) {
     db.exec(`UPDATE questions SET roles=json_array(role_track) WHERE role_track<>'' AND roles='[]'`);
     db.exec(`UPDATE participants SET roles=json_array(role_track) WHERE role_track<>'' AND roles='[]'`);

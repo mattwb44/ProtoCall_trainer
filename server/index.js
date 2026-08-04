@@ -1392,6 +1392,20 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
 
   const counts = code => io.sockets.adapter.rooms.get(`room:${code}`)?.size ?? 0;
 
+  // Phase 3 host live view: which participant ids currently have a live socket
+  // in the room (drives the roster's presence dot), and pushing a fresh roster
+  // to the host after any change (join, answer, shift, boot, disconnect).
+  const connectedParticipantIds = code => {
+    const set = new Set();
+    for (const sid of io.sockets.adapter.rooms.get(`room:${code}`) ?? []) {
+      const pid = io.sockets.sockets.get(sid)?.data?.participantId;
+      if (pid) set.add(pid);
+    }
+    return set;
+  };
+  const emitRoster = (code, sessionId) =>
+    io.to(`room:${code}:host`).emit('roster', rooms.roster(sessionId, connectedParticipantIds(code)));
+
   io.on('connection', socket => {
     const socketUser = userFromCookieHeader(db, socket.handshake.headers.cookie);
 
@@ -1410,6 +1424,8 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
       } else {
         participant = rooms.join(room.session.id, token || uuid(), socketUser?.id ?? null,
           roles ?? role_track);
+        // Phase 3: join() returns null for a booted token — the seat is revoked.
+        if (!participant) { socket.leave(`room:${code}`); return ack?.({ error: 'You were removed from this session.' }); }
         socket.data.participantId = participant.id;
         socket.data.roles = participant.roles;
       }
@@ -1418,7 +1434,10 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
       // Roles present in this scenario (union of every question's role set) —
       // the client's role-pick options.
       state.tracks = [...new Set(room.questions.flatMap(q => q.roles))];
-      if (role !== 'host') {
+      if (role === 'host') {
+        // Phase 3 host live view: the named crew roster with completion.
+        state.roster = rooms.roster(room.session.id, connectedParticipantIds(code));
+      } else {
         // Phase 3 role overlay: a participant sees questions whose role set is
         // empty or intersects theirs (empty participant set = every question).
         if (participant.roles.length)
@@ -1436,6 +1455,7 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
         state.answers_revealed = complete || room.session.status !== 'live';
       }
       io.to(`room:${code}`).emit('participant_count', counts(code));
+      if (role !== 'host') emitRoster(code, room.session.id); // a new/returning crew member
       ack?.({ state, participant });
     });
 
@@ -1446,6 +1466,7 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
       const val = typeof shift === 'string' ? shift.trim().slice(0, 24) : '';
       const stored = rooms.setShift(sessionId, participantId, val);
       if (stored === null) return ack?.({ error: 'locked' });
+      emitRoster(socket.data.code, sessionId); // roster shows the shift tag
       ack?.({ ok: true, shift: stored });
     });
 
@@ -1457,6 +1478,7 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
         return ack?.({ error: 'invalid' }); // not this participant's track
       const resp = rooms.submitResponse(sessionId, question_id, participantId, body.trim());
       io.to(`room:${code}:host`).emit('response_incoming', resp);
+      emitRoster(code, sessionId); // this participant's completion advanced
       // PRD-v7: answers reveal per completed stage (whole scenario if stageless).
       const { answers, complete } = rooms.revealedAnswers(sessionId, participantId);
       ack?.(Object.keys(answers).length
@@ -1481,6 +1503,23 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
       if (resp) io.to(`room:${code}`).emit('answer_pushed', resp);
     });
 
+    // Phase 3 host live view: the host boots a participant. Invalidate their
+    // token (rooms.boot), drop any live sockets they hold with a 'booted'
+    // signal, and refresh the roster. Their submitted responses stay archived.
+    socket.on('boot_participant', ({ participant_id }, ack) => {
+      const { code, role, sessionId } = socket.data ?? {};
+      if (role !== 'host' || !code) return ack?.({ error: 'host only' });
+      const booted = rooms.boot(sessionId, participant_id);
+      if (!booted) return ack?.({ error: 'not found' });
+      for (const sid of io.sockets.adapter.rooms.get(`room:${code}`) ?? []) {
+        const sk = io.sockets.sockets.get(sid);
+        if (sk?.data?.participantId === participant_id) { sk.emit('booted'); sk.disconnect(true); }
+      }
+      emitRoster(code, sessionId);
+      io.to(`room:${code}`).emit('participant_count', counts(code));
+      ack?.({ ok: true });
+    });
+
     socket.on('save_note', ({ question_id, body }, ack) => {
       const { sessionId, participantId } = socket.data ?? {};
       if (!sessionId || !participantId) return ack?.({ error: 'invalid' });
@@ -1501,8 +1540,11 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
     });
 
     socket.on('disconnect', () => {
-      const { code } = socket.data ?? {};
-      if (code) io.to(`room:${code}`).emit('participant_count', counts(code));
+      const { code, sessionId } = socket.data ?? {};
+      if (code) {
+        io.to(`room:${code}`).emit('participant_count', counts(code));
+        if (sessionId) emitRoster(code, sessionId); // presence dot goes dark
+      }
     });
   });
 

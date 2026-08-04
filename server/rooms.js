@@ -45,6 +45,9 @@ export class Rooms {
     const rolesJson = serializeRoles(roles);
     let p = this.db.prepare('SELECT * FROM participants WHERE session_id=? AND token=?')
       .get(sessionId, token);
+    // Phase 3: a booted token is dead — refuse it rather than resurrecting the
+    // participant. The caller turns null into a "you were removed" rejection.
+    if (p?.booted_at) return null;
     if (!p) {
       const n = this.db.prepare('SELECT COUNT(*) n FROM participants WHERE session_id=?')
         .get(sessionId).n;
@@ -215,6 +218,60 @@ export class Rooms {
   endSession(sessionId) {
     this.db.prepare("UPDATE live_sessions SET status='ended', ended_at=datetime('now') WHERE id=?")
       .run(sessionId);
+  }
+
+  // Phase 3 host live view: the named crew roster with per-participant, per-stage
+  // completion. Each participant's "visible" set is the questions whose role set
+  // is empty or intersects theirs (role intersection); done counts their distinct
+  // answers within that set. `connectedIds` (socket-derived) flags live presence.
+  // Booted participants are excluded. Solo runs have a single "You" participant.
+  roster(sessionId, connectedIds = new Set()) {
+    const session = this.db.prepare('SELECT * FROM live_sessions WHERE id=?').get(sessionId);
+    if (!session) return [];
+    const parts = this.db.prepare(
+      `SELECT p.*, u.display_name FROM participants p
+       LEFT JOIN users u ON u.id = p.user_id
+       WHERE p.session_id=? AND p.booted_at IS NULL
+       ORDER BY p.display_tag`).all(sessionId);
+    const all = this.db.prepare(
+      'SELECT * FROM questions WHERE scenario_id=? AND deleted=0 ORDER BY sort_order').all(session.scenario_id);
+    const names = this.resolveStages(all);
+    return parts.map(p => {
+      const roles = parseRoles(p.roles);
+      const visible = roles.length ? all.filter(q => rolesMatch(q.roles, roles)) : all;
+      const answered = new Set(this.db.prepare(
+        'SELECT DISTINCT question_id FROM responses WHERE session_id=? AND participant_id=?')
+        .all(sessionId, p.id).map(r => r.question_id));
+      const doneOf = qs => qs.filter(q => answered.has(q.id)).length;
+      const stages = names.length
+        ? names.map((name, i) => {
+            const g = visible.filter(q => this.stageIndexOf(q, names) === i);
+            return { stage: name, done: doneOf(g), total: g.length };
+          })
+        : [{ stage: '', done: doneOf(visible), total: visible.length }];
+      return {
+        id: p.id,
+        name: p.display_name || p.display_tag,
+        display_tag: p.display_tag,
+        roles,
+        shift_label: p.shift_label,
+        connected: connectedIds.has(p.id),
+        done: doneOf(visible),
+        total: visible.length,
+        stages,
+      };
+    });
+  }
+
+  // Boot a participant: invalidate their token (booted_at) so a rejoin is
+  // refused. Returns the participant row (caller drops their live sockets), or
+  // null if already gone. Responses are left intact for the archive.
+  boot(sessionId, participantId) {
+    const p = this.db.prepare('SELECT * FROM participants WHERE id=? AND session_id=? AND booted_at IS NULL')
+      .get(participantId, sessionId);
+    if (!p) return null;
+    this.db.prepare("UPDATE participants SET booted_at=datetime('now') WHERE id=?").run(p.id);
+    return p;
   }
 
   // Full state for (re)joining clients: responses grouped by question.

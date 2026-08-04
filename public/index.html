@@ -1345,36 +1345,49 @@ function renderHost(code) {
     if (found) found.is_pushed = 1;
     drawMatrix();
   });
-  s.on('participant_count', n => { const el = $('#pcount'); if (el) el.textContent = Math.max(0, n - 1); });
+  // Phase 3: the server pushes a fresh roster on every join/answer/shift/boot.
+  s.on('roster', roster => { if (hostState) { hostState.roster = roster; drawRoster(); } });
+  s.on('participant_count', n => { const el = $('#crew-live'); if (el) el.textContent = Math.max(0, n - 1); });
   s.emit('join_room', { code, role: 'host' }, ({ error, state }) => {
     if (error) { toast(error, 'bg-rose-600'); location.hash = '#/library'; return; }
     drawHost(state);
   });
 }
 let hostState = null;
+const initials = name => (name || '?').trim().split(/\s+/).map(w => w[0]).join('').slice(0, 2).toUpperCase();
+// Phase 3 completion chip: grey = not started, amber ring + fraction = in
+// progress, green check = complete; a stage with no questions for this seat is
+// dimmed. Measured against the participant's role-intersection visible set.
+function stageChip(st) {
+  const label = esc(st.stage || 'All');
+  if (!st.total) return `<span class="text-xs px-2 py-0.5 rounded-full bg-slate-800/60 text-slate-600" title="No questions for this seat">${label} —</span>`;
+  const done = st.done >= st.total;
+  const started = st.done > 0;
+  const cls = done ? 'bg-emerald-950/60 text-emerald-300 ring-1 ring-emerald-600'
+    : started ? 'bg-amber-950/50 text-amber-300 ring-1 ring-amber-600'
+    : 'bg-slate-800 text-slate-400 ring-1 ring-slate-700';
+  return `<span class="text-xs px-2 py-0.5 rounded-full ${cls}">${label} ${done ? '✓' : `${st.done}/${st.total}`}</span>`;
+}
 function drawHost(state) {
   hostState = state;
   const { session } = state;
   app.innerHTML = `
   <main class="p-4 sm:p-6 max-w-7xl mx-auto anim-in">
     <div class="flex flex-col lg:flex-row gap-5">
-      <aside class="lg:w-[30%] space-y-4">
+      <aside class="lg:w-[32%] space-y-4">
         <div class="bg-slate-800 rounded-2xl p-5">
           <div id="live-flag" class="flex items-center gap-2 text-emerald-400 text-sm font-semibold mb-2">
             <span class="w-2.5 h-2.5 bg-emerald-500 rounded-full live-dot"></span> LIVE SESSION</div>
           <h1 class="font-bold text-lg leading-snug">${esc(session.title)}</h1>
           <p class="text-sm text-slate-400 mt-1">${esc(session.category)} · ${esc(session.subcategory)}</p>
         </div>
-        <div class="bg-slate-800 rounded-2xl p-5 text-center">
-          <p class="text-sm text-slate-400 mb-1">Room Code</p>
-          <p class="text-4xl font-black tracking-widest text-amber-400">${esc(session.room_code)}</p>
-          <img id="qr" src="/api/sessions/${esc(session.room_code)}/qr.svg" alt="QR join code" class="mt-4 mx-auto rounded-xl bg-white p-1 w-40 h-40">
-          <p class="text-xs text-slate-500 mt-2 break-all">${location.origin}/#/join/${esc(session.room_code)}</p>
-        </div>
-        <div class="bg-slate-800 rounded-2xl p-5 flex items-center justify-between">
-          <div class="flex items-center gap-3"><i data-lucide="users" class="w-6 h-6 text-emerald-400"></i>
-            <span class="text-slate-300 font-medium">Participants</span></div>
-          <span id="pcount" class="text-3xl font-black text-emerald-400">0</span>
+        <div class="bg-slate-800 rounded-2xl p-4 flex items-center gap-4">
+          <img id="qr" src="/api/sessions/${esc(session.room_code)}/qr.svg" alt="QR join code" class="rounded-lg bg-white p-1 w-20 h-20 shrink-0">
+          <div class="min-w-0">
+            <p class="text-xs text-slate-400">Room Code</p>
+            <p class="text-2xl font-black tracking-widest text-amber-400">${esc(session.room_code)}</p>
+            <p class="text-xs text-slate-500 mt-1 break-all">${location.origin}/#/join/${esc(session.room_code)}</p>
+          </div>
         </div>
         ${session.stages?.length ? `
         <div class="bg-slate-800 rounded-2xl p-5 space-y-3">
@@ -1382,12 +1395,22 @@ function drawHost(state) {
           <p id="stage-name" class="font-bold text-lg text-amber-400">${esc(session.stages[session.stage_index])}</p>
           <button id="advance-btn" class="tap w-full bg-amber-600 hover:bg-amber-500 rounded-xl py-3 font-bold text-sm flex items-center justify-center gap-2 ${session.stage_index >= session.stages.length - 1 ? 'hidden' : ''}">
             <i data-lucide="fast-forward" class="w-4 h-4"></i>Advance to “${esc(session.stages[session.stage_index + 1] ?? '')}”</button>
-          <p class="text-xs text-slate-500">Participants only see questions up to the current stage; each stage they finish reveals its official answers.</p>
+          <p class="text-xs text-slate-500">You decide when to advance — nothing auto-advances. Participants see questions up to the current stage; each stage they finish reveals its official answers.</p>
         </div>` : ''}
       </aside>
-      <section class="lg:w-[70%] space-y-4 pb-24">
-        <h2 class="font-bold text-lg flex items-center gap-2"><i data-lucide="layout-grid" class="w-5 h-5 text-amber-400"></i>Aggregation Matrix <span class="text-xs font-normal text-slate-400">— live anonymous responses</span></h2>
-        <div id="matrix" class="space-y-4"></div>
+      <section class="lg:w-[68%] space-y-6 pb-24">
+        <div>
+          <h2 class="font-bold text-lg flex items-center gap-2 mb-3"><i data-lucide="users" class="w-5 h-5 text-emerald-400"></i>Crew
+            <span class="text-xs font-normal text-slate-400" id="crew-count">—</span></h2>
+          <div id="roster" class="space-y-2"></div>
+        </div>
+        <div>
+          <h2 class="font-bold text-lg flex items-center gap-2 mb-3"><i data-lucide="projector" class="w-5 h-5 text-amber-400"></i>What the crew sees
+            <span class="text-xs font-normal text-slate-400">— official answers are yours only</span></h2>
+          ${session.image_url ? `<img src="${esc(session.image_url)}" alt="scene" class="w-full max-h-56 object-cover rounded-2xl mb-3">` : ''}
+          ${session.description ? `<div class="bg-slate-800 rounded-2xl p-4 mb-3"><p class="text-xs font-bold text-rose-400 mb-1">DISPATCH</p><p class="text-sm text-slate-200 whitespace-pre-wrap">${esc(session.description)}</p></div>` : ''}
+          <div id="matrix" class="space-y-4"></div>
+        </div>
       </section>
     </div>
     <div class="fixed bottom-0 inset-x-0 bg-slate-900/95 backdrop-blur border-t border-slate-800 p-3 flex justify-end z-30">
@@ -1395,7 +1418,7 @@ function drawHost(state) {
         <i data-lucide="power" class="w-5 h-5"></i>End Session</button>
     </div>
   </main>`;
-  drawMatrix(); icons();
+  drawRoster(); drawMatrix(); icons();
   const adv = $('#advance-btn');
   if (adv) adv.onclick = () => getSocket().emit('advance_stage', {}, res => {
     if (res?.error) return toast(res.error, 'bg-rose-600');
@@ -1411,6 +1434,56 @@ function drawHost(state) {
       $('#live-flag').className = 'flex items-center gap-2 text-slate-400 text-sm font-semibold mb-2';
     });
   };
+}
+// Phase 3 Layer 2+3: the named crew roster with completion chips + boot. Each
+// row shows presence, roles/shift, "N of M done", per-stage chips, and expands
+// to that participant's per-question detail (answered vs. not, from the
+// responses the host already holds). Boot invalidates their token server-side.
+function drawRoster() {
+  const el = $('#roster'); if (!el) return;
+  const roster = hostState.roster || [];
+  const connected = roster.filter(p => p.connected).length;
+  const hdr = $('#crew-count'); if (hdr) hdr.textContent = `${connected} connected · ${roster.length} joined`;
+  if (!roster.length) {
+    el.innerHTML = '<p class="text-sm text-slate-500 italic bg-slate-800/50 rounded-2xl p-4">No one has joined yet — share the room code.</p>';
+    return;
+  }
+  el.innerHTML = roster.map(p => {
+    const answeredIds = new Set(hostState.responses.filter(r => r.participant_id === p.id).map(r => r.question_id));
+    const visible = p.roles.length
+      ? hostState.questions.filter(q => !hasRoles(q.roles) || rolesArr(q.roles).some(r => p.roles.includes(r)))
+      : hostState.questions;
+    const detail = visible.map(q => {
+      const ok = answeredIds.has(q.id);
+      return `<div class="flex items-start gap-2 text-xs">
+        <i data-lucide="${ok ? 'check-circle-2' : 'circle'}" class="w-3.5 h-3.5 shrink-0 mt-0.5 ${ok ? 'text-emerald-400' : 'text-slate-600'}"></i>
+        <span class="${ok ? 'text-slate-300' : 'text-slate-500'}">${esc(q.prompt)}</span></div>`;
+    }).join('') || '<p class="text-xs text-slate-500 italic">No questions for this seat.</p>';
+    return `<div class="bg-slate-800 rounded-2xl p-3">
+      <div class="flex items-center gap-3">
+        <span class="relative shrink-0 w-9 h-9 rounded-full bg-slate-700 text-xs font-bold flex items-center justify-center text-slate-200">${esc(initials(p.name))}
+          <span class="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-slate-800 ${p.connected ? 'bg-emerald-500' : 'bg-slate-500'}" title="${p.connected ? 'connected' : 'disconnected'}"></span></span>
+        <div class="flex-1 min-w-0">
+          <p class="font-semibold text-sm truncate">${esc(p.name)}${p.roles.length ? ` · <span class="text-amber-400 text-xs font-bold">${esc(p.roles.join(' / '))}</span>` : ''}${p.shift_label ? ` · <span class="text-sky-300 text-xs font-bold">${SHIFT_LABEL} ${esc(p.shift_label)}</span>` : ''}</p>
+          <p class="text-xs text-slate-400">${p.done} of ${p.total} done</p>
+        </div>
+        <button data-expand="${p.id}" class="tap p-1.5 text-slate-400 hover:text-white" title="Per-question detail"><i data-lucide="chevron-down" class="w-4 h-4"></i></button>
+        <button data-boot="${p.id}" data-name="${esc(p.name)}" class="tap p-1.5 text-slate-500 hover:text-rose-400" title="Remove from session"><i data-lucide="user-x" class="w-4 h-4"></i></button>
+      </div>
+      <div class="flex items-center gap-1.5 flex-wrap mt-2">${p.stages.map(stageChip).join('')}</div>
+      <div id="pdetail-${p.id}" class="hidden mt-2 space-y-1 border-t border-slate-700 pt-2">${detail}</div>
+    </div>`;
+  }).join('');
+  el.querySelectorAll('[data-expand]').forEach(b => b.onclick = () => {
+    $('#pdetail-' + b.dataset.expand)?.classList.toggle('hidden');
+    b.querySelector('i')?.classList.toggle('rotate-180');
+  });
+  el.querySelectorAll('[data-boot]').forEach(b => b.onclick = () => {
+    if (!confirm(`Remove ${b.dataset.name} from the session? Answers submitted so far stay in the archive, but their join link stops working.`)) return;
+    getSocket().emit('boot_participant', { participant_id: b.dataset.boot }, res =>
+      res?.error ? toast(res.error, 'bg-rose-600') : toast('Removed from session'));
+  });
+  icons();
 }
 function drawMatrix() {
   if (!hostState) return;
@@ -1434,7 +1507,9 @@ function drawMatrix() {
       </div>`).join('');
     return `<div class="bg-slate-800 rounded-2xl p-4">
       <p class="font-semibold text-sm mb-1">${hasRoles(q.roles) ? `<span class="text-amber-400">${esc(roleLabel(q.roles))}</span> · ` : ''}${esc(q.prompt)}</p>
-      <p class="text-xs text-emerald-400 mb-3 flex items-center gap-1"><i data-lucide="shield-check" class="w-3.5 h-3.5"></i>${esc(q.instructor_answer)}</p>
+      ${q.instructor_answer ? `<details class="mb-3 group">
+        <summary class="tap inline-flex items-center gap-1 text-xs font-bold text-emerald-400 cursor-pointer select-none"><i data-lucide="shield-check" class="w-3.5 h-3.5"></i>Official answer <span class="text-emerald-700 font-normal">(host only)</span></summary>
+        <p class="text-xs text-emerald-300 mt-1 whitespace-pre-wrap">${esc(q.instructor_answer)}</p></details>` : ''}
       <div class="space-y-2">${rows || '<p class="text-sm text-slate-500 italic">Waiting for responses…</p>'}</div>
     </div>`;
   })(q)).join('');
@@ -1493,10 +1568,21 @@ const answered = new Set(); // question_ids this participant submitted
 const official = new Map(); // question_id -> model answer, filled only after full submission (PRD-v7)
 function renderJoin(code) {
   const s = getSocket();
-  ['answer_pushed','session_ended','stage_advanced','disconnect'].forEach(ev => s.off(ev));
+  ['answer_pushed','session_ended','stage_advanced','disconnect','booted'].forEach(ev => s.off(ev));
   s.on('stage_advanced', () => {
     toast('The instructor advanced the scenario', 'bg-amber-500');
     renderJoin(code); // rejoin picks up the newly visible stage
+  });
+  // Phase 3: the host removed this participant — their token is now dead.
+  s.on('booted', () => {
+    liftImmersion();
+    sessionStorage.removeItem('pcRole:' + code);
+    app.innerHTML = `<main class="max-w-md mx-auto p-4 pt-16 text-center anim-in space-y-3">
+      <i data-lucide="user-x" class="w-10 h-10 text-rose-400 mx-auto"></i>
+      <h1 class="text-xl font-bold">You've been removed from this session</h1>
+      <p class="text-sm text-slate-400">The instructor removed you from the room. Answers you'd already submitted are kept.</p>
+      <a href="#/" class="tap inline-block mt-2 bg-slate-800 hover:bg-slate-700 rounded-xl px-5 py-3 font-semibold text-sm">Back to home</a></main>`;
+    icons();
   });
   s.on('answer_pushed', r => {
       const slot = document.getElementById('pushed-' + r.question_id);
