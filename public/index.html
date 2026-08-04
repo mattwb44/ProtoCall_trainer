@@ -395,7 +395,7 @@ const bindFilterSheet = (prefix, st) => {
 const updateFilterCount = (prefix, st) => {
   const el = $(`#${prefix}n`);
   if (!el) return;
-  const n = [st.q, st.sub, st.diff, st.obj].filter(Boolean).length;
+  const n = [st.q, st.sub, st.diff, st.obj].filter(Boolean).length + (st.veh?.size ? 1 : 0);
   el.textContent = n ? ` · ${n}` : '';
 };
 
@@ -645,7 +645,7 @@ const SUBCATS = {
   'EMS': ['Cardiac','Trauma','Pediatric','Medical'],
   'Motor Vehicle Accidents': ['Extrication','Rollover','Hazardous Materials'],
 };
-let draftQs = [], draftShares = { dept: false, pub: false }, draftMedia = [], draftBldg = [], editingId = null, editingAsReviewer = false;
+let draftQs = [], draftShares = { dept: false, pub: false }, draftMedia = [], draftBldg = [], draftVeh = [], editingId = null, editingAsReviewer = false;
 const loadObjectives = cat =>
   fetch('/api/objectives?category=' + encodeURIComponent(cat)).then(r => r.json()).catch(() => []);
 // Building type is a multi-select tree (shop-filter style). Selections are
@@ -664,6 +664,14 @@ function parseBldg(v) {
   }
   return v ? [v] : []; // legacy free-text
 }
+// Phase 4: category-scoped detail fields. Each category declares which detail
+// field it shows — building type for structure work, vehicle type for MVA,
+// neither for EMS. Vehicle type is a flat, additive-only multi-select vocabulary
+// (mirrors server VEHICLE_TYPES); parseBldg reads it too (same JSON-array shape).
+const VEHICLE_TYPES = ['Sedan', 'SUV', 'Pickup', 'Van', 'Motorcycle', 'Semi/18-wheeler',
+  'Bus', 'School bus', 'Commercial truck', 'Ambulance', 'Fire apparatus',
+  'Police vehicle', 'Train', 'Train derailment', 'Bicycle/pedestrian involved'];
+const DETAIL_FIELD_BY_CAT = { 'Fireground': 'building', 'Motor Vehicle Accidents': 'vehicle' };
 // Part 6 question editor: uniform stage + role vocabularies, with a Custom
 // escape hatch. Past custom stages are remembered per-user (myStagePresets).
 const STAGE_PRESETS = ['Dispatch', 'En Route', 'On Arrival / Size-Up', 'Initial Actions',
@@ -861,6 +869,11 @@ async function renderCreator(id) {
           <p class="text-xs text-slate-500 mb-2">Check everything that fits — leave blank if it doesn't apply.</p>
           <div id="c-bldg-tree" class="space-y-2"></div>
         </div>
+        <div id="c-veh-wrap">
+          <label class="text-sm font-medium text-slate-300">Vehicle type</label>
+          <p class="text-xs text-slate-500 mb-2">Check every vehicle involved — leave blank if it doesn't apply.</p>
+          <div id="c-veh-grid" class="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2"></div>
+        </div>
       </section>
       <section class="bg-slate-800 rounded-2xl p-4 sm:p-6 space-y-3">
         <h2 class="font-semibold">Questions</h2>
@@ -909,8 +922,14 @@ async function renderCreator(id) {
     rvAct('request_changes', note);
   };
   const fillSub = () => $('#c-sub').innerHTML = SUBCATS[$('#c-cat').value].map(s => `<option>${s}</option>`).join('');
-  // Building type is irrelevant to EMS calls — hide it there.
-  const toggleBldg = () => $('#c-bldg-wrap').classList.toggle('hidden', $('#c-cat').value === 'EMS');
+  // Phase 4: detail fields are category-scoped — building type for structure
+  // work, vehicle type for MVA, neither for EMS. Show only the one this category
+  // declares (DETAIL_FIELD_BY_CAT); the save payload drops the other.
+  const toggleDetails = () => {
+    const field = DETAIL_FIELD_BY_CAT[$('#c-cat').value];
+    $('#c-bldg-wrap').classList.toggle('hidden', field !== 'building');
+    $('#c-veh-wrap').classList.toggle('hidden', field !== 'vehicle');
+  };
   // Objectives are category-scoped, so switching category used to silently drop
   // the author's pick — and switching *back* left it blank, because the value
   // had already been cleared. Decision: remember per category, validate on save.
@@ -940,19 +959,20 @@ async function renderCreator(id) {
   $('#c-cat').onchange = () => {
     rememberPicks();
     lastCat = $('#c-cat').value;
-    fillSub(); toggleBldg(); fillObjectives();
+    fillSub(); toggleDetails(); fillObjectives();
   };
-  fillSub(); toggleBldg();
+  fillSub(); toggleDetails();
   if (existing) {
     $('#c-title').value = existing.title;
     $('#c-desc').value = existing.description;
-    $('#c-cat').value = existing.category; fillSub(); toggleBldg();
+    $('#c-cat').value = existing.category; fillSub(); toggleDetails();
     $('#c-sub').value = existing.subcategory;
     $('#c-obj1').value = existing.objective_primary ?? '';
     $('#c-obj2').value = existing.objective_secondary ?? '';
     $('#c-diff').value = existing.difficulty ?? '';
   }
   draftBldg = existing ? parseBldg(existing.building_type) : [];
+  draftVeh = existing ? parseBldg(existing.vehicle_type) : [];
   $('#c-addq').onclick = () => { draftQs.push(newQuestion()); drawQs(); };
   // Part 6: Department and Public are independent toggles — a scenario can be
   // both at once. Private simply means neither share is on.
@@ -1090,7 +1110,7 @@ async function renderCreator(id) {
   const tutX = $('#c-tut-x');
   if (tutX) tutX.onclick = () => { localStorage.pcCreateTutorialDismissed = '1'; $('#c-tut')?.remove(); };
   $('#c-desc').addEventListener('input', drawSceneRef);
-  drawQs(); drawMedia(); drawBldg(); drawSceneRef(); icons();
+  drawQs(); drawMedia(); drawBldg(); drawVeh(); drawSceneRef(); icons();
 }
 function drawBldg() {
   const wrap = $('#c-bldg-tree'); if (!wrap) return;
@@ -1115,6 +1135,21 @@ function drawBldg() {
     if (el.checked) { if (!draftBldg.includes(v)) draftBldg.push(v); }
     else draftBldg = draftBldg.filter(x => x !== v);
     drawBldg();
+  });
+}
+// Phase 4: vehicle type — a flat multi-select (no groups; the vocabulary is
+// short and additive-only). Mirrors drawBldg's checkbox wiring.
+function drawVeh() {
+  const wrap = $('#c-veh-grid'); if (!wrap) return;
+  wrap.innerHTML = VEHICLE_TYPES.map(v => `
+    <label class="flex items-center gap-2 text-sm text-slate-300 cursor-pointer">
+      <input type="checkbox" data-veh="${esc(v)}" ${draftVeh.includes(v) ? 'checked' : ''} class="accent-amber-500 w-4 h-4 shrink-0">
+      <span>${esc(v)}</span></label>`).join('');
+  wrap.querySelectorAll('[data-veh]').forEach(el => el.onchange = () => {
+    const v = el.dataset.veh;
+    if (el.checked) { if (!draftVeh.includes(v)) draftVeh.push(v); }
+    else draftVeh = draftVeh.filter(x => x !== v);
+    drawVeh();
   });
 }
 function drawMedia() {
@@ -1295,7 +1330,10 @@ async function saveScenario(opts = {}) {
     shared_department: draftShares.dept, shared_public: draftShares.pub,
     objective_primary: $('#c-obj1').value, objective_secondary: $('#c-obj2').value,
     difficulty: $('#c-diff').value,
-    building_type: $('#c-cat').value === 'EMS' ? [] : draftBldg,
+    // Category-scoped: only send the detail field this category shows; the other
+    // is cleared so switching category doesn't strand a stale selection.
+    building_type: DETAIL_FIELD_BY_CAT[$('#c-cat').value] === 'building' ? draftBldg : [],
+    vehicle_type: DETAIL_FIELD_BY_CAT[$('#c-cat').value] === 'vehicle' ? draftVeh : [],
     questions: draftQs.filter(q => q.prompt.trim()).map(q => {
       syncAnswer(q);
       const choice = q.kind === 'multiple_choice' || q.kind === 'select_all';
@@ -2191,13 +2229,16 @@ async function renderPublic(scopeArg) {
     fetch('/api/public/scenarios' + (scope === 'department' ? '?scope=department' : '')).then(r => r.json()),
     fetch('/api/objectives').then(r => r.json()).catch(() => []),
   ]);
-  const st = { q: '', cat: hq.get('category') || '', sub: hq.get('subcategory') || '', diff: '', obj: '' };
+  const st = { q: '', cat: hq.get('category') || '', sub: hq.get('subcategory') || '', diff: '', obj: '', veh: new Set() };
   let view = browseView();
   const visible = () => list.filter(s => {
     if (st.cat && s.category !== st.cat) return false;
     if (st.sub && s.subcategory !== st.sub) return false;
     if (st.diff && s.difficulty !== st.diff) return false;
     if (st.obj && s.objective_primary !== st.obj && s.objective_secondary !== st.obj) return false;
+    // Phase 4: vehicle type is match-any — a scenario passes if it carries any of
+    // the selected types. Only meaningful under the MVA category.
+    if (st.veh.size && !parseBldg(s.vehicle_type).some(v => st.veh.has(v))) return false;
     if (st.q && !`${s.title} ${s.description} ${s.author_name}`.toLowerCase().includes(st.q.toLowerCase())) return false;
     return true;
   });
@@ -2209,7 +2250,11 @@ async function renderPublic(scopeArg) {
     <div><label class="text-xs font-semibold text-slate-400">Difficulty</label>
       <select id="pf-diff" class="${sel} mt-1"><option value="">All</option><option>Introductory</option><option>Standard</option><option>Advanced</option></select></div>
     <div><label class="text-xs font-semibold text-slate-400">Objective</label>
-      <select id="pf-obj" class="${sel} mt-1"><option value="">All</option>${objectives.map(o => `<option>${esc(o)}</option>`).join('')}</select></div>`;
+      <select id="pf-obj" class="${sel} mt-1"><option value="">All</option>${objectives.map(o => `<option>${esc(o)}</option>`).join('')}</select></div>
+    <div id="pf-veh-block" class="hidden"><label class="text-xs font-semibold text-slate-400">Vehicle type <span class="text-slate-500">(match any)</span></label>
+      <div id="pf-veh" class="flex flex-wrap gap-1.5 mt-1.5">
+        ${VEHICLE_TYPES.map(v => `<button type="button" data-veh="${esc(v)}" class="tap text-xs px-2.5 py-1 rounded-full border bg-slate-900 border-slate-700 text-slate-300 hover:border-slate-500">${esc(v)}</button>`).join('')}
+      </div></div>`;
   app.innerHTML = `
   <main class="max-w-6xl mx-auto p-4 sm:p-6 anim-in">
     <div class="flex items-center justify-between mb-4">
@@ -2274,6 +2319,22 @@ async function renderPublic(scopeArg) {
     });
   };
   const subSels = [];
+  // Phase 4: the vehicle-type filter only applies to MVA. Show its block under
+  // that category, restyle the chips to st.veh across both the desktop panel and
+  // the mobile sheet, and drop selections when the category moves away.
+  const syncVeh = () => {
+    const on = st.cat === 'Motor Vehicle Accidents';
+    if (!on) st.veh.clear();
+    ['pf-', 'pfm-'].forEach(pre => {
+      const block = $(`#${pre}veh-block`); if (block) block.classList.toggle('hidden', !on);
+      const box = $(`#${pre}veh`); if (!box) return;
+      box.querySelectorAll('[data-veh]').forEach(btn => {
+        btn.className = 'tap text-xs px-2.5 py-1 rounded-full border ' + (st.veh.has(btn.dataset.veh)
+          ? 'bg-amber-600 border-amber-500 font-semibold text-white'
+          : 'bg-slate-900 border-slate-700 text-slate-300 hover:border-slate-500');
+      });
+    });
+  };
   const bind = pre => {
     const g = id => $(`#${pre}${id}`);
     const subSel = () => { g('sub').innerHTML = `<option value="">All</option>` + (SUBCATS[st.cat] || []).map(x => `<option ${x === st.sub ? 'selected' : ''}>${x}</option>`).join(''); };
@@ -2282,14 +2343,21 @@ async function renderPublic(scopeArg) {
     g('sub').onchange = e => { st.sub = e.target.value; drawGrid(); };
     g('diff').onchange = e => { st.diff = e.target.value; drawGrid(); };
     g('obj').onchange = e => { st.obj = e.target.value; drawGrid(); };
+    g('veh').querySelectorAll('[data-veh]').forEach(btn => btn.onclick = () => {
+      const v = btn.dataset.veh;
+      if (st.veh.has(v)) st.veh.delete(v); else st.veh.add(v);
+      syncVeh(); drawGrid();
+    });
   };
   bindCatStrip(cat => {
     st.cat = cat; st.sub = '';
     subSels.forEach(f => f());
     updateCatStrip(cat);
+    syncVeh();
     drawGrid();
   });
   bind('pf-'); bind('pfm-');
+  syncVeh();
   bindFilterSheet('pfm-', st);
   updateCatStrip(st.cat); // deep links (?category=…) arrive pre-selected
   drawView();
@@ -2509,6 +2577,7 @@ async function renderScenarioDetail(id) {
   const common = s.questions.filter(q => !hasRoles(q.roles)).length;
   const countFor = t => common + s.questions.filter(q => rolesArr(q.roles).includes(t)).length;
   const bldgList = parseBldg(s.building_type);
+  const vehList = parseBldg(s.vehicle_type);
   app.innerHTML = `
   <main class="max-w-2xl mx-auto p-4 sm:p-6 space-y-5 anim-in">
     ${s.image_url ? `<img src="${esc(s.image_url)}" class="w-full max-h-64 object-cover rounded-2xl">` : ''}
@@ -2516,12 +2585,13 @@ async function renderScenarioDetail(id) {
       <h1 class="text-2xl font-bold leading-tight">${esc(s.title)}</h1>
       <p class="text-sm text-slate-400 mt-1">${esc(s.category)} · ${esc(s.subcategory)} · by ${esc(s.author_name ?? 'unknown')}</p>
       ${[s.objective_primary, s.objective_secondary, s.difficulty,
-         bldgList.length].some(Boolean) ? `
+         bldgList.length, vehList.length].some(Boolean) ? `
       <div class="flex items-center gap-2 flex-wrap mt-2">
         ${s.objective_primary ? `<span class="text-xs font-semibold px-2.5 py-1 rounded-full bg-indigo-900/60 text-indigo-300">${esc(s.objective_primary)}</span>` : ''}
         ${s.objective_secondary ? `<span class="text-xs font-semibold px-2.5 py-1 rounded-full bg-indigo-950/60 text-indigo-400">${esc(s.objective_secondary)}</span>` : ''}
         ${s.difficulty ? `<span class="text-xs font-semibold px-2.5 py-1 rounded-full bg-slate-700 text-slate-300">${esc(s.difficulty)}</span>` : ''}
         ${bldgList.map(b => `<span class="text-xs font-semibold px-2.5 py-1 rounded-full bg-slate-700 text-slate-300">${esc(b)}</span>`).join('')}
+        ${vehList.map(v => `<span class="text-xs font-semibold px-2.5 py-1 rounded-full bg-slate-700 text-slate-300">${esc(v)}</span>`).join('')}
       </div>` : ''}
     </div>
     <p class="text-sm text-slate-300 whitespace-pre-wrap">${esc(s.description)}</p>

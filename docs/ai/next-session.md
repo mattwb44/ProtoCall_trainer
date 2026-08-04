@@ -3,17 +3,14 @@
 _Updated 2026-08-04. Read `current-focus.md` and `decisions.md` first, then
 `CONTEXT.md` (glossary) at the repo root._
 
-**Branch: `claude/phase3-live-loop`, tip `37ca872` (host live view `90a18e0` +
-its doc commit), off merged `main` (`deafd6b`). Working tree clean, in sync with
-`origin`. `npm test` = 122 passing. Pushed to `origin`; NOT merged to `main`.**
+**Branch: `claude/phase4-creation-aids`, off merged `main` (`c6d7006`). Phase 3
+(live loop) was merged via PR #2 (merge commit `c6d7006`) and deployed. Phase 4
+(creation aids) is IN PROGRESS — the category-scoped detail fields piece is done
+and committed; template picker and map editor remain.** `npm test` = 123 passing.
 Phase 2 merged via PR #1; Phase 1 on `main`.
 
-**Phase 3 (live loop) is COMPLETE** — all three pieces: **schema** (`805ffaa`),
-**frontend role-set UI** (`164e954`), **host live view** (`90a18e0`); see below.
-
-**First decision next session:** merge Phase 3 to `main` (branch is a clean
-descendant of `main` — PR or fast-forward; it deploys to production), or start
-Phase 4 (creation aids) directly. Ask the owner first.
+**Phase 3 (live loop) is COMPLETE & MERGED** — schema (`805ffaa`), frontend
+role-set UI (`164e954`), host live view (`90a18e0`); all on `main` now.
 
 ## Where we are
 Tracks 0 / A1 / A2 / B / C shipped earlier (details in `decisions.md`). A
@@ -84,12 +81,27 @@ auto-advance — the advance button stays manual and says so. Test:
 updates the roster live; boot empties it, signals the crew socket, refuses the
 dead token.
 
-## Next: Phase 4 — creation aids (or merge Phase 3 first)
-Per `current-focus.md`/`decisions.md` → Creation flow UX: hardcoded template
-picker (Blank · Quick drill · Standard incident · Full multi-role) +
-duplicate-scenario (clone already exists — `/api/scenarios/:id/clone`);
-category-scoped detail fields (Vehicle Type multi-select for MVA, match-any
-browse filter); top-down map stamp editor (flattened to `image_url` on save).
+## Phase 4 — creation aids (IN PROGRESS)
+Per `current-focus.md`/`decisions.md` → Creation flow UX.
+- **Duplicate-scenario — already done** before Phase 4: the scenario detail view's
+  "Clone" button (`POST /api/scenarios/:id/clone`) copies any visible scenario to
+  My Library. No further work needed.
+- **Category-scoped detail fields — DONE this session.** `vehicle_type` JSON
+  column (`server/db.js`); `VEHICLE_TYPES` vocab + `normalizeVehicleType` +
+  `taxonomyOf` + create/edit SQL (`server/index.js`, mirrors `building_type`).
+  Frontend (`public/index.html`): `DETAIL_FIELD_BY_CAT` drives which detail field
+  shows (`toggleDetails`) — building for Fireground, vehicle for MVA, neither for
+  EMS; `drawVeh` multi-select; save payload sends only the active field; detail
+  view renders vehicle chips; Community browse has a **match-any** Vehicle Type
+  chip filter (`st.veh` Set, `syncVeh`) shown only under the MVA category. Server
+  stays a permissive vocab validator (category names aren't server-enforced — the
+  taxonomy test uses `category:'Fire'` — so scoping lives in the frontend, like
+  building_type always has). Test: `test/taxonomy.test.js` (Phase 4 vehicle case).
+- **Template picker — TODO.** Hardcoded Blank · Quick drill · Standard incident ·
+  Full multi-role; seeds draft structure (stages + role-tagged placeholder Qs)
+  into the creator form; full template opens the Advanced disclosure pre-filled.
+- **Map stamp editor — TODO.** 5 in-house flat-SVG base maps + fixed stampable
+  icon set (drag + rotate only), flattened to a plain `image_url` on save.
 
 ## Working notes
 - **Test fixtures:** scenario creates/edits require `objective_primary` (any

@@ -37,9 +37,9 @@ the agreed build order for them.
   - **(6/6) DONE** (`e254318`): new home page — hero → join card → 2×2 action
     grid (Host / Build / My Library / Community) → verbatim 4-step "How it
     works" ported from the old fireground home.
-- **Phase 3 — live loop. DONE** (branch `claude/phase3-live-loop` off merged
-  `main`, pushed; not yet merged). Roles-as-sets with intersection matching, then
-  the host live view.
+- **Phase 3 — live loop. DONE & MERGED** (PR #2 → `main`, merge commit `c6d7006`,
+  deployed via Railway). Roles-as-sets with intersection matching, then the host
+  live view.
   - **(schema) DONE** (`805ffaa`): questions and participants each carry a SET
     of roles (`roles` JSON column); a participant sees a question when either
     set is empty or they intersect. New `server/roles.js` (parse/serialize/
@@ -60,9 +60,22 @@ the agreed build order for them.
     role intersection, per-participant expand. Server: `rooms.roster`/`rooms.boot`,
     `participants.booted_at`, `boot_participant` socket event, `emitRoster` on
     join/answer/shift/boot/disconnect. No auto-advance. Verified in preview.
-- **Phase 4 — creation aids. ← next.** Hardcoded templates + duplicate-scenario;
-  category-scoped detail fields (Vehicle Type multi-select for MVA); top-down
-  map stamp editor (flattened on save).
+- **Phase 4 — creation aids. ← IN PROGRESS** (branch `claude/phase4-creation-aids`
+  off merged `main`). Duplicate-scenario already existed (the detail-view "Clone"
+  button copies any visible scenario to My Library). Remaining: hardcoded template
+  picker; category-scoped detail fields; top-down map stamp editor.
+  - **(detail fields) DONE:** category-scoped detail fields. Each category shows
+    one detail field — building type for Fireground, **Vehicle Type** for MVA,
+    neither for EMS (`DETAIL_FIELD_BY_CAT`). Vehicle Type is a fixed additive-only
+    15-item multi-select (`vehicle_type` JSON column + `VEHICLE_TYPES` vocab +
+    `normalizeVehicleType`, mirroring `building_type`); rendered as chips in the
+    scenario detail; Community browse gained a **match-any** Vehicle Type filter
+    that only appears under the MVA category. Building type is now Fireground-only
+    (was: any non-EMS). 123 tests pass.
+  - **(templates) TODO:** hardcoded picker (Blank · Quick drill · Standard
+    incident · Full multi-role) seeding draft structure into the creator form.
+  - **(map editor) TODO:** top-down stamp editor (5 base maps + fixed icon set,
+    drag+rotate only), flattened to `image_url` on save.
 - **Phase 5 — onboarding.** Spotlight tour engine + first-login tour only
   (deliberately after Phase 2 layouts settle).
 
