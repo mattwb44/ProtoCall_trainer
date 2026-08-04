@@ -670,6 +670,12 @@ const STAGE_PRESETS = ['Dispatch', 'En Route', 'On Arrival / Size-Up', 'Initial 
   'Escalation', 'Command Transfer', 'Patient Contact', 'Transport', 'Termination'];
 const ROLE_CHOICES = ['Firefighter', 'Driver / Engineer', 'Officer', 'EMT', 'Paramedic',
   'Battalion Chief', 'Dispatcher'];
+// Phase 3: a question/participant carries a SET of roles (empty = everyone).
+// The server sends `roles` as an array on every question/response/participant
+// (with a legacy `role_track` scalar mirror); these read/render that set.
+const rolesArr = v => Array.isArray(v) ? v.filter(Boolean) : (v ? [v] : []);
+const roleLabel = v => rolesArr(v).join(' / ');       // "Firefighter / Medic"
+const hasRoles = v => rolesArr(v).length > 0;
 let myStagePresets = [];
 // Track C: the current category's controlled objectives, for per-question pickers.
 let objectiveOptions = [];
@@ -686,7 +692,7 @@ function syncAnswer(q) {
 // being discovered through a failed save.
 const REQ_MARK = '<span class="text-rose-400 font-bold" title="Required">*</span>';
 
-const newQuestion = () => ({ prompt: '', kind: 'text', choices: null, instructor_answer: '', role_track: '', stage: '', objective: '', _correct: [] });
+const newQuestion = () => ({ prompt: '', kind: 'text', choices: null, instructor_answer: '', roles: [], stage: '', objective: '', _correct: [] });
 
 // Track B — dismissible creation tutorial. Off once dismissed (localStorage).
 function creationTutorial() {
@@ -756,7 +762,7 @@ async function renderCreator(id) {
     if (!existing || (!existing.mine && !existing.can_review)) { toast('Scenario not found', 'bg-rose-600'); location.hash = '#/library'; return; }
     editingAsReviewer = !existing.mine && existing.can_review;
     draftQs = existing.questions.map(q => {
-      const qq = { id: q.id, prompt: q.prompt, kind: q.kind, choices: q.choices, instructor_answer: q.instructor_answer, role_track: q.role_track ?? '', stage: q.stage ?? '', objective: q.objective ?? '', _correct: [] };
+      const qq = { id: q.id, prompt: q.prompt, kind: q.kind, choices: q.choices, instructor_answer: q.instructor_answer, roles: rolesArr(q.roles ?? q.role_track), stage: q.stage ?? '', objective: q.objective ?? '', _correct: [] };
       if ((q.kind === 'multiple_choice' || q.kind === 'select_all') && Array.isArray(q.choices)) {
         const corrects = (q.instructor_answer || '').split('|').map(s => s.trim()).filter(Boolean);
         qq._correct = q.choices.map((c, ci) => (corrects.includes(c) ? ci : -1)).filter(ci => ci >= 0);
@@ -1137,16 +1143,22 @@ function stageSelect(q, i) {
     </select>
     <input data-stage-custom="${i}" value="${esc(custom ? q.stage : '')}" placeholder="Custom stage" class="${custom ? '' : 'hidden'} bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs w-36">`;
 }
+// Phase 3: a question is tagged with a SET of roles (none = every seat sees it).
+// Toggle chips for the standard seats + any custom roles already on the
+// question, plus a field to add a custom role. Participants see a question when
+// their role set is empty or intersects this one.
 function roleSelect(q, i) {
-  const custom = q.role_track && !ROLE_CHOICES.includes(q.role_track);
-  const opt = v => `<option value="${esc(v)}" ${q.role_track === v ? 'selected' : ''}>${esc(v)}</option>`;
+  const roles = rolesArr(q.roles);
+  const customs = roles.filter(r => !ROLE_CHOICES.includes(r));
+  const chip = (r, on) => `<button type="button" data-roletoggle="${i}" data-role-val="${esc(r)}"
+    class="tap text-xs px-2.5 py-1 rounded-full border ${on ? 'bg-amber-600 border-amber-500 font-semibold' : 'bg-slate-800 border-slate-700 text-slate-300 hover:border-slate-500'}">${esc(r)}</button>`;
   return `
-    <select data-role="${i}" class="tap bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs w-40" title="Which seat this question is for.">
-      <option value="" ${!q.role_track ? 'selected' : ''}>— all roles —</option>
-      ${ROLE_CHOICES.map(opt).join('')}
-      <option value="__custom__" ${custom ? 'selected' : ''}>Custom…</option>
-    </select>
-    <input data-role-custom="${i}" value="${esc(custom ? q.role_track : '')}" placeholder="Custom role" class="${custom ? '' : 'hidden'} bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs w-32">`;
+    <div class="flex items-center gap-1.5 flex-wrap" title="Which seats this question is for. None = every role sees it.">
+      <span class="text-xs text-slate-500 mr-0.5">Roles:</span>
+      ${ROLE_CHOICES.map(r => chip(r, roles.includes(r))).join('')}
+      ${customs.map(r => chip(r, true)).join('')}
+      <input data-role-add="${i}" placeholder="+ custom" class="bg-slate-800 border border-slate-700 rounded-full px-2.5 py-1 text-xs w-24 placeholder:text-slate-600">
+    </div>`;
 }
 // Track C: per-question objective. Blank inherits the scenario's primary. If the
 // stored objective isn't in the current category's list (e.g. category changed),
@@ -1184,7 +1196,7 @@ function drawQs() {
   $('#c-qs').innerHTML = draftQs.map((q, i) => `
   <div class="bg-slate-900 border border-slate-700 rounded-xl p-4 space-y-3">
     <div class="flex items-start justify-between gap-2">
-      <details class="min-w-0" ${(q.stage || q.role_track || q.objective) ? 'open' : ''}>
+      <details class="min-w-0" ${(q.stage || hasRoles(q.roles) || q.objective) ? 'open' : ''}>
         <summary class="tap inline-flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-200 cursor-pointer select-none"><i data-lucide="sliders-horizontal" class="w-3.5 h-3.5"></i>Advanced <span class="text-slate-600">· objective, stage &amp; role</span></summary>
         <div class="flex items-center gap-2 flex-wrap mt-2">${objectiveSelect(q, i)}${stageSelect(q, i)}${roleSelect(q, i)}</div>
       </details>
@@ -1213,14 +1225,26 @@ function drawQs() {
     else { cust.classList.add('hidden'); q.stage = sel.value; }
   });
   qs.querySelectorAll('[data-stage-custom]').forEach(inp => inp.oninput = () => { draftQs[inp.dataset.stageCustom].stage = inp.value.trim(); });
-  // role: same pattern
-  qs.querySelectorAll('[data-role]').forEach(sel => sel.onchange = () => {
-    const q = draftQs[sel.dataset.role];
-    const cust = qs.querySelector(`[data-role-custom="${sel.dataset.role}"]`);
-    if (sel.value === '__custom__') { cust.classList.remove('hidden'); q.role_track = cust.value.trim(); cust.focus(); }
-    else { cust.classList.add('hidden'); q.role_track = sel.value; }
+  // roles: toggle chips in place (no full re-render — keeps the form stable)
+  qs.querySelectorAll('[data-roletoggle]').forEach(btn => btn.onclick = () => {
+    const q = draftQs[btn.dataset.roletoggle], val = btn.dataset.roleVal;
+    q.roles = rolesArr(q.roles);
+    const on = q.roles.includes(val);
+    q.roles = on ? q.roles.filter(r => r !== val) : [...q.roles, val];
+    btn.className = 'tap text-xs px-2.5 py-1 rounded-full border ' +
+      (!on ? 'bg-amber-600 border-amber-500 font-semibold' : 'bg-slate-800 border-slate-700 text-slate-300 hover:border-slate-500');
   });
-  qs.querySelectorAll('[data-role-custom]').forEach(inp => inp.oninput = () => { draftQs[inp.dataset.roleCustom].role_track = inp.value.trim(); });
+  // custom role: Enter adds a chip (re-render to show it), deduped
+  qs.querySelectorAll('[data-role-add]').forEach(inp => inp.onkeydown = e => {
+    if (e.key !== 'Enter') return;
+    e.preventDefault();
+    const q = draftQs[inp.dataset.roleAdd], val = inp.value.trim();
+    if (!val) return;
+    q.roles = rolesArr(q.roles);
+    if (!q.roles.includes(val)) q.roles.push(val);
+    inp.value = '';
+    drawQs();
+  });
   // objective: straight controlled-vocab pick (blank inherits the primary)
   qs.querySelectorAll('[data-obj]').forEach(sel => sel.onchange = () => { draftQs[sel.dataset.obj].objective = sel.value; });
   // kind tabs
@@ -1277,7 +1301,7 @@ async function saveScenario(opts = {}) {
       const choice = q.kind === 'multiple_choice' || q.kind === 'select_all';
       return {
         ...(q.id ? { id: q.id } : {}),
-        prompt: q.prompt, kind: q.kind, role_track: q.role_track, stage: q.stage,
+        prompt: q.prompt, kind: q.kind, roles: rolesArr(q.roles), stage: q.stage,
         objective: q.objective ?? '',
         instructor_answer: q.instructor_answer,
         choices: choice ? (q.choices || []).filter(c => c.trim()) : null,
@@ -1404,12 +1428,12 @@ function drawMatrix() {
     ? `<div class="flex items-center gap-3 pt-2"><span class="text-xs font-black tracking-widest ${hostState.session.stages?.indexOf(q.stage) > hostState.session.stage_index ? 'text-slate-600' : 'text-amber-400'}">${esc(q.stage.toUpperCase())}${hostState.session.stages?.indexOf(q.stage) > hostState.session.stage_index ? ' — NOT YET VISIBLE' : ''}</span><span class="flex-1 h-px bg-slate-700"></span></div>` : '') + (q0 => {
     const rows = hostState.responses.filter(r => r.question_id === q.id).map(r => `
       <div class="flex items-start gap-3 bg-slate-900 rounded-xl p-3 anim-in ${r.is_pushed ? 'ring-2 ring-rose-500' : ''}">
-        <span class="shrink-0 w-8 h-8 rounded-full bg-slate-700 text-xs font-bold flex items-center justify-center text-slate-300" title="${esc(r.role_track || '')}">${esc(r.display_tag)}</span>
-        <p class="flex-1 text-sm text-slate-200 pt-1">${r.role_track ? `<span class="text-xs font-bold text-amber-400 mr-1.5">${esc(r.role_track)}</span>` : ''}${r.shift_label ? `<span class="text-xs font-bold text-sky-300 mr-1.5">${esc(SHIFT_LABEL)} ${esc(r.shift_label)}</span>` : ''}${esc(r.body)}</p>
+        <span class="shrink-0 w-8 h-8 rounded-full bg-slate-700 text-xs font-bold flex items-center justify-center text-slate-300" title="${esc(roleLabel(r.roles))}">${esc(r.display_tag)}</span>
+        <p class="flex-1 text-sm text-slate-200 pt-1">${hasRoles(r.roles) ? `<span class="text-xs font-bold text-amber-400 mr-1.5">${esc(roleLabel(r.roles))}</span>` : ''}${r.shift_label ? `<span class="text-xs font-bold text-sky-300 mr-1.5">${esc(SHIFT_LABEL)} ${esc(r.shift_label)}</span>` : ''}${esc(r.body)}</p>
         <button data-push="${r.id}" ${r.is_pushed ? 'disabled' : ''} class="tap shrink-0 text-xs font-bold px-3 py-2 rounded-lg ${r.is_pushed ? 'bg-rose-900 text-rose-300' : 'bg-rose-600 hover:bg-rose-500'}">${r.is_pushed ? '✓ Pushed' : 'Push to Crew'}</button>
       </div>`).join('');
     return `<div class="bg-slate-800 rounded-2xl p-4">
-      <p class="font-semibold text-sm mb-1"><span class="text-amber-400">${esc(q.role_track)}</span> · ${esc(q.prompt)}</p>
+      <p class="font-semibold text-sm mb-1">${hasRoles(q.roles) ? `<span class="text-amber-400">${esc(roleLabel(q.roles))}</span> · ` : ''}${esc(q.prompt)}</p>
       <p class="text-xs text-emerald-400 mb-3 flex items-center gap-1"><i data-lucide="shield-check" class="w-3.5 h-3.5"></i>${esc(q.instructor_answer)}</p>
       <div class="space-y-2">${rows || '<p class="text-sm text-slate-500 italic">Waiting for responses…</p>'}</div>
     </div>`;
@@ -1424,29 +1448,46 @@ function drawMatrix() {
 // (e.g. "Platoon"/"Class" later); SHIFT_OPTIONS are the offered chips.
 const SHIFT_LABEL = 'Shift';
 const SHIFT_OPTIONS = ['A', 'B', 'C', 'D'];
-let pState = null, myId = null, myRole = '', myShift = '';
+let pState = null, myId = null, myRoles = [], myShift = '';
+// Phase 3: a participant picks a SET of seats — Firefighter *and* medic is one
+// person, two tracks. Selecting none and tapping "All roles" gets everything.
 function drawRolePicker(code, state) {
+  const sel = new Set();
   app.innerHTML = `
   <main class="max-w-md mx-auto p-4 pt-10 space-y-4 anim-in">
     <header class="text-center">
       <p class="text-xs text-slate-400">Room <span class="font-mono font-bold text-amber-400">${esc(state.session.room_code)}</span></p>
       <h1 class="text-xl font-bold leading-tight">${esc(state.session.title)}</h1>
-      <p class="text-sm text-slate-400 mt-2">This scenario trains every seat on the rig. Pick yours — you'll get the common questions plus your role's.</p>
+      <p class="text-sm text-slate-400 mt-2">This scenario trains every seat on the rig. Pick every seat you're covering — you'll get the common questions plus each role's. Firefighter and medic? Choose both.</p>
     </header>
     <div class="space-y-2">
       ${state.tracks.map(t => `
-      <button data-role="${esc(t)}" class="tap w-full flex items-center gap-3 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-2xl px-5 py-4 text-left">
-        <i data-lucide="user" class="w-5 h-5 text-amber-400"></i><span class="font-semibold">${esc(t)}</span></button>`).join('')}
-      <button data-role="ALL" class="tap w-full flex items-center gap-3 bg-slate-900 hover:bg-slate-800 border border-slate-800 rounded-2xl px-5 py-4 text-left">
-        <i data-lucide="users" class="w-5 h-5 text-slate-400"></i><span class="font-semibold text-slate-300">All roles — give me everything</span></button>
+      <button data-roleopt="${esc(t)}" class="tap w-full flex items-center gap-3 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-2xl px-5 py-4 text-left">
+        <i data-lucide="user" class="w-5 h-5 text-amber-400"></i><span class="font-semibold flex-1">${esc(t)}</span>
+        <i data-lucide="check" class="w-5 h-5 text-amber-400 opacity-0"></i></button>`).join('')}
     </div>
-    <p class="text-xs text-slate-500 text-center">Your role locks in once you submit your first answer.</p>
+    <button id="rp-join" class="tap w-full bg-rose-600 hover:bg-rose-500 rounded-2xl px-5 py-4 font-bold hidden">Join</button>
+    <button id="rp-all" class="tap w-full flex items-center gap-3 bg-slate-900 hover:bg-slate-800 border border-slate-800 rounded-2xl px-5 py-4 text-left">
+      <i data-lucide="users" class="w-5 h-5 text-slate-400"></i><span class="font-semibold text-slate-300">All roles — give me everything</span></button>
+    <p class="text-xs text-slate-500 text-center">Your roles lock in once you submit your first answer.</p>
   </main>`;
   icons();
-  app.querySelectorAll('[data-role]').forEach(btn => btn.onclick = () => {
-    sessionStorage['pcRole:' + code] = btn.dataset.role;
-    renderJoin(code);
+  const joinBtn = $('#rp-join');
+  const refresh = () => {
+    joinBtn.classList.toggle('hidden', sel.size === 0);
+    joinBtn.textContent = sel.size ? `Join as ${[...sel].join(' + ')}` : 'Join';
+  };
+  app.querySelectorAll('[data-roleopt]').forEach(btn => btn.onclick = () => {
+    const t = btn.dataset.roleopt;
+    if (sel.has(t)) sel.delete(t); else sel.add(t);
+    const on = sel.has(t);
+    btn.classList.toggle('border-amber-500', on);
+    btn.classList.toggle('bg-amber-950/40', on);
+    btn.querySelector('[data-lucide="check"]')?.classList.toggle('opacity-0', !on);
+    refresh();
   });
+  joinBtn.onclick = () => { sessionStorage['pcRole:' + code] = JSON.stringify([...sel]); renderJoin(code); };
+  $('#rp-all').onclick = () => { sessionStorage['pcRole:' + code] = 'ALL'; renderJoin(code); };
 }
 const answered = new Set(); // question_ids this participant submitted
 const official = new Map(); // question_id -> model answer, filled only after full submission (PRD-v7)
@@ -1483,17 +1524,24 @@ function renderJoin(code) {
     const b = $('#conn-badge');
     if (b && pState?.session.status === 'live') { b.innerHTML = 'RECONNECTING…'; b.className = 'text-xs font-semibold bg-amber-900/60 text-amber-300 px-3 py-1.5 rounded-full'; }
   });
-  const savedRole = sessionStorage['pcRole:' + code] ?? '';
-  s.emit('join_room', { code, token, role: 'participant', role_track: savedRole === 'ALL' ? '' : savedRole }, ({ error, state, participant }) => {
+  // Phase 3: the saved pick is 'ALL', a JSON role array, or (legacy) a bare
+  // string. Empty = no choice made yet → show the picker on a tracked scenario.
+  const savedRaw = sessionStorage['pcRole:' + code] ?? '';
+  let savedRoles = [];
+  if (savedRaw && savedRaw !== 'ALL') {
+    try { savedRoles = JSON.parse(savedRaw); if (!Array.isArray(savedRoles)) savedRoles = [savedRaw]; }
+    catch { savedRoles = [savedRaw]; }
+  }
+  s.emit('join_room', { code, token, role: 'participant', roles: savedRoles }, ({ error, state, participant }) => {
     if (error) { toast(error, 'bg-rose-600'); location.hash = '#/'; return; }
     joinedOnce = true;
-    // v7 role overlay: tracked scenario + no role picked yet → choose a seat first
-    if (state.tracks?.length && !participant.role_track && savedRole !== 'ALL'
+    // Phase 3 role overlay: tracked scenario + no roles picked yet → choose seats first
+    if (state.tracks?.length && !participant.roles.length && savedRaw === ''
         && !state.responses.some(r => r.participant_id === participant.id)) {
       drawRolePicker(code, state);
       return;
     }
-    pState = state; myId = participant.id; myRole = participant.role_track; myShift = participant.shift_label || '';
+    pState = state; myId = participant.id; myRoles = participant.roles || []; myShift = participant.shift_label || '';
     answered.clear(); official.clear();
     state.responses.filter(r => r.participant_id === myId).forEach(r => answered.add(r.question_id));
     state.questions.forEach(q => { if (q.instructor_answer !== undefined) official.set(q.id, q.instructor_answer ?? ''); });
@@ -1509,7 +1557,7 @@ function drawParticipant() {
   app.innerHTML = `
   <main class="max-w-md mx-auto pb-40 anim-in">
     <header class="sticky top-[52px] z-30 bg-slate-900/95 backdrop-blur border-b border-slate-800 px-4 py-3 flex items-center justify-between">
-      <div><p class="text-xs text-slate-400">Room <span class="font-mono font-bold text-amber-400">${esc(session.room_code)}</span>${myRole ? ` · <span class="font-semibold text-amber-400">${esc(myRole)}</span>` : ''}${myShift ? ` · <span class="font-semibold text-sky-300">${SHIFT_LABEL} ${esc(myShift)}</span>` : ''}</p>
+      <div><p class="text-xs text-slate-400">Room <span class="font-mono font-bold text-amber-400">${esc(session.room_code)}</span>${myRoles.length ? ` · <span class="font-semibold text-amber-400">${esc(myRoles.join(' · '))}</span>` : ''}${myShift ? ` · <span class="font-semibold text-sky-300">${SHIFT_LABEL} ${esc(myShift)}</span>` : ''}</p>
         <p class="font-semibold text-sm leading-tight">${esc(session.title)}</p></div>
       <span id="conn-badge" class="flex items-center gap-1.5 text-xs font-semibold ${ended ? 'bg-slate-800 text-slate-400' : 'bg-emerald-900/60 text-emerald-300'} px-3 py-1.5 rounded-full">
         ${ended ? 'ENDED' : '<span class="w-2 h-2 bg-emerald-400 rounded-full live-dot"></span> LIVE'}</span>
@@ -1622,7 +1670,7 @@ function qCard(q, i, responses) {
       }).join('')}</div>`
     : `<textarea id="in-${q.id}" rows="3" ${locked ? 'disabled' : ''} placeholder="Type your answer…" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-sm focus:border-amber-500 focus:outline-none disabled:opacity-60">${esc(shownBody)}</textarea>`;
   return `<div class="bg-slate-800 rounded-2xl p-4 space-y-3" id="card-${q.id}">
-    <p class="font-semibold text-sm leading-snug"><span class="text-rose-400 font-bold">Q${i + 1}.</span> ${q.role_track ? `<span class="text-amber-400">${esc(q.role_track)}</span> · ` : ''}${esc(q.prompt)}</p>
+    <p class="font-semibold text-sm leading-snug"><span class="text-rose-400 font-bold">Q${i + 1}.</span> ${hasRoles(q.roles) ? `<span class="text-amber-400">${esc(roleLabel(q.roles))}</span> · ` : ''}${esc(q.prompt)}</p>
     <div id="pushed-${q.id}" class="space-y-2"></div>
     ${input}
     ${inQueue ? `<div class="flex items-center gap-2 bg-amber-950/40 border border-amber-800/50 rounded-xl px-4 py-3 text-sm text-amber-200"><i data-lucide="cloud-off" class="w-4 h-4 shrink-0"></i>Queued — sends automatically when you're back online</div>` : ''}
@@ -2371,9 +2419,9 @@ async function renderScenarioDetail(id) {
   const res = await fetch(`/api/scenarios/${id}`);
   if (!res.ok) { toast('Scenario not found', 'bg-rose-600'); location.hash = '#/public'; return; }
   const s = await res.json();
-  const tracks = [...new Set(s.questions.map(q => q.role_track).filter(Boolean))];
-  const common = s.questions.filter(q => !q.role_track).length;
-  const countFor = t => common + s.questions.filter(q => q.role_track === t).length;
+  const tracks = [...new Set(s.questions.flatMap(q => rolesArr(q.roles)))];
+  const common = s.questions.filter(q => !hasRoles(q.roles)).length;
+  const countFor = t => common + s.questions.filter(q => rolesArr(q.roles).includes(t)).length;
   const bldgList = parseBldg(s.building_type);
   app.innerHTML = `
   <main class="max-w-2xl mx-auto p-4 sm:p-6 space-y-5 anim-in">
@@ -2406,10 +2454,10 @@ async function renderScenarioDetail(id) {
     <div class="space-y-3">
       ${tracks.length ? `
       <div><label class="text-xs font-semibold text-slate-400">Play as</label>
-        <select id="sd-role" class="tap mt-1 w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2.5 text-sm">
-          ${tracks.map(t => `<option>${esc(t)}</option>`).join('')}
-          <option value="">All roles</option>
-        </select></div>` : ''}
+        <div id="sd-roles" class="flex items-center gap-1.5 flex-wrap mt-1.5">
+          ${tracks.map(t => `<button type="button" data-solorole="${esc(t)}" class="tap text-sm px-3 py-1.5 rounded-full border bg-slate-900 border-slate-700 text-slate-300 hover:border-slate-500">${esc(t)}</button>`).join('')}
+        </div>
+        <p class="text-xs text-slate-500 mt-1">Pick one or more seats, or none for every question.</p></div>` : ''}
       <div class="flex items-center gap-2 flex-wrap">
         <button id="sd-solo" class="tap flex items-center gap-1.5 bg-rose-600 hover:bg-rose-500 rounded-xl px-5 py-3 font-bold text-sm"><i data-lucide="user" class="w-4 h-4"></i>Try Solo</button>
         <button data-launch="${s.id}" class="tap flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-500 rounded-xl px-5 py-3 font-bold text-sm"><i data-lucide="radio-tower" class="w-4 h-4"></i>Host Live</button>
@@ -2419,9 +2467,17 @@ async function renderScenarioDetail(id) {
   </main>`;
   icons();
   bindLaunchButtons();
+  const soloRoles = new Set();
+  app.querySelectorAll('[data-solorole]').forEach(btn => btn.onclick = () => {
+    const t = btn.dataset.solorole;
+    if (soloRoles.has(t)) soloRoles.delete(t); else soloRoles.add(t);
+    const on = soloRoles.has(t);
+    btn.className = 'tap text-sm px-3 py-1.5 rounded-full border ' +
+      (on ? 'bg-amber-600 border-amber-500 font-semibold' : 'bg-slate-900 border-slate-700 text-slate-300 hover:border-slate-500');
+  });
   $('#sd-solo').onclick = () => {
-    const role = $('#sd-role')?.value ?? '';
-    location.hash = `#/solo/${s.id}?role=${encodeURIComponent(role)}`;
+    const q = soloRoles.size ? `?roles=${encodeURIComponent([...soloRoles].join(','))}` : '';
+    location.hash = `#/solo/${s.id}${q}`;
   };
   $('#sd-clone').onclick = async () => {
     if (!me) { sessionStorage.authNext = location.hash; location.hash = '#/login'; return; }
@@ -2433,7 +2489,10 @@ async function renderScenarioDetail(id) {
 
 async function renderSolo(scenarioId) {
   const params = new URLSearchParams(location.hash.split('?')[1] || '');
-  const role = params.get('role') || '';
+  // Phase 3: `roles` is a comma-separated set; `role` is the legacy single value.
+  const role = params.get('roles')
+    ? params.get('roles').split(',').map(r => r.trim()).filter(Boolean)
+    : (params.get('role') ? [params.get('role')] : []);
   const res = await fetch(`/api/scenarios/${scenarioId}`);
   if (!res.ok) { toast('Scenario not found', 'bg-rose-600'); location.hash = '#/public'; return; }
   const s = await res.json();
@@ -2442,8 +2501,8 @@ async function renderSolo(scenarioId) {
   let curStage = '';
   s.questions.forEach(q => { if (q.stage) curStage = q.stage; q.stage = curStage; });
   const stageNames = [...new Set(s.questions.map(q => q.stage).filter(Boolean))];
-  const qs = s.questions.filter(q => !role || !q.role_track || q.role_track === role);
-  if (!qs.length) { toast('No questions for this role', 'bg-amber-500'); location.hash = `#/scenario/${scenarioId}`; return; }
+  const qs = s.questions.filter(q => !role.length || !hasRoles(q.roles) || rolesArr(q.roles).some(r => role.includes(r)));
+  if (!qs.length) { toast('No questions for these roles', 'bg-amber-500'); location.hash = `#/scenario/${scenarioId}`; return; }
   // Solo advances stage-by-stage: later stages stay hidden until the player
   // finishes the current one (stageless scenarios show everything at once).
   const stageOf = q => Math.max(0, stageNames.indexOf(q.stage));
@@ -2498,7 +2557,7 @@ async function renderSolo(scenarioId) {
         ? `<div class="flex items-center gap-3 pt-2"><span class="text-xs font-black tracking-widest text-amber-400">${esc(q.stage.toUpperCase())}</span><span class="flex-1 h-px bg-slate-700"></span></div>` : '')
       + `
       <div class="bg-slate-800 rounded-2xl p-4 space-y-3">
-        <p class="font-semibold text-sm leading-snug"><span class="text-rose-400 font-bold">Q${n}.</span> ${q.role_track ? `<span class="text-amber-400">${esc(q.role_track)}</span> · ` : ''}${esc(q.prompt)}</p>
+        <p class="font-semibold text-sm leading-snug"><span class="text-rose-400 font-bold">Q${n}.</span> ${hasRoles(q.roles) ? `<span class="text-amber-400">${esc(roleLabel(q.roles))}</span> · ` : ''}${esc(q.prompt)}</p>
         ${(q.kind === 'multiple_choice' || q.kind === 'select_all')
           ? (() => {
               const selSet = q.kind === 'select_all' ? new Set((saved[q.id] || '').split('|').map(x => x.trim()).filter(Boolean)) : null;
@@ -2556,7 +2615,7 @@ async function renderSolo(scenarioId) {
     // from the reveal (deferred save), so they see their answers vs. official first.
     const r = await fetch(`/api/scenarios/${s.id}/solo-reveal`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ answers, role_track: role }),
+      body: JSON.stringify({ answers, roles: role }),
     });
     if (!r.ok) { toast('Submit failed', 'bg-rose-600'); btn.disabled = false; btn.textContent = 'Submit Run — Reveal Official Answers'; return; }
     const { official_answers } = await r.json();
@@ -2581,7 +2640,7 @@ const officialDrop = body => `
 async function saveSoloRun(scenarioId, qids, answers, role) {
   const run = await fetch('/api/solo/runs', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ scenario_id: scenarioId, role_track: role }),
+    body: JSON.stringify({ scenario_id: scenarioId, roles: role }),
   }).then(r => r.ok ? r.json() : null);
   if (!run) return null;
   let last = null;
@@ -2625,7 +2684,7 @@ function soloReveal(s, qs, answers, official, role) {
     <div class="space-y-4">
     ${qs.map((q, i) => `
     <div class="bg-slate-800 rounded-2xl p-4 space-y-3">
-      <p class="font-semibold text-sm leading-snug"><span class="text-rose-400 font-bold">Q${i + 1}.</span> ${q.role_track ? `<span class="text-amber-400">${esc(q.role_track)}</span> · ` : ''}${esc(q.prompt)}</p>
+      <p class="font-semibold text-sm leading-snug"><span class="text-rose-400 font-bold">Q${i + 1}.</span> ${hasRoles(q.roles) ? `<span class="text-amber-400">${esc(roleLabel(q.roles))}</span> · ` : ''}${esc(q.prompt)}</p>
       <div class="bg-slate-900 rounded-xl px-4 py-3 text-sm"><p class="text-xs font-bold text-slate-500 mb-1">YOUR ANSWER</p><p class="whitespace-pre-wrap">${esc(answers[q.id]) || '<span class="text-slate-500 italic">—</span>'}</p></div>
       ${officialDrop(official[q.id])}
     </div>`).join('')}
@@ -2729,12 +2788,12 @@ async function renderSessionDetail(id) {
       const pushed = responses.filter(r => r.question_id === qn.id && r.is_pushed);
       const note = notes.find(n => n.question_id === qn.id);
       return `<div class="bg-slate-800 rounded-2xl p-4 space-y-3">
-        <p class="font-semibold text-sm"><span class="text-rose-400 font-bold">Q${i + 1}.</span> ${qn.role_track ? `<span class="text-amber-400">${esc(qn.role_track)}</span> · ` : ''}${esc(qn.prompt)}</p>
+        <p class="font-semibold text-sm"><span class="text-rose-400 font-bold">Q${i + 1}.</span> ${hasRoles(qn.roles) ? `<span class="text-amber-400">${esc(roleLabel(qn.roles))}</span> · ` : ''}${esc(qn.prompt)}</p>
         ${mineResp ? `<div class="bg-slate-900 rounded-xl px-4 py-3 text-sm"><p class="text-xs font-bold text-slate-500 mb-1">YOUR ANSWER</p>${esc(mineResp.body)}</div>` : ''}
         ${isHost && analysis ? responses.filter(r => r.question_id === qn.id).map(r => {
           const a = assessFor(r.id);
           return `<div class="bg-slate-900 rounded-xl px-4 py-3 text-sm space-y-1 ${a?.classification === 'review' ? 'border border-amber-500/40' : ''}">
-            <div class="flex items-center justify-between gap-2"><p class="text-xs font-bold text-slate-500">${esc(r.display_tag)}${r.role_track ? ` · <span class="text-amber-400">${esc(r.role_track)}</span>` : ''}${r.shift_label ? ` · <span class="text-sky-300">${esc(SHIFT_LABEL)} ${esc(r.shift_label)}</span>` : ''}</p>${a ? badge(a.classification) : ''}</div>
+            <div class="flex items-center justify-between gap-2"><p class="text-xs font-bold text-slate-500">${esc(r.display_tag)}${hasRoles(r.roles) ? ` · <span class="text-amber-400">${esc(roleLabel(r.roles))}</span>` : ''}${r.shift_label ? ` · <span class="text-sky-300">${esc(SHIFT_LABEL)} ${esc(r.shift_label)}</span>` : ''}</p>${a ? badge(a.classification) : ''}</div>
             <p>${esc(r.body)}</p>
             ${a ? `<p class="text-xs text-slate-400 italic">${esc(a.rationale)}</p>` : ''}
           </div>`;

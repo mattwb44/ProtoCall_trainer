@@ -616,7 +616,7 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
     // PRD-v8: an in-scope reviewer of a submitted scenario gets them too.
     const reviewer = s.review_status !== '' && isReviewerOf(user, s);
     const questions = db.prepare('SELECT * FROM questions WHERE scenario_id=? AND deleted=0 ORDER BY sort_order')
-      .all(s.id).map(q => ({
+      .all(s.id).map(q => withRoleFields({
         ...q,
         choices: q.choices ? JSON.parse(q.choices) : null,
         instructor_answer: mine || reviewer ? q.instructor_answer : undefined,
