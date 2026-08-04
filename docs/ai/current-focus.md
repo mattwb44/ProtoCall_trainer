@@ -46,12 +46,14 @@ the agreed build order for them.
     match + JSON1 SQL predicate); `role_track` kept as a legacy column + scalar
     mirror + input shim so the **current frontend is unchanged and still
     works** (single role per question/participant). 118 tests pass.
-  - **(frontend) TODO:** expose role *sets* in the creator (per-question) and
-    at join (participant multi-role pick); today the UI still speaks single
-    `role_track` through the shim. `public/index.html` role sites: creator
-    `drawQs` (~1141), participant join `renderJoin` (~1487), solo role pick
-    (~2374/2445/2584).
-  - **(host live view) TODO:** mirror + roster + completion chips + boot
+  - **(frontend) DONE** (`164e954`): role *sets* exposed everywhere — creator
+    per-question multi-select chips (+ custom), live-join multi-role picker
+    ("Join as A + B" / "All roles"), solo "Play as" multi-select (`?roles=a,b`),
+    and all render sites show the full set via `roleLabel()`. Also fixed a gap:
+    `GET /api/scenarios/:id` now decorates questions with `withRoleFields` so
+    `roles` arrives as a parsed array (the editor/solo detail read from it).
+    Verified in the browser preview (creator chips, join picker, round-trip).
+  - **(host live view) TODO ← next.** Mirror + roster + completion chips + boot
     (`renderHost` in `public/index.html`, `server/rooms.js`).
 - **Phase 4 — creation aids.** Hardcoded templates + duplicate-scenario;
   category-scoped detail fields (Vehicle Type multi-select for MVA); top-down

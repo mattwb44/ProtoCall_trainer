@@ -3,13 +3,13 @@
 _Updated 2026-08-04. Read `current-focus.md` and `decisions.md` first, then
 `CONTEXT.md` (glossary) at the repo root._
 
-**Branch: `claude/phase3-live-loop`, tip `805ffaa`, off merged `main`
+**Branch: `claude/phase3-live-loop`, tip `164e954`, off merged `main`
 (`deafd6b`). Working tree clean. `npm test` = 118 passing. NOT pushed yet.**
 Phase 2 was merged to `main` via PR #1. Phase 1 is on `main` too.
 
-**Phase 3 is underway.** The roles-as-sets **schema** step is done and
-committed (`805ffaa`); see below. Two pieces remain (in order): the **frontend
-role-set UI**, then the **host live view**.
+**Phase 3 is underway.** Roles-as-sets is now complete end-to-end — **schema**
+(`805ffaa`) and **frontend role-set UI** (`164e954`); see below. One piece
+remains: the **host live view**.
 
 ## Where we are
 Tracks 0 / A1 / A2 / B / C shipped earlier (details in `decisions.md`). A
@@ -48,20 +48,21 @@ input shim (create/join accept either `roles: [...]` or legacy `role_track:
 single-role case. Backend accepts/emits `roles` arrays everywhere. 118 tests
 pass; `test/live-roles.test.js` gained three set-semantics tests.
 
-**2. Frontend role-set UI — TODO (next).** Let the creator tag a question with
-multiple roles and let a participant pick multiple roles at join; then the
-whole feature is live end-to-end. Today the UI still sends/reads a single
-`role_track` (works via the shim). Sites in `public/index.html`: creator role
-picker in `drawQs` (~1141: `ROLE_CHOICES`, `data-role-custom`), the render
-templates that show `q.role_track`/`r.role_track` (grep it — ~28 hits), the
-participant join role pick in `renderJoin` (~1487, emits `role_track`), and the
-solo role pick (~2374/2445/2584). Switch payloads to `roles` arrays; the
-backend already handles both. Browser-observable — verify via the preview
-(`.claude/launch.json`, port 3100) after editing. UX is a real choice
-(multi-select chips over `ROLE_CHOICES` + custom is the obvious default; confirm
-with owner).
+**2. Frontend role-set UI — DONE (`164e954`).** The UI now speaks sets. Creator:
+per-question **multi-select toggle chips** (`roleSelect` in `public/index.html`,
+`data-roletoggle`/`data-role-add`) over `ROLE_CHOICES` + custom. Live join:
+multi-select seat picker (`drawRolePicker`, "Join as A + B" / "All roles"; the
+saved pick is a JSON array, legacy single-string still honored) → emits `roles`.
+Solo: "Play as" multi-select chips → `#/solo/:id?roles=a,b` (legacy `?role=`
+still parsed), intersection filtering. All render sites use `roleLabel()`; shared
+helpers `rolesArr`/`roleLabel`/`hasRoles`. **Bug fixed in passing:** `GET
+/api/scenarios/:id` was returning `roles` as the raw JSON string — now wrapped in
+`withRoleFields` so the editor/solo detail get a parsed array. Verified in the
+preview (creator chips both selected on a two-role question; join picker toggles;
+create→GET round-trip returns arrays). The only frontend `role_track` left is a
+comment and one back-compat read fallback (`q.roles ?? q.role_track`).
 
-**3. Host live view = mirror + roster, three layers — TODO** (`renderHost` in
+**3. Host live view = mirror + roster, three layers — TODO ← next** (`renderHost` in
 `public/index.html`, `server/rooms.js`): crew-mirror (scene + dispatch +
 current-stage questions, official answers host-only collapsed), named roster
 with **boot** (invalidate the participant token, not just the socket), and
