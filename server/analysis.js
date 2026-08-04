@@ -4,6 +4,8 @@
 // mailer.js). Env-gated: with no ANTHROPIC_API_KEY, createAnalyzer() returns null and
 // the app behaves exactly as before — no analysis routes' AI calls, no cost.
 // The analyzer is injectable into buildServer({ analyzer }) so tests use a mock.
+import { parseRoles } from './roles.js';
+
 const API_URL = 'https://api.anthropic.com/v1/messages';
 const MODEL = process.env.ANALYSIS_MODEL || 'claude-opus-4-8';
 
@@ -74,7 +76,7 @@ function promptFor(detail) {
     '',
     'QUESTIONS AND MODEL ANSWERS:',
     ...questions.map(q =>
-      `- [${q.id}] (${q.role_track || 'All'}) ${q.prompt}\n  MODEL ANSWER: ${q.instructor_answer || '(none provided)'}`),
+      `- [${q.id}] (${parseRoles(q.roles).join('/') || 'All'}) ${q.prompt}\n  MODEL ANSWER: ${q.instructor_answer || '(none provided)'}`),
     '',
     'PARTICIPANTS:',
     ...participants.map(p => `- [${p.id}] ${p.display_tag}`),

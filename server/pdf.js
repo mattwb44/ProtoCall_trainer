@@ -23,7 +23,7 @@ export function sessionPdf({ session, questions, responses, notes, my_participan
   questions.forEach((q, i) => {
     if (doc.y > 660) doc.addPage();
     doc.fillColor('#0f172a').fontSize(11).font('Helvetica-Bold')
-      .text(`Q${i + 1}. ${q.role_track ? `[${q.role_track}] ` : ''}${q.prompt}`);
+      .text(`Q${i + 1}. ${q.roles?.length ? `[${q.roles.join(', ')}] ` : ''}${q.prompt}`);
     doc.moveDown(0.25);
 
     const mine = responses.find(r => r.question_id === q.id && r.participant_id === my_participant_id);

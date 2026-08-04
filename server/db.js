@@ -267,6 +267,19 @@ function migrate(db) {
   addColumn('live_sessions', 'stage_index', 'stage_index INTEGER NOT NULL DEFAULT 0');
   // Part 8: sessions can be deleted from My Sessions (host/solo owner only)
   addColumn('live_sessions', 'deleted_at', 'deleted_at TEXT');
+  // Phase 3: roles-as-sets. A question and a participant each carry a SET of
+  // roles (JSON array of strings, '[]' = empty set = everyone); a participant
+  // sees a question when either set is empty or they intersect (server/roles.js).
+  // Supersedes the single-string `role_track`, kept as a legacy column. One-shot
+  // backfill: a scalar 'X' becomes ["X"]; '' stays the empty set. Idempotent via
+  // both the flag and the roles='[]' guard, so a redeploy never double-wraps.
+  addColumn('questions', 'roles', "roles TEXT NOT NULL DEFAULT '[]'");
+  addColumn('participants', 'roles', "roles TEXT NOT NULL DEFAULT '[]'");
+  if (!hasFlag(db, 'roles_as_sets_backfill')) {
+    db.exec(`UPDATE questions SET roles=json_array(role_track) WHERE role_track<>'' AND roles='[]'`);
+    db.exec(`UPDATE participants SET roles=json_array(role_track) WHERE role_track<>'' AND roles='[]'`);
+    setFlag(db, 'roles_as_sets_backfill');
+  }
 
   // Seed the controlled vocabulary (PRD-v7); site admins extend it in-app.
   // Part 6: each objective carries a category so the creator can show only the
@@ -340,8 +353,8 @@ export function seedIfEmpty(db) {
     ['Company Officer', 'Mayday: A firefighter is separated from the crew in heavy smoke. What is your precise radio transmission to the IC?', 'text', null,
      '"Mayday, Mayday, Mayday" then LUNAR: Location, Unit, Name, Assignment/Air, Resources needed — and activate the RIC.'],
   ];
-  const ins = db.prepare(`INSERT INTO questions (id, scenario_id, prompt, kind, choices, instructor_answer, role_track, sort_order)
-                          VALUES (?,?,?,?,?,?,?,?)`);
+  const ins = db.prepare(`INSERT INTO questions (id, scenario_id, prompt, kind, choices, instructor_answer, role_track, roles, sort_order)
+                          VALUES (?,?,?,?,?,?,?,?,?)`);
   qs.forEach(([track, prompt, kind, choices, answer], i) =>
-    ins.run(uuid(), sid, prompt, kind, choices, answer, track, i));
+    ins.run(uuid(), sid, prompt, kind, choices, answer, track, JSON.stringify(track ? [track] : []), i));
 }
