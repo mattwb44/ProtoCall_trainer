@@ -1,16 +1,15 @@
 # Next session
 
-_Updated 2026-08-03. Read `current-focus.md` and `decisions.md` first, then
+_Updated 2026-08-04. Read `current-focus.md` and `decisions.md` first, then
 `CONTEXT.md` (glossary) at the repo root._
 
-**Branch: `claude/phase2-structure`, tip `748e73e` (`e254318` = item 6 code +
-docs on top), pushed and in sync with `origin`. NOT merged to `main`.** Working
-tree clean. `npm test` = 115 passing. **Phase 1 is merged to `main`**
-(`576022f`) — the approval gate is deployed once `main` ships.
+**Branch: `claude/phase3-live-loop`, tip `805ffaa`, off merged `main`
+(`deafd6b`). Working tree clean. `npm test` = 118 passing. NOT pushed yet.**
+Phase 2 was merged to `main` via PR #1. Phase 1 is on `main` too.
 
-**First decision for the next session:** merge Phase 2 to `main` (clean branch
-off `main` — open a PR or fast-forward), or start Phase 3 directly. Ask the
-owner before doing either.
+**Phase 3 is underway.** The roles-as-sets **schema** step is done and
+committed (`805ffaa`); see below. Two pieces remain (in order): the **frontend
+role-set UI**, then the **host live view**.
 
 ## Where we are
 Tracks 0 / A1 / A2 / B / C shipped earlier (details in `decisions.md`). A
@@ -33,24 +32,44 @@ list/grid toggle + mobile filter sheet; the new home page. Tests:
 - Home tiles "Host a Session" and "My Library" both point at `#/library` (no
   separate host route) — trivially redirectable if the owner wants otherwise.
 
-## Next up: Phase 3 — live loop
-Per `current-focus.md` and `decisions.md` → "Live sessions":
-1. **Roles-as-sets with intersection matching (schema first).** A question
-   carries a set of roles, a participant carries a set; a participant sees a
-   question if either set is empty or they intersect. Today `role_track` is a
-   single string (see `trackQuestions` in `server/index.js` and `role_track` on
-   `questions`/`participants` in `server/db.js`). Migrate to sets, keep custom
-   free-text roles.
-2. **Host live view = mirror + roster, three layers** (`renderHost` in
-   `public/index.html`, `server/rooms.js`): crew-mirror (scene + dispatch +
-   current-stage questions, official answers host-only collapsed), named roster
-   with **boot** (invalidate the participant token, not just the socket), and
-   per-stage completion chips measured against each participant's visible
-   questions (role intersection) — "N of M done", tap to expand. No
-   auto-advance, ever.
+## Phase 3 — live loop
 
-If merging Phase 2 first: it's a clean branch off `main`; open a PR or
-fast-forward. Commit per sub-step; push when ready.
+**1. Roles-as-sets (schema) — DONE (`805ffaa`).** Questions and participants
+each carry a SET of roles; a participant sees a question when either set is
+empty or they intersect. New `server/roles.js` holds the semantics
+(`parseRoles`/`serializeRoles`/`primaryRole`/`withRoleFields`, `rolesMatch` for
+JS and `rolesMatchSql` for the JSON1 EXISTS predicate). New `roles` JSON column
+on `questions` + `participants`, one-shot flagged backfill from the legacy
+`role_track` (`json_array(role_track)`, guarded by `roles='[]'` so a redeploy
+never double-wraps). **`role_track` is kept** as a legacy column, a scalar
+mirror in API output (`withRoleFields` → `role_track = roles[0] ?? ''`), and an
+input shim (create/join accept either `roles: [...]` or legacy `role_track:
+'x'`) — so the **current frontend is untouched and still works** for the
+single-role case. Backend accepts/emits `roles` arrays everywhere. 118 tests
+pass; `test/live-roles.test.js` gained three set-semantics tests.
+
+**2. Frontend role-set UI — TODO (next).** Let the creator tag a question with
+multiple roles and let a participant pick multiple roles at join; then the
+whole feature is live end-to-end. Today the UI still sends/reads a single
+`role_track` (works via the shim). Sites in `public/index.html`: creator role
+picker in `drawQs` (~1141: `ROLE_CHOICES`, `data-role-custom`), the render
+templates that show `q.role_track`/`r.role_track` (grep it — ~28 hits), the
+participant join role pick in `renderJoin` (~1487, emits `role_track`), and the
+solo role pick (~2374/2445/2584). Switch payloads to `roles` arrays; the
+backend already handles both. Browser-observable — verify via the preview
+(`.claude/launch.json`, port 3100) after editing. UX is a real choice
+(multi-select chips over `ROLE_CHOICES` + custom is the obvious default; confirm
+with owner).
+
+**3. Host live view = mirror + roster, three layers — TODO** (`renderHost` in
+`public/index.html`, `server/rooms.js`): crew-mirror (scene + dispatch +
+current-stage questions, official answers host-only collapsed), named roster
+with **boot** (invalidate the participant token, not just the socket), and
+per-stage completion chips measured against each participant's visible
+questions (role intersection) — "N of M done", tap to expand. No auto-advance,
+ever.
+
+Commit per sub-step; push `claude/phase3-live-loop` when ready (not pushed yet).
 
 ## Working notes
 - **Test fixtures:** scenario creates/edits require `objective_primary` (any

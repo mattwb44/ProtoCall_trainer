@@ -37,9 +37,22 @@ the agreed build order for them.
   - **(6/6) DONE** (`e254318`): new home page — hero → join card → 2×2 action
     grid (Host / Build / My Library / Community) → verbatim 4-step "How it
     works" ported from the old fireground home.
-- **Phase 3 — live loop. ← next.** Roles-as-sets with intersection matching (schema
-  first), then the host live view (crew mirror + roster + completion chips +
-  boot).
+- **Phase 3 — live loop. ← in progress.** Roles-as-sets with intersection
+  matching (schema first), then the host live view (crew mirror + roster +
+  completion chips + boot). Branch `claude/phase3-live-loop` off merged `main`.
+  - **(schema) DONE** (`805ffaa`): questions and participants each carry a SET
+    of roles (`roles` JSON column); a participant sees a question when either
+    set is empty or they intersect. New `server/roles.js` (parse/serialize/
+    match + JSON1 SQL predicate); `role_track` kept as a legacy column + scalar
+    mirror + input shim so the **current frontend is unchanged and still
+    works** (single role per question/participant). 118 tests pass.
+  - **(frontend) TODO:** expose role *sets* in the creator (per-question) and
+    at join (participant multi-role pick); today the UI still speaks single
+    `role_track` through the shim. `public/index.html` role sites: creator
+    `drawQs` (~1141), participant join `renderJoin` (~1487), solo role pick
+    (~2374/2445/2584).
+  - **(host live view) TODO:** mirror + roster + completion chips + boot
+    (`renderHost` in `public/index.html`, `server/rooms.js`).
 - **Phase 4 — creation aids.** Hardcoded templates + duplicate-scenario;
   category-scoped detail fields (Vehicle Type multi-select for MVA); top-down
   map stamp editor (flattened on save).
