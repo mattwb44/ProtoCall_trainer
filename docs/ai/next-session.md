@@ -97,9 +97,11 @@ Per `current-focus.md`/`decisions.md` → Creation flow UX.
   stays a permissive vocab validator (category names aren't server-enforced — the
   taxonomy test uses `category:'Fire'` — so scoping lives in the frontend, like
   building_type always has). Test: `test/taxonomy.test.js` (Phase 4 vehicle case).
-- **Template picker — TODO.** Hardcoded Blank · Quick drill · Standard incident ·
-  Full multi-role; seeds draft structure (stages + role-tagged placeholder Qs)
-  into the creator form; full template opens the Advanced disclosure pre-filled.
+- **Template picker — DONE this session.** `SCENARIO_TEMPLATES` + `templatePicker()`
+  in `public/index.html`: a "Start from a template" card (Blank · Quick drill ·
+  Standard incident · Full multi-role) shown only when creating a new scenario.
+  Picking one sets `draftQs` to the template's questions (staged; the full one
+  role-tagged so drawQs auto-opens Advanced) and removes the picker. Verified.
 - **Map stamp editor — TODO.** 5 in-house flat-SVG base maps + fixed stampable
   icon set (drag + rotate only), flattened to a plain `image_url` on save.
 

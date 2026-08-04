@@ -701,6 +701,59 @@ function syncAnswer(q) {
 const REQ_MARK = '<span class="text-rose-400 font-bold" title="Required">*</span>';
 
 const newQuestion = () => ({ prompt: '', kind: 'text', choices: null, instructor_answer: '', roles: [], stage: '', objective: '', _correct: [] });
+// Phase 4: hardcoded starter templates (owner-approved, not user-savable). Each
+// seeds draft *structure* — placeholder questions with stages/roles — into the
+// existing form; the author rewrites the prompts. A role-tagged question makes
+// drawQs auto-open its Advanced disclosure, so the full template lands expanded.
+const tplQ = (prompt, extra = {}) => ({ ...newQuestion(), prompt, ...extra });
+const SCENARIO_TEMPLATES = {
+  blank: {
+    label: 'Blank', icon: 'file', desc: 'One empty question — build it your way.',
+    qs: () => [newQuestion()],
+  },
+  quick: {
+    label: 'Quick drill', icon: 'zap', desc: 'Three quick questions, no stages.',
+    qs: () => [
+      tplQ('What is your initial size-up?'),
+      tplQ('What is your first priority action?'),
+      tplQ('What additional resources do you request, and why?'),
+    ],
+  },
+  standard: {
+    label: 'Standard incident', icon: 'list-checks', desc: 'A staged single-crew walkthrough.',
+    qs: () => [
+      tplQ('En route: what information do you confirm before arrival?', { stage: 'En Route' }),
+      tplQ('On arrival, give your size-up.', { stage: 'On Arrival / Size-Up' }),
+      tplQ('State your initial actions and assignments.', { stage: 'Initial Actions' }),
+      tplQ('The situation escalates — what changes in your plan?', { stage: 'Escalation' }),
+    ],
+  },
+  full: {
+    label: 'Full multi-role incident', icon: 'users', desc: 'Staged and role-tagged for a full crew.',
+    qs: () => [
+      tplQ('Officer: give your on-scene report and initial assignments.', { stage: 'On Arrival / Size-Up', roles: ['Officer'] }),
+      tplQ('Driver / Engineer: establish a water supply — describe your plan.', { stage: 'Initial Actions', roles: ['Driver / Engineer'] }),
+      tplQ('Firefighter: what is your first task, and how do you stay accountable?', { stage: 'Initial Actions', roles: ['Firefighter'] }),
+      tplQ('Battalion Chief: assume command — state your strategy and priorities.', { stage: 'Command Transfer', roles: ['Battalion Chief'] }),
+    ],
+  },
+};
+function templatePicker() {
+  return `
+  <div id="c-template" class="bg-slate-800 rounded-2xl p-4 sm:p-6 space-y-3">
+    <div>
+      <h2 class="font-semibold flex items-center gap-2"><i data-lucide="layout-template" class="w-5 h-5 text-amber-400"></i>Start from a template</h2>
+      <p class="text-sm text-slate-400">Seed the form with a structure, then make it yours. Pick one to begin — or start blank.</p>
+    </div>
+    <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+      ${Object.entries(SCENARIO_TEMPLATES).map(([k, t]) => `
+        <button data-tpl="${k}" class="tap text-left bg-slate-900 border border-slate-700 hover:border-amber-500 rounded-xl p-3 flex items-start gap-3 transition">
+          <i data-lucide="${t.icon}" class="w-5 h-5 text-amber-400 mt-0.5 shrink-0"></i>
+          <span><span class="block font-semibold text-sm">${t.label}</span><span class="block text-xs text-slate-400">${t.desc}</span></span>
+        </button>`).join('')}
+    </div>
+  </div>`;
+}
 
 // Track B — dismissible creation tutorial. Off once dismissed (localStorage).
 function creationTutorial() {
@@ -819,6 +872,7 @@ async function renderCreator(id) {
     <div class="mt-4 lg:grid lg:grid-cols-[minmax(0,1fr)_19rem] lg:gap-6 lg:items-start">
     <div class="space-y-5 min-w-0">
       ${reviewBanner()}
+      ${editingId ? '' : templatePicker()}
       ${creationTutorial()}
       <div id="scene-peek" class="lg:hidden"></div>
       <!-- Scene-first: the photo and dispatch lead, because that's the scenario. -->
@@ -974,6 +1028,16 @@ async function renderCreator(id) {
   draftBldg = existing ? parseBldg(existing.building_type) : [];
   draftVeh = existing ? parseBldg(existing.vehicle_type) : [];
   $('#c-addq').onclick = () => { draftQs.push(newQuestion()); drawQs(); };
+  // Phase 4 templates: seed the questions block, then retire the picker (a
+  // starting point, chosen once). Only present when creating a new scenario.
+  const tplCard = $('#c-template');
+  if (tplCard) tplCard.querySelectorAll('[data-tpl]').forEach(b => b.onclick = () => {
+    const tpl = SCENARIO_TEMPLATES[b.dataset.tpl];
+    draftQs = tpl.qs();
+    tplCard.remove();
+    drawQs();
+    if (b.dataset.tpl !== 'blank') { toast(`Started from “${tpl.label}”`); $('#c-qs').scrollIntoView({ behavior: 'smooth', block: 'center' }); }
+  });
   // Part 6: Department and Public are independent toggles — a scenario can be
   // both at once. Private simply means neither share is on.
   draftShares = { dept: !!existing?.shared_department, pub: !!existing?.shared_public };

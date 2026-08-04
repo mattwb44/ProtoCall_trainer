@@ -72,8 +72,11 @@ the agreed build order for them.
     scenario detail; Community browse gained a **match-any** Vehicle Type filter
     that only appears under the MVA category. Building type is now Fireground-only
     (was: any non-EMS). 123 tests pass.
-  - **(templates) TODO:** hardcoded picker (Blank · Quick drill · Standard
-    incident · Full multi-role) seeding draft structure into the creator form.
+  - **(templates) DONE:** hardcoded "Start from a template" picker (Blank ·
+    Quick drill · Standard incident · Full multi-role) shown only on new
+    scenarios; seeds draft structure (staged, role-tagged placeholder questions)
+    into the creator form and retires itself. `SCENARIO_TEMPLATES` +
+    `templatePicker()` in `public/index.html`.
   - **(map editor) TODO:** top-down stamp editor (5 base maps + fixed icon set,
     drag+rotate only), flattened to `image_url` on save.
 - **Phase 5 — onboarding.** Spotlight tour engine + first-login tour only
