@@ -3,9 +3,10 @@
 _Updated 2026-08-04. Read `current-focus.md` and `decisions.md` first, then
 `CONTEXT.md` (glossary) at the repo root._
 
-**Branch: `claude/phase3-live-loop`, tip `90a18e0` (+ this doc commit), off
-merged `main` (`deafd6b`). Working tree clean. `npm test` = 122 passing. Pushed
-to `origin`; NOT merged to `main`.** Phase 2 merged via PR #1; Phase 1 on `main`.
+**Branch: `claude/phase3-live-loop`, tip `37ca872` (host live view `90a18e0` +
+its doc commit), off merged `main` (`deafd6b`). Working tree clean, in sync with
+`origin`. `npm test` = 122 passing. Pushed to `origin`; NOT merged to `main`.**
+Phase 2 merged via PR #1; Phase 1 on `main`.
 
 **Phase 3 (live loop) is COMPLETE** — all three pieces: **schema** (`805ffaa`),
 **frontend role-set UI** (`164e954`), **host live view** (`90a18e0`); see below.
