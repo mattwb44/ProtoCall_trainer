@@ -37,9 +37,9 @@ the agreed build order for them.
   - **(6/6) DONE** (`e254318`): new home page — hero → join card → 2×2 action
     grid (Host / Build / My Library / Community) → verbatim 4-step "How it
     works" ported from the old fireground home.
-- **Phase 3 — live loop. ← in progress.** Roles-as-sets with intersection
-  matching (schema first), then the host live view (crew mirror + roster +
-  completion chips + boot). Branch `claude/phase3-live-loop` off merged `main`.
+- **Phase 3 — live loop. DONE** (branch `claude/phase3-live-loop` off merged
+  `main`, pushed; not yet merged). Roles-as-sets with intersection matching, then
+  the host live view.
   - **(schema) DONE** (`805ffaa`): questions and participants each carry a SET
     of roles (`roles` JSON column); a participant sees a question when either
     set is empty or they intersect. New `server/roles.js` (parse/serialize/
@@ -53,9 +53,14 @@ the agreed build order for them.
     `GET /api/scenarios/:id` now decorates questions with `withRoleFields` so
     `roles` arrives as a parsed array (the editor/solo detail read from it).
     Verified in the browser preview (creator chips, join picker, round-trip).
-  - **(host live view) TODO ← next.** Mirror + roster + completion chips + boot
-    (`renderHost` in `public/index.html`, `server/rooms.js`).
-- **Phase 4 — creation aids.** Hardcoded templates + duplicate-scenario;
+  - **(host live view) DONE** (`90a18e0`): `renderHost`/`drawHost` + new
+    `drawRoster` — crew mirror (scene + dispatch + current-stage questions,
+    official answers in a host-only `<details>`), named roster with presence +
+    boot, per-stage completion chips (grey → amber fraction → green) measured by
+    role intersection, per-participant expand. Server: `rooms.roster`/`rooms.boot`,
+    `participants.booted_at`, `boot_participant` socket event, `emitRoster` on
+    join/answer/shift/boot/disconnect. No auto-advance. Verified in preview.
+- **Phase 4 — creation aids. ← next.** Hardcoded templates + duplicate-scenario;
   category-scoped detail fields (Vehicle Type multi-select for MVA); top-down
   map stamp editor (flattened on save).
 - **Phase 5 — onboarding.** Spotlight tour engine + first-login tour only

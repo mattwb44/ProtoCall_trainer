@@ -3,13 +3,16 @@
 _Updated 2026-08-04. Read `current-focus.md` and `decisions.md` first, then
 `CONTEXT.md` (glossary) at the repo root._
 
-**Branch: `claude/phase3-live-loop`, tip `164e954`, off merged `main`
-(`deafd6b`). Working tree clean. `npm test` = 118 passing. NOT pushed yet.**
-Phase 2 was merged to `main` via PR #1. Phase 1 is on `main` too.
+**Branch: `claude/phase3-live-loop`, tip `90a18e0` (+ this doc commit), off
+merged `main` (`deafd6b`). Working tree clean. `npm test` = 122 passing. Pushed
+to `origin`; NOT merged to `main`.** Phase 2 merged via PR #1; Phase 1 on `main`.
 
-**Phase 3 is underway.** Roles-as-sets is now complete end-to-end — **schema**
-(`805ffaa`) and **frontend role-set UI** (`164e954`); see below. One piece
-remains: the **host live view**.
+**Phase 3 (live loop) is COMPLETE** — all three pieces: **schema** (`805ffaa`),
+**frontend role-set UI** (`164e954`), **host live view** (`90a18e0`); see below.
+
+**First decision next session:** merge Phase 3 to `main` (branch is a clean
+descendant of `main` — PR or fast-forward; it deploys to production), or start
+Phase 4 (creation aids) directly. Ask the owner first.
 
 ## Where we are
 Tracks 0 / A1 / A2 / B / C shipped earlier (details in `decisions.md`). A
@@ -62,15 +65,30 @@ preview (creator chips both selected on a two-role question; join picker toggles
 create→GET round-trip returns arrays). The only frontend `role_track` left is a
 comment and one back-compat read fallback (`q.roles ?? q.role_track`).
 
-**3. Host live view = mirror + roster, three layers — TODO ← next** (`renderHost` in
-`public/index.html`, `server/rooms.js`): crew-mirror (scene + dispatch +
-current-stage questions, official answers host-only collapsed), named roster
-with **boot** (invalidate the participant token, not just the socket), and
-per-stage completion chips measured against each participant's visible
-questions (role intersection) — "N of M done", tap to expand. No auto-advance,
-ever.
+**3. Host live view = mirror + roster, three layers — DONE (`90a18e0`).**
+`renderHost`/`drawHost` + new `drawRoster` in `public/index.html`; server in
+`rooms.roster`/`rooms.boot` + the socket layer in `index.js`. Crew mirror (scene
++ dispatch + current-stage questions; official answers in a host-only
+`<details>`; room/QR shrunk to a corner card). Named roster: initials-chips with
+a presence dot, roles/shift, "N of M done", per-stage completion chips (grey →
+amber ring w/ fraction → green ✓; dimmed when a seat has no questions in a
+stage), and a boot (user-x) action; a chip row expands to per-question detail
+(computed client-side from the responses the host holds). **Boot** sets
+`participants.booted_at` — `rooms.join` refuses a booted token (not just the
+socket), the booted client gets a `'booted'` screen, and the roster refreshes.
+`emitRoster` pushes a fresh roster to the host on join/answer/shift/boot/
+disconnect; presence from live sockets (`connectedParticipantIds`). No
+auto-advance — the advance button stays manual and says so. Test:
+`test/host-roster.test.js`. Verified in the preview: a crew member join/answer
+updates the roster live; boot empties it, signals the crew socket, refuses the
+dead token.
 
-Commit per sub-step; push `claude/phase3-live-loop` when ready (not pushed yet).
+## Next: Phase 4 — creation aids (or merge Phase 3 first)
+Per `current-focus.md`/`decisions.md` → Creation flow UX: hardcoded template
+picker (Blank · Quick drill · Standard incident · Full multi-role) +
+duplicate-scenario (clone already exists — `/api/scenarios/:id/clone`);
+category-scoped detail fields (Vehicle Type multi-select for MVA, match-any
+browse filter); top-down map stamp editor (flattened to `image_url` on save).
 
 ## Working notes
 - **Test fixtures:** scenario creates/edits require `objective_primary` (any
