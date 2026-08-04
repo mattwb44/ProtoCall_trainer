@@ -3,11 +3,19 @@
 _Updated 2026-08-04. Read `current-focus.md` and `decisions.md` first, then
 `CONTEXT.md` (glossary) at the repo root._
 
-**Branch: `claude/phase4-creation-aids`, off merged `main` (`c6d7006`). Phase 3
-(live loop) was merged via PR #2 (merge commit `c6d7006`) and deployed. Phase 4
-(creation aids) is IN PROGRESS — the category-scoped detail fields piece is done
-and committed; template picker and map editor remain.** `npm test` = 123 passing.
-Phase 2 merged via PR #1; Phase 1 on `main`.
+**Branch: `claude/phase4-creation-aids`, off merged `main` (`c6d7006`), pushed to
+`origin` (NOT merged). Phase 3 (live loop) was merged via PR #2 (merge commit
+`c6d7006`) and deployed. Phase 4 (creation aids) is IN PROGRESS — two of three
+pieces done and committed: category-scoped detail fields (`ee2b55f`) + template
+picker (`5f09721`). The map stamp editor is the only piece left (deferred to a
+fresh session for full attention). Duplicate-scenario already existed.**
+`npm test` = 123 passing. Phase 2 merged via PR #1; Phase 1 on `main`.
+
+**Resume here:** build the top-down map stamp editor (the last Phase 4 piece) —
+see `decisions.md` → "Top-down maps: stamp editor, flattened on save" and the
+`current-focus.md` / Phase 4 map-editor TODO below. Then decide whether to merge
+Phase 4 to `main` (the two done pieces are already deploy-safe if you'd rather
+merge them first).
 
 **Phase 3 (live loop) is COMPLETE & MERGED** — schema (`805ffaa`), frontend
 role-set UI (`164e954`), host live view (`90a18e0`); all on `main` now.
