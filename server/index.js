@@ -15,6 +15,7 @@ import { createDb, seedIfEmpty, uuid } from './db.js';
 import { startBackupScheduler } from './backup.js';
 import { suggestObjectives } from './objectives-suggest.js';
 import { Rooms } from './rooms.js';
+import { parseRoles, serializeRoles, primaryRole, rolesMatch, rolesMatchSql, withRoleFields } from './roles.js';
 import {
   hashPassword, verifyPassword, createAuthSession, destroyAuthSession,
   userFromCookieHeader, tokenFromCookieHeader, setCookieValue, clearCookieValue,
@@ -615,7 +616,7 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
     // PRD-v8: an in-scope reviewer of a submitted scenario gets them too.
     const reviewer = s.review_status !== '' && isReviewerOf(user, s);
     const questions = db.prepare('SELECT * FROM questions WHERE scenario_id=? AND deleted=0 ORDER BY sort_order')
-      .all(s.id).map(q => ({
+      .all(s.id).map(q => withRoleFields({
         ...q,
         choices: q.choices ? JSON.parse(q.choices) : null,
         instructor_answer: mine || reviewer ? q.instructor_answer : undefined,
@@ -944,10 +945,10 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
                     t.objective_primary, t.objective_secondary, t.difficulty, t.building_type,
                     gatedStatus({ prev: '', pub: shares.pub, wasPub: false }),
                     shares.pub ? new Date().toISOString().slice(0, 19).replace('T', ' ') : null, draft ? 1 : 0);
-      const ins = db.prepare(`INSERT INTO questions (id, scenario_id, prompt, kind, choices, instructor_answer, role_track, stage, objective, sort_order)
-                              VALUES (?,?,?,?,?,?,?,?,?,?)`);
-      questions.forEach((q, i) => ins.run(uuid(), id, q.prompt, q.kind ?? 'text',
-        q.choices ? JSON.stringify(q.choices) : null, q.instructor_answer ?? '', q.role_track ?? '', q.stage ?? '', q.objective ?? '', i));
+      const ins = db.prepare(`INSERT INTO questions (id, scenario_id, prompt, kind, choices, instructor_answer, role_track, roles, stage, objective, sort_order)
+                              VALUES (?,?,?,?,?,?,?,?,?,?,?)`);
+      questions.forEach((q, i) => { const roles = q.roles ?? q.role_track; ins.run(uuid(), id, q.prompt, q.kind ?? 'text',
+        q.choices ? JSON.stringify(q.choices) : null, q.instructor_answer ?? '', primaryRole(roles), serializeRoles(roles), q.stage ?? '', q.objective ?? '', i); });
       replaceMedia(id, req.body.media);
       rememberStages(user.id, questions);
     });
@@ -1012,15 +1013,16 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
              shares.dept ? 1 : 0, shares.pub ? 1 : 0, dept, official, status, submittedAt,
              t.objective_primary, t.objective_secondary, t.difficulty, t.building_type, draft ? 1 : 0, s.id);
       // Reconcile questions: update kept, insert new, soft-delete removed (responses may reference them).
-      const upd = db.prepare(`UPDATE questions SET prompt=?, kind=?, choices=?, instructor_answer=?, role_track=?, stage=?, objective=?, sort_order=? WHERE id=? AND scenario_id=?`);
-      const ins = db.prepare(`INSERT INTO questions (id, scenario_id, prompt, kind, choices, instructor_answer, role_track, stage, objective, sort_order)
-                              VALUES (?,?,?,?,?,?,?,?,?,?)`);
+      const upd = db.prepare(`UPDATE questions SET prompt=?, kind=?, choices=?, instructor_answer=?, role_track=?, roles=?, stage=?, objective=?, sort_order=? WHERE id=? AND scenario_id=?`);
+      const ins = db.prepare(`INSERT INTO questions (id, scenario_id, prompt, kind, choices, instructor_answer, role_track, roles, stage, objective, sort_order)
+                              VALUES (?,?,?,?,?,?,?,?,?,?,?)`);
       questions.forEach((q, i) => {
         const choices = q.choices ? JSON.stringify(q.choices) : null;
+        const roles = q.roles ?? q.role_track;
         if (q.id && existing.includes(q.id))
-          upd.run(q.prompt, q.kind ?? 'text', choices, q.instructor_answer ?? '', q.role_track ?? '', q.stage ?? '', q.objective ?? '', i, q.id, s.id);
+          upd.run(q.prompt, q.kind ?? 'text', choices, q.instructor_answer ?? '', primaryRole(roles), serializeRoles(roles), q.stage ?? '', q.objective ?? '', i, q.id, s.id);
         else
-          ins.run(uuid(), s.id, q.prompt, q.kind ?? 'text', choices, q.instructor_answer ?? '', q.role_track ?? '', q.stage ?? '', q.objective ?? '', i);
+          ins.run(uuid(), s.id, q.prompt, q.kind ?? 'text', choices, q.instructor_answer ?? '', primaryRole(roles), serializeRoles(roles), q.stage ?? '', q.objective ?? '', i);
       });
       const gone = existing.filter(id => !keptIds.has(id));
       if (gone.length) {
@@ -1060,9 +1062,9 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
                   VALUES (?,?,?,?,?,?,'private',?,?)`)
         .run(id, src.title, src.description, src.category, src.subcategory, src.image_url, user.id, src.id);
       const qs = db.prepare('SELECT * FROM questions WHERE scenario_id=? AND deleted=0 ORDER BY sort_order').all(src.id);
-      const ins = db.prepare(`INSERT INTO questions (id, scenario_id, prompt, kind, choices, instructor_answer, role_track, stage, sort_order)
-                              VALUES (?,?,?,?,?,?,?,?,?)`);
-      qs.forEach(q => ins.run(uuid(), id, q.prompt, q.kind, q.choices, q.instructor_answer, q.role_track, q.stage, q.sort_order));
+      const ins = db.prepare(`INSERT INTO questions (id, scenario_id, prompt, kind, choices, instructor_answer, role_track, roles, stage, sort_order)
+                              VALUES (?,?,?,?,?,?,?,?,?,?)`);
+      qs.forEach(q => ins.run(uuid(), id, q.prompt, q.kind, q.choices, q.instructor_answer, q.role_track, q.roles ?? '[]', q.stage, q.sort_order));
       replaceMedia(id, mediaFor(src.id));
     });
     tx();
@@ -1088,11 +1090,11 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
       `SELECT DISTINCT ls.id, ls.room_code, ls.status, ls.started_at, ls.ended_at, ls.mode,
               sc.title, sc.category, sc.subcategory,
               COALESCE(ls.host_id=?, 0) AS hosted,
-              -- Phase 2: for the in-progress solo progress bar — answers submitted
-              -- vs. the questions in this participant's role track (mirrors
-              -- trackQuestions: common questions plus the caller's own track).
+              -- Phase 2/3: for the in-progress solo progress bar — answers submitted
+              -- vs. the questions this participant can see (role-set intersection;
+              -- an empty set on either side matches everything). Mirrors trackQuestions.
               (SELECT COUNT(*) FROM questions q WHERE q.scenario_id=ls.scenario_id AND q.deleted=0
-                 AND (p.role_track='' OR q.role_track='' OR q.role_track=p.role_track)) AS q_total,
+                 AND ${rolesMatchSql('q.roles', "COALESCE(p.roles,'[]')")}) AS q_total,
               (SELECT COUNT(DISTINCT r.question_id) FROM responses r WHERE r.session_id=ls.id) AS q_answered
        FROM live_sessions ls
        JOIN scenarios sc ON sc.id=ls.scenario_id
@@ -1120,12 +1122,13 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
   // Solo play reuses the session/response model with mode='solo': no room
   // code flow, no sockets, no host. Guests run statelessly via solo-reveal;
   // signed-in players' runs persist to their library.
-  const trackQuestions = (scenarioId, roleTrack = '') => {
+  const trackQuestions = (scenarioId, roles = []) => {
     const all = db.prepare('SELECT * FROM questions WHERE scenario_id=? AND deleted=0 ORDER BY sort_order')
       .all(scenarioId);
     rooms.resolveStages(all); // blanks inherit the previous question's stage
-    return all.filter(q => !roleTrack || !q.role_track || q.role_track === roleTrack)
-      .map(q => ({ ...q, choices: q.choices ? JSON.parse(q.choices) : null }));
+    const picked = parseRoles(roles);
+    return all.filter(q => rolesMatch(q.roles, picked))
+      .map(q => withRoleFields({ ...q, choices: q.choices ? JSON.parse(q.choices) : null }));
   };
 
   const officialFor = qs => Object.fromEntries(qs.map(q => [q.id, q.instructor_answer ?? '']));
@@ -1150,8 +1153,8 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
     const user = currentUser(req);
     // Drafts are unplayable through every path, including a direct solo reveal.
     if (!s || !canSee(s, user) || s.deleted_at || s.is_draft) return reply.code(404).send({ error: 'not found' });
-    const { answers = {}, role_track = '' } = req.body ?? {};
-    const qs = trackQuestions(s.id, role_track);
+    const { answers = {} } = req.body ?? {};
+    const qs = trackQuestions(s.id, req.body?.roles ?? req.body?.role_track);
     if (!qs.length) return reply.code(400).send({ error: 'no questions for this role' });
     const missing = qs.filter(q => !String(answers[q.id] ?? '').trim()).length;
     if (missing) return reply.code(400).send({ error: 'answer every question first', missing });
@@ -1161,17 +1164,18 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
 
   app.post('/api/solo/runs', (req, reply) => {
     const user = requireUser(req, reply); if (!user) return;
-    const { scenario_id, role_track = '' } = req.body ?? {};
+    const { scenario_id } = req.body ?? {};
+    const roles = serializeRoles(req.body?.roles ?? req.body?.role_track);
     const s = scenario_id && db.prepare('SELECT * FROM scenarios WHERE id=?').get(scenario_id);
     if (!s || !canLaunch(s, user)) return reply.code(404).send({ error: 'not found' });
-    const qs = trackQuestions(s.id, role_track);
+    const qs = trackQuestions(s.id, roles);
     if (!qs.length) return reply.code(400).send({ error: 'no questions for this role' });
     const id = uuid();
     db.transaction(() => {
       db.prepare(`INSERT INTO live_sessions (id, room_code, scenario_id, host_id, mode)
                   VALUES (?,?,?,NULL,'solo')`).run(id, 'SOLO-' + id, s.id);
-      db.prepare(`INSERT INTO participants (id, session_id, token, display_tag, user_id, role_track)
-                  VALUES (?,?,?,?,?,?)`).run(uuid(), id, uuid(), 'You', user.id, role_track);
+      db.prepare(`INSERT INTO participants (id, session_id, token, display_tag, user_id, roles)
+                  VALUES (?,?,?,?,?,?)`).run(uuid(), id, uuid(), 'You', user.id, roles);
     })();
     reply.code(201);
     return { run_id: id, questions: qs.map(q => ({ ...q, instructor_answer: undefined })) };
@@ -1184,7 +1188,7 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
     if (!ls || !me) return reply.code(404).send({ error: 'not found' });
     if (ls.status !== 'live') return reply.code(400).send({ error: 'run already submitted' });
     const { question_id, body } = req.body ?? {};
-    const qs = trackQuestions(ls.scenario_id, me.role_track);
+    const qs = trackQuestions(ls.scenario_id, me.roles);
     if (!body?.trim() || !qs.some(q => q.id === question_id))
       return reply.code(400).send({ error: 'invalid question or empty answer' });
     if (db.prepare('SELECT 1 FROM responses WHERE session_id=? AND participant_id=? AND question_id=?')
@@ -1216,8 +1220,8 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
     const revealAll = ls.host_id === user.id || ls.status !== 'live';
     const revealMap = !revealAll && me ? rooms.revealedAnswers(ls.id, me.id).answers : {};
     const responses = db.prepare(
-      `SELECT r.*, p.display_tag, p.user_id, p.role_track, p.shift_label FROM responses r
-       JOIN participants p ON p.id=r.participant_id WHERE r.session_id=?`).all(ls.id);
+      `SELECT r.*, p.display_tag, p.user_id, p.roles, p.shift_label FROM responses r
+       JOIN participants p ON p.id=r.participant_id WHERE r.session_id=?`).all(ls.id).map(withRoleFields);
     // Part 8: reconstruct the question set as the session ran it. Editing a
     // scenario can replace question rows (old soft-deleted, new inserted) and
     // the archive would show both — the new row answerless, the old one with
@@ -1227,14 +1231,15 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
     // host still sees what was never reached.
     const answeredIds = new Set(responses.map(r => r.question_id));
     const soloEnded = ls.mode === 'solo' && ls.status === 'ended';
-    // A participant who played a role only ever saw common + role questions;
-    // the host's archive keeps every track.
-    const filterTrack = me?.role_track && ls.host_id !== user.id;
+    // A participant who played a role only ever saw questions matching their
+    // role set (intersection); the host's archive keeps every track.
+    const myRoles = parseRoles(me?.roles);
+    const filterTrack = myRoles.length && ls.host_id !== user.id;
     const questions = db.prepare('SELECT * FROM questions WHERE scenario_id=? ORDER BY sort_order')
       .all(ls.scenario_id)
       .filter(q => answeredIds.has(q.id) || (!q.deleted && !soloEnded))
-      .filter(q => !filterTrack || !q.role_track || q.role_track === me.role_track)
-      .map(q => ({
+      .filter(q => !filterTrack || rolesMatch(q.roles, myRoles))
+      .map(q => withRoleFields({
         ...q,
         choices: q.choices ? JSON.parse(q.choices) : null,
         instructor_answer: revealAll || q.id in revealMap ? q.instructor_answer : undefined,
@@ -1387,10 +1392,24 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
 
   const counts = code => io.sockets.adapter.rooms.get(`room:${code}`)?.size ?? 0;
 
+  // Phase 3 host live view: which participant ids currently have a live socket
+  // in the room (drives the roster's presence dot), and pushing a fresh roster
+  // to the host after any change (join, answer, shift, boot, disconnect).
+  const connectedParticipantIds = code => {
+    const set = new Set();
+    for (const sid of io.sockets.adapter.rooms.get(`room:${code}`) ?? []) {
+      const pid = io.sockets.sockets.get(sid)?.data?.participantId;
+      if (pid) set.add(pid);
+    }
+    return set;
+  };
+  const emitRoster = (code, sessionId) =>
+    io.to(`room:${code}:host`).emit('roster', rooms.roster(sessionId, connectedParticipantIds(code)));
+
   io.on('connection', socket => {
     const socketUser = userFromCookieHeader(db, socket.handshake.headers.cookie);
 
-    socket.on('join_room', ({ code, token, role, role_track }, ack) => {
+    socket.on('join_room', ({ code, token, role, roles, role_track }, ack) => {
       const room = rooms.getByCode(code);
       if (!room || room.session.mode === 'solo') return ack?.({ error: 'Room not found' });
       if (role === 'host' && (!socketUser || room.session.host_id !== socketUser.id))
@@ -1404,18 +1423,25 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
         socket.join(`room:${code}:host`);
       } else {
         participant = rooms.join(room.session.id, token || uuid(), socketUser?.id ?? null,
-          typeof role_track === 'string' ? role_track : '');
+          roles ?? role_track);
+        // Phase 3: join() returns null for a booted token — the seat is revoked.
+        if (!participant) { socket.leave(`room:${code}`); return ack?.({ error: 'You were removed from this session.' }); }
         socket.data.participantId = participant.id;
-        socket.data.roleTrack = participant.role_track;
+        socket.data.roles = participant.roles;
       }
 
       const state = rooms.roomState(code, { includeAnswers: role === 'host' });
-      // Role tracks present in this scenario — the client's role-pick options.
-      state.tracks = [...new Set(room.questions.map(q => q.role_track).filter(Boolean))];
-      if (role !== 'host') {
-        // v7 role overlay: a participant with a role sees common + role questions.
-        if (participant.role_track)
-          state.questions = state.questions.filter(q => !q.role_track || q.role_track === participant.role_track);
+      // Roles present in this scenario (union of every question's role set) —
+      // the client's role-pick options.
+      state.tracks = [...new Set(room.questions.flatMap(q => q.roles))];
+      if (role === 'host') {
+        // Phase 3 host live view: the named crew roster with completion.
+        state.roster = rooms.roster(room.session.id, connectedParticipantIds(code));
+      } else {
+        // Phase 3 role overlay: a participant sees questions whose role set is
+        // empty or intersects theirs (empty participant set = every question).
+        if (participant.roles.length)
+          state.questions = state.questions.filter(q => rolesMatch(q.roles, participant.roles));
         // v7 stages: participants only see questions up to the host's current
         // stage — later stages can't anchor because they aren't visible yet.
         if (state.session.stages.length)
@@ -1429,6 +1455,7 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
         state.answers_revealed = complete || room.session.status !== 'live';
       }
       io.to(`room:${code}`).emit('participant_count', counts(code));
+      if (role !== 'host') emitRoster(code, room.session.id); // a new/returning crew member
       ack?.({ state, participant });
     });
 
@@ -1439,17 +1466,19 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
       const val = typeof shift === 'string' ? shift.trim().slice(0, 24) : '';
       const stored = rooms.setShift(sessionId, participantId, val);
       if (stored === null) return ack?.({ error: 'locked' });
+      emitRoster(socket.data.code, sessionId); // roster shows the shift tag
       ack?.({ ok: true, shift: stored });
     });
 
     socket.on('submit_response', ({ question_id, body }, ack) => {
-      const { sessionId, participantId, code, roleTrack } = socket.data ?? {};
+      const { sessionId, participantId, code, roles } = socket.data ?? {};
       if (!sessionId || !participantId || !body?.trim()) return ack?.({ error: 'invalid' });
       const q = rooms.getByCode(code)?.questions.find(x => x.id === question_id);
-      if (!q || (roleTrack && q.role_track && q.role_track !== roleTrack))
+      if (!q || !rolesMatch(q.roles, roles))
         return ack?.({ error: 'invalid' }); // not this participant's track
       const resp = rooms.submitResponse(sessionId, question_id, participantId, body.trim());
       io.to(`room:${code}:host`).emit('response_incoming', resp);
+      emitRoster(code, sessionId); // this participant's completion advanced
       // PRD-v7: answers reveal per completed stage (whole scenario if stageless).
       const { answers, complete } = rooms.revealedAnswers(sessionId, participantId);
       ack?.(Object.keys(answers).length
@@ -1474,6 +1503,23 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
       if (resp) io.to(`room:${code}`).emit('answer_pushed', resp);
     });
 
+    // Phase 3 host live view: the host boots a participant. Invalidate their
+    // token (rooms.boot), drop any live sockets they hold with a 'booted'
+    // signal, and refresh the roster. Their submitted responses stay archived.
+    socket.on('boot_participant', ({ participant_id }, ack) => {
+      const { code, role, sessionId } = socket.data ?? {};
+      if (role !== 'host' || !code) return ack?.({ error: 'host only' });
+      const booted = rooms.boot(sessionId, participant_id);
+      if (!booted) return ack?.({ error: 'not found' });
+      for (const sid of io.sockets.adapter.rooms.get(`room:${code}`) ?? []) {
+        const sk = io.sockets.sockets.get(sid);
+        if (sk?.data?.participantId === participant_id) { sk.emit('booted'); sk.disconnect(true); }
+      }
+      emitRoster(code, sessionId);
+      io.to(`room:${code}`).emit('participant_count', counts(code));
+      ack?.({ ok: true });
+    });
+
     socket.on('save_note', ({ question_id, body }, ack) => {
       const { sessionId, participantId } = socket.data ?? {};
       if (!sessionId || !participantId) return ack?.({ error: 'invalid' });
@@ -1494,8 +1540,11 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
     });
 
     socket.on('disconnect', () => {
-      const { code } = socket.data ?? {};
-      if (code) io.to(`room:${code}`).emit('participant_count', counts(code));
+      const { code, sessionId } = socket.data ?? {};
+      if (code) {
+        io.to(`room:${code}`).emit('participant_count', counts(code));
+        if (sessionId) emitRoster(code, sessionId); // presence dot goes dark
+      }
     });
   });
 

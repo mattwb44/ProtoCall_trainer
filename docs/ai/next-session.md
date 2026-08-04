@@ -1,16 +1,19 @@
 # Next session
 
-_Updated 2026-08-03. Read `current-focus.md` and `decisions.md` first, then
+_Updated 2026-08-04. Read `current-focus.md` and `decisions.md` first, then
 `CONTEXT.md` (glossary) at the repo root._
 
-**Branch: `claude/phase2-structure`, tip `748e73e` (`e254318` = item 6 code +
-docs on top), pushed and in sync with `origin`. NOT merged to `main`.** Working
-tree clean. `npm test` = 115 passing. **Phase 1 is merged to `main`**
-(`576022f`) — the approval gate is deployed once `main` ships.
+**Branch: `claude/phase3-live-loop`, tip `37ca872` (host live view `90a18e0` +
+its doc commit), off merged `main` (`deafd6b`). Working tree clean, in sync with
+`origin`. `npm test` = 122 passing. Pushed to `origin`; NOT merged to `main`.**
+Phase 2 merged via PR #1; Phase 1 on `main`.
 
-**First decision for the next session:** merge Phase 2 to `main` (clean branch
-off `main` — open a PR or fast-forward), or start Phase 3 directly. Ask the
-owner before doing either.
+**Phase 3 (live loop) is COMPLETE** — all three pieces: **schema** (`805ffaa`),
+**frontend role-set UI** (`164e954`), **host live view** (`90a18e0`); see below.
+
+**First decision next session:** merge Phase 3 to `main` (branch is a clean
+descendant of `main` — PR or fast-forward; it deploys to production), or start
+Phase 4 (creation aids) directly. Ask the owner first.
 
 ## Where we are
 Tracks 0 / A1 / A2 / B / C shipped earlier (details in `decisions.md`). A
@@ -33,24 +36,60 @@ list/grid toggle + mobile filter sheet; the new home page. Tests:
 - Home tiles "Host a Session" and "My Library" both point at `#/library` (no
   separate host route) — trivially redirectable if the owner wants otherwise.
 
-## Next up: Phase 3 — live loop
-Per `current-focus.md` and `decisions.md` → "Live sessions":
-1. **Roles-as-sets with intersection matching (schema first).** A question
-   carries a set of roles, a participant carries a set; a participant sees a
-   question if either set is empty or they intersect. Today `role_track` is a
-   single string (see `trackQuestions` in `server/index.js` and `role_track` on
-   `questions`/`participants` in `server/db.js`). Migrate to sets, keep custom
-   free-text roles.
-2. **Host live view = mirror + roster, three layers** (`renderHost` in
-   `public/index.html`, `server/rooms.js`): crew-mirror (scene + dispatch +
-   current-stage questions, official answers host-only collapsed), named roster
-   with **boot** (invalidate the participant token, not just the socket), and
-   per-stage completion chips measured against each participant's visible
-   questions (role intersection) — "N of M done", tap to expand. No
-   auto-advance, ever.
+## Phase 3 — live loop
 
-If merging Phase 2 first: it's a clean branch off `main`; open a PR or
-fast-forward. Commit per sub-step; push when ready.
+**1. Roles-as-sets (schema) — DONE (`805ffaa`).** Questions and participants
+each carry a SET of roles; a participant sees a question when either set is
+empty or they intersect. New `server/roles.js` holds the semantics
+(`parseRoles`/`serializeRoles`/`primaryRole`/`withRoleFields`, `rolesMatch` for
+JS and `rolesMatchSql` for the JSON1 EXISTS predicate). New `roles` JSON column
+on `questions` + `participants`, one-shot flagged backfill from the legacy
+`role_track` (`json_array(role_track)`, guarded by `roles='[]'` so a redeploy
+never double-wraps). **`role_track` is kept** as a legacy column, a scalar
+mirror in API output (`withRoleFields` → `role_track = roles[0] ?? ''`), and an
+input shim (create/join accept either `roles: [...]` or legacy `role_track:
+'x'`) — so the **current frontend is untouched and still works** for the
+single-role case. Backend accepts/emits `roles` arrays everywhere. 118 tests
+pass; `test/live-roles.test.js` gained three set-semantics tests.
+
+**2. Frontend role-set UI — DONE (`164e954`).** The UI now speaks sets. Creator:
+per-question **multi-select toggle chips** (`roleSelect` in `public/index.html`,
+`data-roletoggle`/`data-role-add`) over `ROLE_CHOICES` + custom. Live join:
+multi-select seat picker (`drawRolePicker`, "Join as A + B" / "All roles"; the
+saved pick is a JSON array, legacy single-string still honored) → emits `roles`.
+Solo: "Play as" multi-select chips → `#/solo/:id?roles=a,b` (legacy `?role=`
+still parsed), intersection filtering. All render sites use `roleLabel()`; shared
+helpers `rolesArr`/`roleLabel`/`hasRoles`. **Bug fixed in passing:** `GET
+/api/scenarios/:id` was returning `roles` as the raw JSON string — now wrapped in
+`withRoleFields` so the editor/solo detail get a parsed array. Verified in the
+preview (creator chips both selected on a two-role question; join picker toggles;
+create→GET round-trip returns arrays). The only frontend `role_track` left is a
+comment and one back-compat read fallback (`q.roles ?? q.role_track`).
+
+**3. Host live view = mirror + roster, three layers — DONE (`90a18e0`).**
+`renderHost`/`drawHost` + new `drawRoster` in `public/index.html`; server in
+`rooms.roster`/`rooms.boot` + the socket layer in `index.js`. Crew mirror (scene
++ dispatch + current-stage questions; official answers in a host-only
+`<details>`; room/QR shrunk to a corner card). Named roster: initials-chips with
+a presence dot, roles/shift, "N of M done", per-stage completion chips (grey →
+amber ring w/ fraction → green ✓; dimmed when a seat has no questions in a
+stage), and a boot (user-x) action; a chip row expands to per-question detail
+(computed client-side from the responses the host holds). **Boot** sets
+`participants.booted_at` — `rooms.join` refuses a booted token (not just the
+socket), the booted client gets a `'booted'` screen, and the roster refreshes.
+`emitRoster` pushes a fresh roster to the host on join/answer/shift/boot/
+disconnect; presence from live sockets (`connectedParticipantIds`). No
+auto-advance — the advance button stays manual and says so. Test:
+`test/host-roster.test.js`. Verified in the preview: a crew member join/answer
+updates the roster live; boot empties it, signals the crew socket, refuses the
+dead token.
+
+## Next: Phase 4 — creation aids (or merge Phase 3 first)
+Per `current-focus.md`/`decisions.md` → Creation flow UX: hardcoded template
+picker (Blank · Quick drill · Standard incident · Full multi-role) +
+duplicate-scenario (clone already exists — `/api/scenarios/:id/clone`);
+category-scoped detail fields (Vehicle Type multi-select for MVA, match-any
+browse filter); top-down map stamp editor (flattened to `image_url` on save).
 
 ## Working notes
 - **Test fixtures:** scenario creates/edits require `objective_primary` (any
