@@ -755,6 +755,358 @@ function templatePicker() {
   </div>`;
 }
 
+// Phase 4: top-down map stamp editor. Five hardcoded flat-SVG base maps + a
+// fixed stampable icon set; drag + rotate only (no scaling/layers/freehand).
+// Saving flattens the live SVG to a PNG and uploads it through the same
+// /api/media path as any photo — the result is a plain, non-re-editable
+// image (owner-approved trade-off; see docs/ai/decisions.md).
+//
+// Only <rect>/<circle>/<path>/<line>/<polygon> with literal fills/strokes —
+// no CSS classes, <style>, <text>, or external refs, or the PNG export breaks.
+const MAP_BASES = {
+  residential: {
+    label: 'Residential',
+    svg: `
+      <rect x="0" y="0" width="800" height="600" fill="#e2e8f0"/>
+      <rect x="0" y="420" width="800" height="120" fill="#475569"/>
+      <line x1="0" y1="480" x2="800" y2="480" stroke="#f8fafc" stroke-width="4" stroke-dasharray="24 18"/>
+      <rect x="0" y="404" width="800" height="16" fill="#cbd5e1"/>
+      <rect x="0" y="540" width="800" height="16" fill="#cbd5e1"/>
+      <rect x="140" y="300" width="60" height="120" fill="#94a3b8" stroke="#334155" stroke-width="3"/>
+      <rect x="120" y="120" width="220" height="160" fill="#94a3b8" stroke="#334155" stroke-width="3"/>
+      <rect x="180" y="70" width="100" height="60" fill="#94a3b8" stroke="#334155" stroke-width="3"/>
+      <rect x="-40" y="150" width="140" height="200" fill="#94a3b8" stroke="#334155" opacity="0.55" stroke-width="3"/>
+      <rect x="700" y="150" width="140" height="200" fill="#94a3b8" stroke="#334155" opacity="0.55" stroke-width="3"/>
+      <rect x="60" y="60" width="640" height="220" fill="#a7c9a0" opacity="0.35"/>
+    `,
+  },
+  residential_corner: {
+    label: 'Corner lot',
+    svg: `
+      <rect x="0" y="0" width="800" height="600" fill="#e2e8f0"/>
+      <rect x="0" y="420" width="800" height="120" fill="#475569"/>
+      <rect x="500" y="0" width="140" height="600" fill="#475569"/>
+      <line x1="0" y1="480" x2="500" y2="480" stroke="#f8fafc" stroke-width="4" stroke-dasharray="24 18"/>
+      <line x1="570" y1="0" x2="570" y2="420" stroke="#f8fafc" stroke-width="4" stroke-dasharray="24 18"/>
+      <rect x="0" y="404" width="500" height="16" fill="#cbd5e1"/>
+      <rect x="484" y="0" width="16" height="420" fill="#cbd5e1"/>
+      <rect x="150" y="180" width="220" height="160" fill="#94a3b8" stroke="#334155" stroke-width="3"/>
+      <rect x="370" y="260" width="90" height="30" fill="#94a3b8" stroke="#334155" stroke-width="3"/>
+      <rect x="60" y="60" width="380" height="340" fill="#a7c9a0" opacity="0.3"/>
+    `,
+  },
+  intersection: {
+    label: 'Intersection',
+    svg: `
+      <rect x="0" y="0" width="800" height="600" fill="#e2e8f0"/>
+      <rect x="0" y="240" width="800" height="120" fill="#475569"/>
+      <rect x="340" y="0" width="120" height="600" fill="#475569"/>
+      <line x1="0" y1="300" x2="340" y2="300" stroke="#f8fafc" stroke-width="4" stroke-dasharray="20 16"/>
+      <line x1="460" y1="300" x2="800" y2="300" stroke="#f8fafc" stroke-width="4" stroke-dasharray="20 16"/>
+      <line x1="400" y1="0" x2="400" y2="240" stroke="#f8fafc" stroke-width="4" stroke-dasharray="20 16"/>
+      <line x1="400" y1="360" x2="400" y2="600" stroke="#f8fafc" stroke-width="4" stroke-dasharray="20 16"/>
+      <rect x="330" y="230" width="10" height="10" fill="none"/>
+      <rect x="330" y="220" width="10" height="20" fill="#f8fafc"/>
+      <rect x="460" y="360" width="10" height="20" fill="#f8fafc"/>
+      <rect x="360" y="230" width="20" height="10" fill="#f8fafc"/>
+      <rect x="420" y="360" width="20" height="10" fill="#f8fafc"/>
+      ${[0, 1, 2, 3, 4, 5].map(i => `<rect x="${346 + i * 13}" y="228" width="8" height="12" fill="#f8fafc"/>`).join('')}
+      ${[0, 1, 2, 3, 4, 5].map(i => `<rect x="${346 + i * 13}" y="360" width="8" height="12" fill="#f8fafc"/>`).join('')}
+      ${[0, 1, 2, 3, 4, 5].map(i => `<rect x="338" y="${246 + i * 13}" width="12" height="8" fill="#f8fafc"/>`).join('')}
+      ${[0, 1, 2, 3, 4, 5].map(i => `<rect x="450" y="${246 + i * 13}" width="12" height="8" fill="#f8fafc"/>`).join('')}
+      <rect x="40" y="40" width="260" height="160" fill="#94a3b8" stroke="#334155" stroke-width="3"/>
+      <rect x="500" y="40" width="260" height="160" fill="#94a3b8" stroke="#334155" stroke-width="3"/>
+      <rect x="40" y="400" width="260" height="160" fill="#94a3b8" stroke="#334155" stroke-width="3"/>
+      <rect x="500" y="400" width="260" height="160" fill="#94a3b8" stroke="#334155" stroke-width="3"/>
+    `,
+  },
+  highway: {
+    label: 'Highway',
+    svg: `
+      <rect x="0" y="0" width="800" height="600" fill="#e2e8f0"/>
+      <rect x="0" y="80" width="800" height="440" fill="#475569"/>
+      <rect x="0" y="270" width="800" height="60" fill="#64748b"/>
+      <line x1="0" y1="165" x2="800" y2="165" stroke="#f8fafc" stroke-width="4" stroke-dasharray="30 22"/>
+      <line x1="0" y1="435" x2="800" y2="435" stroke="#f8fafc" stroke-width="4" stroke-dasharray="30 22"/>
+      <line x1="0" y1="80" x2="800" y2="80" stroke="#facc15" stroke-width="5"/>
+      <line x1="0" y1="520" x2="800" y2="520" stroke="#facc15" stroke-width="5"/>
+      <rect x="0" y="60" width="800" height="16" fill="#94a3b8"/>
+      <rect x="0" y="524" width="800" height="16" fill="#94a3b8"/>
+      ${[0,1,2,3,4,5,6,7,8,9].map(i => `<rect x="${20 + i * 80}" y="66" width="30" height="6" fill="#334155"/>`).join('')}
+      ${[0,1,2,3,4,5,6,7,8,9].map(i => `<rect x="${20 + i * 80}" y="528" width="30" height="6" fill="#334155"/>`).join('')}
+      <polygon points="800,270 680,80 800,80" fill="#475569"/>
+      <line x1="700" y1="200" x2="800" y2="100" stroke="#f8fafc" stroke-width="4" stroke-dasharray="18 14"/>
+    `,
+  },
+  commercial: {
+    label: 'Commercial',
+    svg: `
+      <rect x="0" y="0" width="800" height="600" fill="#e2e8f0"/>
+      <rect x="80" y="60" width="480" height="260" fill="#94a3b8" stroke="#334155" stroke-width="3"/>
+      <rect x="500" y="230" width="80" height="60" fill="#64748b" stroke="#334155" stroke-width="3"/>
+      <rect x="80" y="360" width="640" height="200" fill="#64748b"/>
+      ${[0,1,2,3,4,5,6].map(i => `<line x1="${120 + i * 90}" y1="380" x2="${120 + i * 90}" y2="440" stroke="#f8fafc" stroke-width="3"/>`).join('')}
+      ${[0,1,2,3,4,5,6].map(i => `<line x1="${120 + i * 90}" y1="480" x2="${120 + i * 90}" y2="540" stroke="#f8fafc" stroke-width="3"/>`).join('')}
+      <rect x="60" y="40" width="700" height="520" fill="none" stroke="#dc2626" stroke-width="4" stroke-dasharray="16 10"/>
+      <rect x="0" y="0" width="80" height="600" fill="#e2e8f0"/>
+    `,
+  },
+};
+const stampG = (label, w, h, body) => ({ label, w, h, svg: body });
+const MAP_STAMPS = {
+  engine: stampG('Engine', 90, 36,
+    `<rect x="-45" y="-18" width="90" height="36" rx="4" fill="#dc2626" stroke="#7f1d1d" stroke-width="2"/>
+     <rect x="20" y="-16" width="22" height="32" fill="#fecaca"/>
+     <rect x="-45" y="-6" width="90" height="4" fill="#f8fafc"/>`),
+  ladder: stampG('Ladder', 120, 36,
+    `<rect x="-60" y="-18" width="120" height="36" rx="4" fill="#dc2626" stroke="#7f1d1d" stroke-width="2"/>
+     <rect x="40" y="-16" width="18" height="32" fill="#fecaca"/>
+     <line x1="-50" y1="0" x2="30" y2="0" stroke="#f8fafc" stroke-width="4"/>`),
+  ambulance: stampG('Ambulance', 70, 34,
+    `<rect x="-35" y="-17" width="70" height="34" rx="4" fill="#f8fafc" stroke="#7f1d1d" stroke-width="2"/>
+     <rect x="16" y="-15" width="17" height="30" fill="#dc2626"/>
+     <rect x="-35" y="-3" width="52" height="6" fill="#dc2626"/>`),
+  chief: stampG('Chief', 55, 30,
+    `<rect x="-27" y="-15" width="55" height="30" rx="4" fill="#1e3a8a" stroke="#0f1f4d" stroke-width="2"/>
+     <rect x="14" y="-13" width="13" height="26" fill="#93c5fd"/>`),
+  police: stampG('Police', 55, 28,
+    `<rect x="-27" y="-14" width="55" height="28" rx="4" fill="#1e3a8a" stroke="#0f1f4d" stroke-width="2"/>
+     <rect x="14" y="-12" width="13" height="24" fill="#bfdbfe"/>
+     <rect x="-6" y="-14" width="8" height="28" fill="#f8fafc"/>`),
+  civilian: stampG('Civilian', 50, 26,
+    `<rect x="-25" y="-13" width="50" height="26" rx="4" fill="#94a3b8" stroke="#334155" stroke-width="2"/>
+     <rect x="12" y="-11" width="12" height="22" fill="#e2e8f0"/>`),
+  civilian_overturned: stampG('Overturned vehicle', 50, 34,
+    `<rect x="-25" y="-17" width="50" height="34" rx="6" fill="#94a3b8" stroke="#334155" stroke-width="2"/>
+     <circle cx="-16" cy="0" r="5" fill="#334155"/><circle cx="16" cy="0" r="5" fill="#334155"/>
+     <line x1="-25" y1="0" x2="25" y2="0" stroke="#f8fafc" stroke-width="2" stroke-dasharray="4 3"/>`),
+  truck: stampG('Truck', 130, 38,
+    `<rect x="-65" y="-19" width="90" height="38" fill="#94a3b8" stroke="#334155" stroke-width="2"/>
+     <rect x="25" y="-17" width="40" height="34" rx="4" fill="#475569" stroke="#334155" stroke-width="2"/>
+     <rect x="26" y="-15" width="14" height="30" fill="#cbd5e1"/>`),
+  hydrant: stampG('Hydrant', 22, 22,
+    `<circle cx="0" cy="0" r="10" fill="#f59e0b" stroke="#92400e" stroke-width="2"/>
+     <rect x="-3" y="-13" width="6" height="6" fill="#f59e0b" stroke="#92400e" stroke-width="1.5"/>`),
+  patient: stampG('Patient', 24, 24,
+    `<circle cx="0" cy="0" r="10" fill="#fb7185" stroke="#881337" stroke-width="2"/>
+     <line x1="-5" y1="0" x2="5" y2="0" stroke="#881337" stroke-width="2"/>
+     <line x1="0" y1="-5" x2="0" y2="5" stroke="#881337" stroke-width="2"/>`),
+  hazard: stampG('Hazard', 26, 26,
+    `<polygon points="0,-13 12,10 -12,10" fill="#f59e0b" stroke="#78350f" stroke-width="2"/>
+     <line x1="0" y1="-5" x2="0" y2="3" stroke="#78350f" stroke-width="2"/>
+     <circle cx="0" cy="7" r="1.5" fill="#78350f"/>`),
+  arrow: stampG('Direction arrow', 60, 24,
+    `<line x1="-25" y1="0" x2="18" y2="0" stroke="#f8fafc" stroke-width="5"/>
+     <polygon points="30,0 12,-10 12,10" fill="#f8fafc"/>`),
+};
+function openMapEditor(onInsert) {
+  let baseKey = 'residential';
+  let placed = [];   // { id, stamp, x, y, rot }
+  let selectedId = null;
+  let uploading = false;
+  let nextId = 1;
+  let drag = null;    // { id, offX, offY }
+
+  const ov = document.createElement('div');
+  ov.className = 'fixed inset-0 z-50 bg-slate-950/95 overflow-auto';
+  ov.innerHTML = `
+    <div class="min-h-full flex items-start justify-center p-3 sm:p-6">
+      <div class="w-full max-w-3xl bg-slate-900 border border-slate-700 rounded-2xl overflow-hidden">
+        <div class="p-4 sm:p-6 space-y-1 border-b border-slate-800">
+          <h2 class="font-semibold text-lg flex items-center gap-2"><i data-lucide="map" class="w-5 h-5 text-indigo-400"></i>Top-down map</h2>
+          <p class="text-sm text-slate-400">Pick a base, drop what's on scene. Saved as an image — placements aren't editable after.</p>
+        </div>
+        <div class="p-4 sm:p-6 space-y-4">
+          <div>
+            <label class="text-xs font-bold text-slate-400 tracking-wide">BASE MAP</label>
+            <div id="map-bases" class="mt-2 grid grid-cols-5 gap-2"></div>
+          </div>
+          <div class="relative bg-slate-950 rounded-xl border border-slate-700 overflow-hidden">
+            <svg id="map-svg" viewBox="0 0 800 600" class="w-full h-auto block" style="touch-action:none;max-height:60vh"></svg>
+            <div id="map-empty" class="pointer-events-none absolute inset-0 hidden items-center justify-center text-slate-500 text-sm">Tap a stamp below to place it.</div>
+            <div id="map-toolbar" class="hidden absolute bottom-2 left-1/2 -translate-x-1/2 bg-slate-900/95 border border-slate-700 rounded-xl px-2 py-1.5 flex items-center gap-1">
+              <button data-act="rotl" class="tap px-2.5 py-1.5 text-slate-200 hover:text-amber-400" title="Rotate left 15°"><i data-lucide="rotate-ccw" class="w-4 h-4"></i></button>
+              <button data-act="rotr" class="tap px-2.5 py-1.5 text-slate-200 hover:text-amber-400" title="Rotate right 15°"><i data-lucide="rotate-cw" class="w-4 h-4"></i></button>
+              <button data-act="del" class="tap px-2.5 py-1.5 text-rose-400 hover:text-rose-300" title="Delete"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
+            </div>
+          </div>
+          <div>
+            <div class="flex items-center justify-between">
+              <label class="text-xs font-bold text-slate-400 tracking-wide">ON SCENE</label>
+              <button id="map-clear" type="button" class="tap text-xs font-semibold text-slate-400 hover:text-rose-400">Clear all</button>
+            </div>
+            <div id="map-palette" class="mt-2 flex gap-2 overflow-x-auto pb-1"></div>
+          </div>
+        </div>
+        <div class="p-4 sm:p-6 border-t border-slate-800 flex items-center justify-end gap-3">
+          <button id="map-cancel" type="button" class="tap px-4 py-2.5 rounded-xl font-semibold text-slate-300 hover:text-white">Cancel</button>
+          <button id="map-insert" type="button" class="tap px-5 py-2.5 rounded-xl font-bold bg-amber-500 hover:bg-amber-400 text-slate-950">Insert map</button>
+        </div>
+      </div>
+    </div>`;
+  document.body.appendChild(ov);
+
+  const svg = ov.querySelector('#map-svg');
+  const NS = 'http://www.w3.org/2000/svg';
+
+  $bases();
+  $palette();
+  render();
+  icons();
+
+  function $bases() {
+    const el = ov.querySelector('#map-bases');
+    el.innerHTML = Object.entries(MAP_BASES).map(([k, b]) => `
+      <button data-base="${k}" class="tap flex flex-col items-center gap-1 p-1.5 rounded-lg border ${k === baseKey ? 'border-amber-500 bg-slate-800' : 'border-slate-700 hover:border-slate-500'}">
+        <svg viewBox="0 0 800 600" class="w-full h-8 rounded" style="pointer-events:none">${b.svg}</svg>
+        <span class="text-[10px] text-slate-300 leading-tight text-center">${esc(b.label)}</span>
+      </button>`).join('');
+    el.querySelectorAll('[data-base]').forEach(btn => btn.onclick = () => {
+      baseKey = btn.dataset.base;
+      $bases();
+      render();
+    });
+  }
+
+  function $palette() {
+    const el = ov.querySelector('#map-palette');
+    el.innerHTML = Object.entries(MAP_STAMPS).map(([k, s]) => `
+      <button data-stamp="${k}" class="tap shrink-0 flex flex-col items-center gap-1 px-3 py-2 rounded-lg border border-slate-700 hover:border-amber-500 bg-slate-800">
+        <svg viewBox="${-s.w / 2 - 4} ${-s.h / 2 - 4} ${s.w + 8} ${s.h + 8}" class="w-12 h-8" style="pointer-events:none">${s.svg}</svg>
+        <span class="text-[10px] text-slate-300 whitespace-nowrap">${esc(s.label)}</span>
+      </button>`).join('');
+    el.querySelectorAll('[data-stamp]').forEach(btn => btn.onclick = () => placeStamp(btn.dataset.stamp));
+    ov.querySelector('#map-clear').onclick = () => {
+      if (!placed.length) return;
+      placed = []; selectedId = null;
+      render();
+      toast('Map cleared');
+    };
+  }
+
+  function placeStamp(key) {
+    const id = nextId++;
+    placed.push({ id, stamp: key, x: 400, y: 300, rot: 0 });
+    selectedId = id;
+    render();
+  }
+
+  function clampXY(x, y) {
+    return [Math.max(0, Math.min(800, x)), Math.max(0, Math.min(600, y))];
+  }
+
+  function svgPoint(clientX, clientY) {
+    const r = svg.getBoundingClientRect();
+    const x = (clientX - r.left) / r.width * 800;
+    const y = (clientY - r.top) / r.height * 600;
+    return clampXY(x, y);
+  }
+
+  function render() {
+    const empty = ov.querySelector('#map-empty');
+    empty.classList.toggle('hidden', placed.length > 0);
+    empty.classList.toggle('flex', placed.length === 0);
+
+    const sel = placed.find(p => p.id === selectedId);
+    const toolbar = ov.querySelector('#map-toolbar');
+    toolbar.classList.toggle('hidden', !sel);
+
+    let inner = MAP_BASES[baseKey].svg;
+    for (const p of placed) {
+      const s = MAP_STAMPS[p.stamp];
+      const isSel = p.id === selectedId;
+      inner += `<g transform="translate(${p.x} ${p.y}) rotate(${p.rot})" data-placed="${p.id}" style="cursor:grab">
+        ${isSel ? `<rect data-editor-only="1" x="${-s.w / 2 - 6}" y="${-s.h / 2 - 6}" width="${s.w + 12}" height="${s.h + 12}" fill="none" stroke="#f59e0b" stroke-width="2" stroke-dasharray="6 4"/>` : ''}
+        ${s.svg}
+      </g>`;
+    }
+    svg.innerHTML = inner;
+
+    svg.querySelectorAll('[data-placed]').forEach(g => {
+      g.addEventListener('pointerdown', e => {
+        const id = Number(g.dataset.placed);
+        selectedId = id;
+        const p = placed.find(pp => pp.id === id);
+        const [px, py] = svgPoint(e.clientX, e.clientY);
+        drag = { id, offX: px - p.x, offY: py - p.y };
+        svg.setPointerCapture(e.pointerId);
+        render();
+      });
+    });
+
+    ov.querySelector('#map-toolbar').querySelectorAll('[data-act]').forEach(btn => btn.onclick = () => {
+      const p = placed.find(pp => pp.id === selectedId);
+      if (!p) return;
+      if (btn.dataset.act === 'rotl') p.rot = (p.rot - 15) % 360;
+      else if (btn.dataset.act === 'rotr') p.rot = (p.rot + 15) % 360;
+      else if (btn.dataset.act === 'del') { placed = placed.filter(pp => pp.id !== selectedId); selectedId = null; }
+      render();
+    });
+  }
+
+  svg.addEventListener('pointermove', e => {
+    if (!drag) return;
+    const p = placed.find(pp => pp.id === drag.id);
+    if (!p) return;
+    const [px, py] = svgPoint(e.clientX, e.clientY);
+    [p.x, p.y] = clampXY(px - drag.offX, py - drag.offY);
+    render();
+  });
+  const endDrag = () => { drag = null; };
+  svg.addEventListener('pointerup', endDrag);
+  svg.addEventListener('pointercancel', endDrag);
+
+  ov.querySelector('#map-cancel').onclick = () => ov.remove();
+  ov.onclick = e => { if (e.target === ov) ov.remove(); };
+
+  ov.querySelector('#map-insert').onclick = async () => {
+    if (uploading) return;
+    if (!placed.length) { toast('Place at least one stamp first', 'bg-amber-500'); return; }
+    uploading = true;
+    const btn = ov.querySelector('#map-insert');
+    const label = btn.textContent;
+    btn.textContent = 'Uploading…';
+    btn.disabled = true;
+    const wasSelected = selectedId;
+    selectedId = null;
+    render();
+    try {
+      const out = svg.cloneNode(true);
+      out.querySelectorAll('[data-editor-only]').forEach(n => n.remove());
+      out.setAttribute('xmlns', NS);
+      out.setAttribute('width', 1600);
+      out.setAttribute('height', 1200);
+      const blob = new Blob([new XMLSerializer().serializeToString(out)], { type: 'image/svg+xml' });
+      const url = URL.createObjectURL(blob);
+      const img = new Image();
+      await new Promise((res, rej) => { img.onload = res; img.onerror = rej; img.src = url; });
+      const c = document.createElement('canvas');
+      c.width = 1600; c.height = 1200;
+      const ctx = c.getContext('2d');
+      ctx.fillStyle = '#e2e8f0'; ctx.fillRect(0, 0, c.width, c.height);
+      ctx.drawImage(img, 0, 0, c.width, c.height);
+      URL.revokeObjectURL(url);
+      const png = await new Promise(r => c.toBlob(r, 'image/png'));
+      const form = new FormData();
+      form.append('file', png, 'map.png');
+      const res = await fetch('/api/media', { method: 'POST', body: form });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Upload failed');
+      const { url: mediaUrl } = await res.json();
+      onInsert({ kind: 'map', url: mediaUrl });
+      toast('Map added');
+      ov.remove();
+    } catch (err) {
+      toast(err.message || 'Upload failed', 'bg-rose-600');
+      selectedId = wasSelected;
+      render();
+    } finally {
+      uploading = false;
+      btn.textContent = label;
+      btn.disabled = false;
+    }
+  };
+}
+
 // Track B — dismissible creation tutorial. Off once dismissed (localStorage).
 function creationTutorial() {
   if (localStorage.pcCreateTutorialDismissed) return '';
@@ -885,6 +1237,7 @@ async function renderCreator(id) {
             <i data-lucide="image-plus" class="w-5 h-5"></i><span id="c-upload-label">Drag an image here, or click to browse</span>
             <input id="c-file" type="file" accept="image/png,image/jpeg,image/webp,image/gif" class="hidden">
           </label>
+          <button id="c-map-open" type="button" class="mt-2 tap text-xs font-semibold text-indigo-300 hover:text-indigo-200 inline-flex items-center gap-1.5"><i data-lucide="map" class="w-3.5 h-3.5"></i>Or build a top-down map</button>
         </div>
         <div><label class="text-sm font-medium text-slate-300">Dispatch / Description</label>
           <textarea id="c-desc" rows="3" placeholder="What's toned out — the call as crews first hear it." class="mt-1 w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 focus:border-rose-500 focus:outline-none"></textarea></div>
@@ -1082,6 +1435,7 @@ async function renderCreator(id) {
     drawMedia();
   };
   $('#c-file').onchange = () => uploadImage($('#c-file').files[0]);
+  $('#c-map-open').onclick = () => openMapEditor(m => { draftMedia.push(m); drawMedia(); });
   // Drag & drop onto the same zone. The drop target is a <label> wrapping the
   // file input, so we stop the drop from bubbling to a native file open.
   const drop = $('#c-drop');

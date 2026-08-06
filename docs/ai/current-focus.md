@@ -60,10 +60,11 @@ the agreed build order for them.
     role intersection, per-participant expand. Server: `rooms.roster`/`rooms.boot`,
     `participants.booted_at`, `boot_participant` socket event, `emitRoster` on
     join/answer/shift/boot/disconnect. No auto-advance. Verified in preview.
-- **Phase 4 — creation aids. ← IN PROGRESS** (branch `claude/phase4-creation-aids`
-  off merged `main`). Duplicate-scenario already existed (the detail-view "Clone"
-  button copies any visible scenario to My Library). Remaining: hardcoded template
-  picker; category-scoped detail fields; top-down map stamp editor.
+- **Phase 4 — creation aids. DONE** (branch `claude/phase4-creation-aids`
+  off merged `main`; not yet merged). Duplicate-scenario already existed (the
+  detail-view "Clone" button copies any visible scenario to My Library). All
+  three remaining pieces (template picker, category-scoped detail fields,
+  top-down map stamp editor) are built and committed.
   - **(detail fields) DONE:** category-scoped detail fields. Each category shows
     one detail field — building type for Fireground, **Vehicle Type** for MVA,
     neither for EMS (`DETAIL_FIELD_BY_CAT`). Vehicle Type is a fixed additive-only
@@ -77,8 +78,25 @@ the agreed build order for them.
     scenarios; seeds draft structure (staged, role-tagged placeholder questions)
     into the creator form and retires itself. `SCENARIO_TEMPLATES` +
     `templatePicker()` in `public/index.html`.
-  - **(map editor) TODO:** top-down stamp editor (5 base maps + fixed icon set,
-    drag+rotate only), flattened to `image_url` on save.
+  - **(map editor) DONE:** top-down stamp editor. `MAP_BASES` (5 hardcoded flat-SVG
+    scenes: residential, corner lot, intersection, highway, commercial) +
+    `MAP_STAMPS` (12 fixed apparatus/vehicle/hazard icons) + `openMapEditor()` in
+    `public/index.html`, opened from a secondary button under the media drop zone
+    in "The scene". Pointer-events drag, 15°-step rotate buttons, delete, clear
+    all — no scaling/layers/freehand. On Insert, the live SVG is cloned (editor
+    chrome stripped), rasterized to a 1600×1200 PNG via an offscreen canvas, and
+    uploaded through the existing `POST /api/media` — then pushed into
+    `draftMedia` as `{ kind: 'map', url }`, identical to an uploaded photo.
+    **No server changes** — `replaceMedia`, the media `<select>`, and
+    `mediaStrip`'s `KIND_LABEL` already handled `kind: 'map'`. Note:
+    `decisions.md`'s "flattened to a plain `image_url`" phrasing is intent, not a
+    literal column — `saveScenario` never sends `image_url` (legacy field; a PUT
+    would blank it), so the map rides the `media` array like every other image.
+    123 tests pass (no server change, none expected). Verified in the preview:
+    all 5 bases, 4+ stamps placed/dragged/rotated past 180°/deleted, clear-all +
+    re-place, Insert → shows in `#c-media` as kind=map with a rendered thumbnail,
+    scene-reference rail picks it up, persists through save → My Library →
+    scenario detail media strip; zero console errors; works at 375px mobile.
 - **Phase 5 — onboarding.** Spotlight tour engine + first-login tour only
   (deliberately after Phase 2 layouts settle).
 
