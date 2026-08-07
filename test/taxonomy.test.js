@@ -69,6 +69,36 @@ test('scenario taxonomy is validated against the controlled list', async () => {
   assert.equal(bad.status, 400);
 });
 
+test('Phase 4: vehicle type stores known tags as a JSON array; unknown members drop', async () => {
+  const { cookie } = await signup(base, { email: 'veh@tax.test' });
+  const ok = await fetch(`${base}/api/scenarios`, {
+    method: 'POST', headers: authed(cookie),
+    body: JSON.stringify({
+      title: 'MVA fixture', description: 'd', category: 'Motor Vehicle Accidents',
+      subcategory: 'Rollover', visibility: 'public', objective_primary: 'Command Presence',
+      vehicle_type: ['Sedan', 'Semi/18-wheeler', 'Spaceship'],
+      questions: [{ prompt: 'Q?', kind: 'text', instructor_answer: 'A' }],
+    }),
+  });
+  assert.equal(ok.status, 201);
+  const { id } = await ok.json();
+  const detail = await fetch(`${base}/api/scenarios/${id}`, { headers: { cookie } }).then(r => r.json());
+  assert.deepEqual(JSON.parse(detail.vehicle_type), ['Sedan', 'Semi/18-wheeler']);
+  // an empty / all-unknown set stores as '' (not '[]'), like building_type
+  const empty = await fetch(`${base}/api/scenarios`, {
+    method: 'POST', headers: authed(cookie),
+    body: JSON.stringify({
+      title: 'MVA empty', description: 'd', category: 'Motor Vehicle Accidents',
+      subcategory: 'Rollover', visibility: 'public', objective_primary: 'Command Presence',
+      vehicle_type: ['Spaceship'],
+      questions: [{ prompt: 'Q?', kind: 'text', instructor_answer: 'A' }],
+    }),
+  });
+  const { id: id2 } = await empty.json();
+  const d2 = await fetch(`${base}/api/scenarios/${id2}`, { headers: { cookie } }).then(r => r.json());
+  assert.equal(d2.vehicle_type, '');
+});
+
 test('site admin extends the vocabulary; standard users cannot', async () => {
   const { cookie: pleb } = await signup(base, { email: 'pleb@tax.test' });
   const denied = await fetch(`${base}/api/objectives`, {

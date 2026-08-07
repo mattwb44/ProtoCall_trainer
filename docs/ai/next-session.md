@@ -1,19 +1,22 @@
 # Next session
 
-_Updated 2026-08-04. Read `current-focus.md` and `decisions.md` first, then
+_Updated 2026-08-06. Read `current-focus.md` and `decisions.md` first, then
 `CONTEXT.md` (glossary) at the repo root._
 
-**Branch: `claude/phase3-live-loop`, tip `37ca872` (host live view `90a18e0` +
-its doc commit), off merged `main` (`deafd6b`). Working tree clean, in sync with
-`origin`. `npm test` = 122 passing. Pushed to `origin`; NOT merged to `main`.**
-Phase 2 merged via PR #1; Phase 1 on `main`.
+**Branch: `claude/phase4-creation-aids`, off merged `main` (`c6d7006`), pushed to
+`origin` (NOT merged). Phase 3 (live loop) was merged via PR #2 (merge commit
+`c6d7006`) and deployed. Phase 4 (creation aids) is COMPLETE — all three pieces
+done and committed: category-scoped detail fields (`ee2b55f`), template picker
+(`5f09721`), and the top-down map stamp editor (this session). Duplicate-scenario
+already existed.**
+`npm test` = 123 passing. Phase 2 merged via PR #1; Phase 1 on `main`.
 
-**Phase 3 (live loop) is COMPLETE** — all three pieces: **schema** (`805ffaa`),
-**frontend role-set UI** (`164e954`), **host live view** (`90a18e0`); see below.
+**Resume here:** the only open decision is whether to merge `claude/phase4-creation-aids`
+to `main`. All three pieces are deploy-safe and verified in the preview
+individually. No server changes were needed for any of them.
 
-**First decision next session:** merge Phase 3 to `main` (branch is a clean
-descendant of `main` — PR or fast-forward; it deploys to production), or start
-Phase 4 (creation aids) directly. Ask the owner first.
+**Phase 3 (live loop) is COMPLETE & MERGED** — schema (`805ffaa`), frontend
+role-set UI (`164e954`), host live view (`90a18e0`); all on `main` now.
 
 ## Where we are
 Tracks 0 / A1 / A2 / B / C shipped earlier (details in `decisions.md`). A
@@ -84,12 +87,67 @@ auto-advance — the advance button stays manual and says so. Test:
 updates the roster live; boot empties it, signals the crew socket, refuses the
 dead token.
 
-## Next: Phase 4 — creation aids (or merge Phase 3 first)
-Per `current-focus.md`/`decisions.md` → Creation flow UX: hardcoded template
-picker (Blank · Quick drill · Standard incident · Full multi-role) +
-duplicate-scenario (clone already exists — `/api/scenarios/:id/clone`);
-category-scoped detail fields (Vehicle Type multi-select for MVA, match-any
-browse filter); top-down map stamp editor (flattened to `image_url` on save).
+## Phase 4 — creation aids (COMPLETE)
+Per `current-focus.md`/`decisions.md` → Creation flow UX. All three pieces done;
+branch not yet merged to `main`.
+- **Duplicate-scenario — already done** before Phase 4: the scenario detail view's
+  "Clone" button (`POST /api/scenarios/:id/clone`) copies any visible scenario to
+  My Library. No further work needed.
+- **Category-scoped detail fields — DONE.** `vehicle_type` JSON
+  column (`server/db.js`); `VEHICLE_TYPES` vocab + `normalizeVehicleType` +
+  `taxonomyOf` + create/edit SQL (`server/index.js`, mirrors `building_type`).
+  Frontend (`public/index.html`): `DETAIL_FIELD_BY_CAT` drives which detail field
+  shows (`toggleDetails`) — building for Fireground, vehicle for MVA, neither for
+  EMS; `drawVeh` multi-select; save payload sends only the active field; detail
+  view renders vehicle chips; Community browse has a **match-any** Vehicle Type
+  chip filter (`st.veh` Set, `syncVeh`) shown only under the MVA category. Server
+  stays a permissive vocab validator (category names aren't server-enforced — the
+  taxonomy test uses `category:'Fire'` — so scoping lives in the frontend, like
+  building_type always has). Test: `test/taxonomy.test.js` (Phase 4 vehicle case).
+- **Template picker — DONE.** `SCENARIO_TEMPLATES` + `templatePicker()`
+  in `public/index.html`: a "Start from a template" card (Blank · Quick drill ·
+  Standard incident · Full multi-role) shown only when creating a new scenario.
+  Picking one sets `draftQs` to the template's questions (staged; the full one
+  role-tagged so drawQs auto-opens Advanced) and removes the picker. Verified.
+- **Map stamp editor — DONE.** `MAP_BASES` (5 hardcoded flat-SVG base maps:
+  residential, corner lot, intersection, highway, commercial, all sharing a single
+  `0 0 800 600` viewBox) + `MAP_STAMPS` (12 fixed apparatus/vehicle/hazard icons,
+  drawn centred on their own origin for rotation) + `openMapEditor()` — all in
+  `public/index.html`, entry point is a secondary button ("Or build a top-down
+  map") under the media drop zone in "The scene". Full-screen overlay appended to
+  `document.body` (same pattern as `openMediaViewer`), not a route, so it doesn't
+  disturb `draftQs`/`draftMedia`/`draftBldg`. Pointer Events (not mouse) for
+  drag; 15°-step rotate buttons + delete in a floating toolbar on the selected
+  stamp (no drag-handle — unreliable on touch); tap-to-place from the palette
+  (no drag-from-palette); clear all; no scaling/layers/freehand/undo/re-edit.
+  On Insert: clone the live SVG, strip `[data-editor-only]` chrome (the dashed
+  selection box), serialize → Blob → Image → draw onto a 1600×1200 canvas (2x for
+  crispness, opaque `#e2e8f0` background so there's no transparent PNG), `canvas.
+  toBlob('image/png')`, upload via the same `/api/media` POST `uploadImage()`
+  uses, then `draftMedia.push({ kind: 'map', url })` + `drawMedia()`. On upload
+  failure: toast the error, leave the modal open with placements intact (never
+  lose the user's work).
+  **No server changes** — confirmed and used as-is: `replaceMedia` already
+  whitelists `kind: 'map'` (`server/index.js`), the media `<select>` already
+  offers `map`, `mediaStrip`'s `KIND_LABEL` already renders a MAP badge. Server
+  media upload already accepts PNG (`server/media.js`) well under
+  `MAX_UPLOAD_BYTES`.
+  **Doc-wording note:** `decisions.md`'s "flattened to a plain `image_url`" is
+  intent ("flattened to a plain image"), not a literal column — `saveScenario`
+  never sends `image_url` (legacy, a PUT would blank it); the map rides
+  `draftMedia`/the `media` array exactly like an uploaded photo. No `image_url`
+  write path was added.
+  Verified in the preview (`preview_snapshot`/`preview_inspect`/
+  `preview_console_logs`, screenshot taken): opened the editor, switched all 5
+  base maps, placed 4+ different stamps, dragged multiple, rotated one past
+  180°, deleted one, cleared all and re-placed, Insert map closed the modal with
+  a new `#c-media` row (`kind` select = `map`, thumbnail = the rendered scene),
+  the scene-reference rail picked it up as the first media item, saved the
+  scenario, reopened it from My Library, and confirmed the map persists and
+  renders in the scenario detail's media strip. Zero console errors throughout.
+  Re-verified at a 375px mobile viewport: canvas scales, palette scrolls, tap-
+  to-place/drag/rotate all work. `npm test` stayed at 123 passing (no server
+  change).
 
 ## Working notes
 - **Test fixtures:** scenario creates/edits require `objective_primary` (any

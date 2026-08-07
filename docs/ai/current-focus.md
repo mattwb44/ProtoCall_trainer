@@ -37,9 +37,9 @@ the agreed build order for them.
   - **(6/6) DONE** (`e254318`): new home page — hero → join card → 2×2 action
     grid (Host / Build / My Library / Community) → verbatim 4-step "How it
     works" ported from the old fireground home.
-- **Phase 3 — live loop. DONE** (branch `claude/phase3-live-loop` off merged
-  `main`, pushed; not yet merged). Roles-as-sets with intersection matching, then
-  the host live view.
+- **Phase 3 — live loop. DONE & MERGED** (PR #2 → `main`, merge commit `c6d7006`,
+  deployed via Railway). Roles-as-sets with intersection matching, then the host
+  live view.
   - **(schema) DONE** (`805ffaa`): questions and participants each carry a SET
     of roles (`roles` JSON column); a participant sees a question when either
     set is empty or they intersect. New `server/roles.js` (parse/serialize/
@@ -60,9 +60,43 @@ the agreed build order for them.
     role intersection, per-participant expand. Server: `rooms.roster`/`rooms.boot`,
     `participants.booted_at`, `boot_participant` socket event, `emitRoster` on
     join/answer/shift/boot/disconnect. No auto-advance. Verified in preview.
-- **Phase 4 — creation aids. ← next.** Hardcoded templates + duplicate-scenario;
-  category-scoped detail fields (Vehicle Type multi-select for MVA); top-down
-  map stamp editor (flattened on save).
+- **Phase 4 — creation aids. DONE** (branch `claude/phase4-creation-aids`
+  off merged `main`; not yet merged). Duplicate-scenario already existed (the
+  detail-view "Clone" button copies any visible scenario to My Library). All
+  three remaining pieces (template picker, category-scoped detail fields,
+  top-down map stamp editor) are built and committed.
+  - **(detail fields) DONE:** category-scoped detail fields. Each category shows
+    one detail field — building type for Fireground, **Vehicle Type** for MVA,
+    neither for EMS (`DETAIL_FIELD_BY_CAT`). Vehicle Type is a fixed additive-only
+    15-item multi-select (`vehicle_type` JSON column + `VEHICLE_TYPES` vocab +
+    `normalizeVehicleType`, mirroring `building_type`); rendered as chips in the
+    scenario detail; Community browse gained a **match-any** Vehicle Type filter
+    that only appears under the MVA category. Building type is now Fireground-only
+    (was: any non-EMS). 123 tests pass.
+  - **(templates) DONE:** hardcoded "Start from a template" picker (Blank ·
+    Quick drill · Standard incident · Full multi-role) shown only on new
+    scenarios; seeds draft structure (staged, role-tagged placeholder questions)
+    into the creator form and retires itself. `SCENARIO_TEMPLATES` +
+    `templatePicker()` in `public/index.html`.
+  - **(map editor) DONE:** top-down stamp editor. `MAP_BASES` (5 hardcoded flat-SVG
+    scenes: residential, corner lot, intersection, highway, commercial) +
+    `MAP_STAMPS` (12 fixed apparatus/vehicle/hazard icons) + `openMapEditor()` in
+    `public/index.html`, opened from a secondary button under the media drop zone
+    in "The scene". Pointer-events drag, 15°-step rotate buttons, delete, clear
+    all — no scaling/layers/freehand. On Insert, the live SVG is cloned (editor
+    chrome stripped), rasterized to a 1600×1200 PNG via an offscreen canvas, and
+    uploaded through the existing `POST /api/media` — then pushed into
+    `draftMedia` as `{ kind: 'map', url }`, identical to an uploaded photo.
+    **No server changes** — `replaceMedia`, the media `<select>`, and
+    `mediaStrip`'s `KIND_LABEL` already handled `kind: 'map'`. Note:
+    `decisions.md`'s "flattened to a plain `image_url`" phrasing is intent, not a
+    literal column — `saveScenario` never sends `image_url` (legacy field; a PUT
+    would blank it), so the map rides the `media` array like every other image.
+    123 tests pass (no server change, none expected). Verified in the preview:
+    all 5 bases, 4+ stamps placed/dragged/rotated past 180°/deleted, clear-all +
+    re-place, Insert → shows in `#c-media` as kind=map with a rendered thumbnail,
+    scene-reference rail picks it up, persists through save → My Library →
+    scenario detail media strip; zero console errors; works at 375px mobile.
 - **Phase 5 — onboarding.** Spotlight tour engine + first-login tour only
   (deliberately after Phase 2 layouts settle).
 

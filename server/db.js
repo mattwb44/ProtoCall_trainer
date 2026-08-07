@@ -219,6 +219,9 @@ function migrate(db) {
   addColumn('scenarios', 'difficulty', "difficulty TEXT NOT NULL DEFAULT ''");
   addColumn('scenarios', 'duration_min', 'duration_min INTEGER');
   addColumn('scenarios', 'building_type', "building_type TEXT NOT NULL DEFAULT ''");
+  // Phase 4: category-scoped detail fields. Vehicle type is the MVA-only analogue
+  // of building_type — a JSON array of known tags, '' when absent/legacy.
+  addColumn('scenarios', 'vehicle_type', "vehicle_type TEXT NOT NULL DEFAULT ''");
   // Part 6: objectives are scoped to a scenario category so the creator only
   // offers relevant ones ('' = general, offered everywhere).
   addColumn('learning_objectives', 'category', "category TEXT NOT NULL DEFAULT ''");

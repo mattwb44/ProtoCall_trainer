@@ -649,6 +649,23 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
     }
     return typeof v === 'string' ? v : '';
   };
+  // Phase 4: vehicle type is the MVA-only detail field. Same shape as building
+  // type — a fixed, additive-only vocabulary stored as a JSON array; unknown
+  // members are dropped, legacy free-text strings pass through untouched. Which
+  // category may show it is a frontend decision (like building_type); the server
+  // just validates the vocabulary.
+  const VEHICLE_TYPES = [
+    'Sedan', 'SUV', 'Pickup', 'Van', 'Motorcycle', 'Semi/18-wheeler', 'Bus',
+    'School bus', 'Commercial truck', 'Ambulance', 'Fire apparatus',
+    'Police vehicle', 'Train', 'Train derailment', 'Bicycle/pedestrian involved',
+  ];
+  const normalizeVehicleType = (v) => {
+    if (Array.isArray(v)) {
+      const clean = v.filter(x => VEHICLE_TYPES.includes(x));
+      return clean.length ? JSON.stringify(clean) : '';
+    }
+    return typeof v === 'string' ? v : '';
+  };
   // With a category, returns that category's objectives plus the general ones
   // (category ''); without, the whole controlled list (used by validation and
   // the coverage grid, which must see every objective).
@@ -665,6 +682,7 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
       objective_secondary: body.objective_secondary ?? '',
       difficulty: body.difficulty ?? '',
       building_type: normalizeBuildingType(body.building_type),
+      vehicle_type: normalizeVehicleType(body.vehicle_type),
     };
     const list = objectiveNames();
     if (t.objective_primary && !list.includes(t.objective_primary)) return { error: 'unknown primary objective' };
@@ -939,10 +957,10 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
     const id = uuid();
     const tx = db.transaction(() => {
       db.prepare(`INSERT INTO scenarios (id, title, description, category, subcategory, image_url, visibility, shared_department, shared_public, author_id, department_id,
-                    objective_primary, objective_secondary, difficulty, building_type, review_status, submitted_at, is_draft)
-                  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(id, title, description, category, subcategory, image_url,
+                    objective_primary, objective_secondary, difficulty, building_type, vehicle_type, review_status, submitted_at, is_draft)
+                  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(id, title, description, category, subcategory, image_url,
                     shares.visibility, shares.dept ? 1 : 0, shares.pub ? 1 : 0, user.id, shares.department_id,
-                    t.objective_primary, t.objective_secondary, t.difficulty, t.building_type,
+                    t.objective_primary, t.objective_secondary, t.difficulty, t.building_type, t.vehicle_type,
                     gatedStatus({ prev: '', pub: shares.pub, wasPub: false }),
                     shares.pub ? new Date().toISOString().slice(0, 19).replace('T', ' ') : null, draft ? 1 : 0);
       const ins = db.prepare(`INSERT INTO questions (id, scenario_id, prompt, kind, choices, instructor_answer, role_track, roles, stage, objective, sort_order)
@@ -1008,10 +1026,10 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
     const tx = db.transaction(() => {
       db.prepare(`UPDATE scenarios SET title=?, description=?, category=?, subcategory=?, image_url=?, visibility=?,
                   shared_department=?, shared_public=?, department_id=?, is_official=?, review_status=?, submitted_at=?,
-                  objective_primary=?, objective_secondary=?, difficulty=?, building_type=?, is_draft=? WHERE id=?`)
+                  objective_primary=?, objective_secondary=?, difficulty=?, building_type=?, vehicle_type=?, is_draft=? WHERE id=?`)
         .run(title, description, category, subcategory, image_url, shares.visibility,
              shares.dept ? 1 : 0, shares.pub ? 1 : 0, dept, official, status, submittedAt,
-             t.objective_primary, t.objective_secondary, t.difficulty, t.building_type, draft ? 1 : 0, s.id);
+             t.objective_primary, t.objective_secondary, t.difficulty, t.building_type, t.vehicle_type, draft ? 1 : 0, s.id);
       // Reconcile questions: update kept, insert new, soft-delete removed (responses may reference them).
       const upd = db.prepare(`UPDATE questions SET prompt=?, kind=?, choices=?, instructor_answer=?, role_track=?, roles=?, stage=?, objective=?, sort_order=? WHERE id=? AND scenario_id=?`);
       const ins = db.prepare(`INSERT INTO questions (id, scenario_id, prompt, kind, choices, instructor_answer, role_track, roles, stage, objective, sort_order)
