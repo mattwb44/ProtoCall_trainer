@@ -1583,7 +1583,36 @@ async function attachRedisAdapter(io) {
   console.log('Socket.IO Redis adapter attached');
 }
 
+// Fatal boot guard for Railway. Two stores fall back to a repo-relative path
+// when their env var is unset — createDb() → protocall.db (server/db.js) and
+// createMediaStore() → media/ (server/media.js). That's fine for local dev and
+// the ':memory:' test DB, but catastrophic on Railway, where those paths live on
+// the container's EPHEMERAL disk: every deploy would boot with an empty database
+// and no uploaded media, silently losing all prior data. So on Railway
+// (RAILWAY_ENVIRONMENT is set by the platform) we require both DB_PATH and
+// MEDIA_DIR to point at the mounted volume, and refuse to boot otherwise.
+// Returns the fatal message to print, or null when the environment is safe.
+// Local dev and tests never set RAILWAY_ENVIRONMENT, so they keep using the
+// fallbacks / ':memory:' unchanged.
+export function railwayBootError(env = process.env) {
+  if (!env.RAILWAY_ENVIRONMENT) return null;
+  const missing = ['DB_PATH', 'MEDIA_DIR'].filter(name => !env[name]);
+  if (missing.length === 0) return null;
+  return `FATAL: RAILWAY_ENVIRONMENT is set but ${missing.join(' and ')} `
+    + `${missing.length > 1 ? 'are' : 'is'} not. Refusing to boot — without `
+    + `${missing.length > 1 ? 'these' : 'it'} the database and/or media fall back to the `
+    + `container's ephemeral disk, so every deploy would start empty and lose data. Set `
+    + `both to the mounted volume (see docs/ai/decisions.md: DB_PATH=/data/protocall.db, `
+    + `MEDIA_DIR=/data/media).`;
+}
+
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  // Run the guard BEFORE buildServer() — i.e. before createDb opens anything.
+  const bootError = railwayBootError();
+  if (bootError) {
+    console.error(bootError);
+    process.exit(1);
+  }
   const { app, io } = await buildServer();
   const port = Number(process.env.PORT) || 3000;
   attachRedisAdapter(io)
