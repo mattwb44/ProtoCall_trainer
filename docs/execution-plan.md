@@ -158,7 +158,22 @@ were already bugs. PR 12's table is additive.
 Copy-paste these verbatim into a fresh Claude Code session on this repo, using
 the model named in the heading.
 
-### Prompt for Sonnet 5 — PR 1 + PR 2 (railway.json, env docs, CI)
+**Effort levels:** each heading names a recommended thinking effort. Set it
+with the `/effort` command (or "think hard" phrasing) at the start of the
+session:
+
+- **Low** — mechanical, well-specified work (config files, docs, copying an
+  existing pattern). Extra deliberation just slows it down.
+- **Medium** — normal implementation with a few judgment calls (frontend
+  wiring, tests, small server additions). The default; no command needed.
+- **High** — anything touching migrations, concurrency, data deletion, or
+  security review. Cheap insurance: the cost of a wrong move here is data
+  loss, so let the model think before it edits.
+
+Rule of thumb: the Opus tasks in this plan are Opus tasks *because* they're
+risky — run them all at High. Sonnet tasks are Medium unless marked Low.
+
+### Prompt for Sonnet 5 — PR 1 + PR 2 (railway.json, env docs, CI) — effort: Low
 
 > Two small PRs, config/docs only, no behavior changes. Read
 > docs/execution-plan.md for context.
@@ -180,7 +195,7 @@ the model named in the heading.
 > Acceptance: npm test passes locally; the workflow is valid YAML; every
 > process.env reference in server/ appears in the README table.
 
-### Prompt for Opus 4.8 — PR 3 (Railway failure-mode review + boot guard)
+### Prompt for Opus 4.8 — PR 3 (Railway failure-mode review + boot guard) — effort: High
 
 > Inspect first, then implement one small guard. Read docs/execution-plan.md
 > for context.
@@ -201,7 +216,7 @@ the model named in the heading.
 > any OTHER path that silently writes data to ephemeral disk (check media.js
 > MEDIA_DIR), report it in the memo — do not fix it in this PR without asking.
 
-### Prompt for Sonnet 5 — PR 4 (in-flight guard)
+### Prompt for Sonnet 5 — PR 4 (in-flight guard) — effort: Medium
 
 > Frontend-only PR in public/index.html. Read docs/execution-plan.md for
 > context. In saveScenario() (~1742), disable both save buttons on entry
@@ -212,7 +227,7 @@ the model named in the heading.
 > test: double-click each → exactly one resource created. No server changes;
 > existing test suite must pass.
 
-### Prompt for Sonnet 5 — PR 5 (autosave + dirty warning)
+### Prompt for Sonnet 5 — PR 5 (autosave + dirty warning) — effort: High
 
 > Implement editor autosave in public/index.html. Read docs/execution-plan.md
 > for context. You may change frontend code and add server tests; do NOT
@@ -245,7 +260,7 @@ the model named in the heading.
 > editingId capture conflicts with how renderCreator initializes state, stop
 > and describe the issue instead of restructuring the editor.
 
-### Prompt for Sonnet 5 — PR 6 (error alerting)
+### Prompt for Sonnet 5 — PR 6 (error alerting) — effort: Medium
 
 > Add error reporting to server/index.js. Read docs/execution-plan.md for
 > context. Use [Sentry / mailer — owner will say which]. Requirements: a
@@ -259,7 +274,7 @@ the model named in the heading.
 > are silent. Test: the handler swallows a throwing reporter. Keep it under
 > ~60 lines; no wrapper libraries.
 
-### Prompt for Opus 4.8 — PR 7 server side (optimistic concurrency)
+### Prompt for Opus 4.8 — PR 7 server side (optimistic concurrency) — effort: High
 
 > Implement stale-write protection for scenario editing. Read
 > docs/execution-plan.md for context. Inspect server/index.js PUT
@@ -283,7 +298,7 @@ the model named in the heading.
 > summary how the client-side autosave should thread the rev (implemented
 > separately).
 
-### Prompt for Sonnet 5 — PR 7 client side + PR 10 (409 UX, moderation fix)
+### Prompt for Sonnet 5 — PR 7 client side + PR 10 (409 UX, moderation fix) — effort: Medium
 
 > Two small PRs. Read docs/execution-plan.md for context.
 >
@@ -299,7 +314,7 @@ the model named in the heading.
 > review_status='approved', plus deleted_at IS NULL. Add two tests (pending
 > scenario → 404; approved → works) in the style of test/approval-gate.test.js.
 
-### Prompt for Sonnet 5 — PR 8 (backup freshness alert)
+### Prompt for Sonnet 5 — PR 8 (backup freshness alert) — effort: Medium
 
 > Extend server/backup.js. Read docs/execution-plan.md for context. After
 > each successful offsite upload, record the timestamp in app_meta (key
@@ -311,7 +326,7 @@ the model named in the heading.
 > uploader + advanced clock → exactly one alert; a subsequent success clears
 > the condition. Do not restructure the scheduler.
 
-### Prompt for Opus 4.8 — PR 9 (response dedupe migration)
+### Prompt for Opus 4.8 — PR 9 (response dedupe migration) — effort: High
 
 > Implement duplicate-response protection. Read docs/execution-plan.md for
 > context. Inspect server/rooms.js submitResponse (line 76), the solo answer
@@ -332,7 +347,7 @@ the model named in the heading.
 > question as a feature (re-answering), STOP and ask before deleting anything
 > — check test/session-loop.test.js and the frontend first.
 
-### Prompt for Sonnet 5 — PR 11 (runbooks)
+### Prompt for Sonnet 5 — PR 11 (runbooks) — effort: Low
 
 > Write docs/runbooks.md. Read docs/execution-plan.md and docs/ops-log.md for
 > context. Five runbooks — normal deploy, migration deploy, rollback, missing
@@ -342,7 +357,7 @@ the model named in the heading.
 > local restore procedure already proven in ops-log). Terse, imperative,
 > executable without thinking. Docs only, no code changes.
 
-### Prompt for Opus 4.8 — Final review (inspect only)
+### Prompt for Opus 4.8 — Final review (inspect only) — effort: High
 
 > INSPECT ONLY — change no code. Read docs/execution-plan.md for context.
 > Produce a route-by-route table of every mutating endpoint and socket handler
@@ -355,7 +370,7 @@ the model named in the heading.
 > If you find an authorization gap, report it with a failing-test sketch — do
 > not fix it in this pass.
 
-### Prompt for Opus 4.8 + Sonnet 5 — PR 12 (version history, post-launch)
+### Prompt for Opus 4.8 + Sonnet 5 — PR 12 (version history, post-launch) — effort: High
 
 > Design and implement per-scenario version history. Read
 > docs/execution-plan.md for context. Inspect the PUT transaction in
