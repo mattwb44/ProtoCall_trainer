@@ -50,10 +50,10 @@ deploy before starting the next.
 
 Do these as PRs 1–6, in order. Details per PR in [PR sequence](#pr-sequence).
 
-- [ ] **PR 1 — `railway.json` + env docs** (Sonnet 5, risk: none)
+- [x] **PR 1 — `railway.json` + env docs** (Sonnet 5, risk: none)
       Healthcheck config in git; README table of every env var.
       *Done when:* merged; dashboard matches the doc.
-- [ ] **PR 2 — CI workflow** (Sonnet 5, risk: none)
+- [x] **PR 2 — CI workflow** (Sonnet 5, risk: none)
       `.github/workflows/test.yml` running `npm ci && npm test` on every push/PR.
       *Done when:* a deliberately red branch shows a red check. From here on:
       **never deploy without green CI.**
@@ -417,14 +417,14 @@ risky — run them all at High. Sonnet tasks are Medium unless marked Low.
 
 - [x] `DB_PATH=/data/protocall.db` on the mounted volume (dashboard-verified)
 - [x] A deploy survived with accounts/scenarios intact
-- [ ] `railway.json` with healthcheck merged; deploy log shows healthcheck passing
+- [x] `railway.json` with healthcheck merged; deploy log shows healthcheck passing
 - [ ] Boot guard merged (prod without DB_PATH refuses to start; test green)
 - [x] `BACKUP_S3_*` set; logs show "Offsite backup uploaded"
 - [x] Restore rehearsal within the last 30 days (see ops-log)
 - [x] Uptime monitor live; test alert received
 - [ ] Error alerting live; one induced 500 received
 - [ ] Backup-freshness alert merged and test-fired once
-- [ ] CI on every push; main green
+- [x] CI on every push; main green
 - [ ] Autosave merged; kill-tab test passed on desktop and mobile
 - [ ] In-flight guards merged; double-click test passed on every create button
 - [ ] Optimistic concurrency merged; two-tab 409 test passed, no silent overwrite
