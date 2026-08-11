@@ -61,10 +61,11 @@ Do these as PRs 1–6, in order. Details per PR in [PR sequence](#pr-sequence).
       On Railway (`RAILWAY_ENVIRONMENT` set) with no `DB_PATH`, refuse to boot
       loudly instead of silently writing to ephemeral disk (`server/db.js:8`).
       *Done when:* guard test green; all 123 existing tests pass.
-- [ ] **PR 4 — Save-button in-flight guard** (Sonnet 5, risk: low)
+- [x] **PR 4 — Save-button in-flight guard** (Sonnet 5, risk: low)
       Disable buttons in `saveScenario()` (`public/index.html:~1742`) during
       save; sweep other create buttons (solo save at ~3273 is the model).
       *Done when:* double-click creates exactly one scenario/session/clone.
+      *(2026-08-10)*
 - [ ] **PR 5 — Editor autosave + unload warning** (Opus designs, Sonnet implements; risk: medium)
       Debounced 10s autosave via the existing draft API; new/draft scenarios
       only — never auto-PUT a published scenario; capture returned `id` on
@@ -426,7 +427,7 @@ risky — run them all at High. Sonnet tasks are Medium unless marked Low.
 - [ ] Backup-freshness alert merged and test-fired once
 - [x] CI on every push; main green
 - [ ] Autosave merged; kill-tab test passed on desktop and mobile
-- [ ] In-flight guards merged; double-click test passed on every create button
+- [x] In-flight guards merged; double-click test passed on every create button
 - [ ] Optimistic concurrency merged; two-tab 409 test passed, no silent overwrite
 - [ ] Response dedupe merged; migration ran clean in prod (check logs)
 - [ ] Moderation consistency fix merged
