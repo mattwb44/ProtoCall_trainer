@@ -1741,6 +1741,13 @@ function drawQs() {
 }
 async function saveScenario(opts = {}) {
   const draft = opts.draft === true;
+  // In-flight guard: disable every button in the actions bar (draft + finish,
+  // or the single publish/reviewer/save-changes button) so a double-click
+  // can't fire two creates/updates for the same scenario.
+  const actionBtns = [...$('#c-actions').querySelectorAll('button')];
+  const restore = actionBtns.map(b => [b, b.disabled, b.innerHTML]);
+  actionBtns.forEach(b => { b.disabled = true; b.innerHTML = 'Saving…'; });
+  try {
   const body = {
     draft,
     title: $('#c-title').value.trim(), description: $('#c-desc').value.trim(),
@@ -1789,6 +1796,9 @@ async function saveScenario(opts = {}) {
     location.hash = editingAsReviewer ? `#/create/${editingId}` : draft ? '#/library?tab=drafts' : '#/library';
     if (editingAsReviewer) renderCreator(editingId);
   } else toast((await res.json().catch(() => ({}))).error || 'Save failed', 'bg-rose-600');
+  } finally {
+    restore.forEach(([b, disabled, html]) => { b.disabled = disabled; b.innerHTML = html; });
+  }
 }
 
 /* ═══ Host Control Room ═══ */
@@ -2792,9 +2802,10 @@ async function renderPublic(scopeArg) {
   });
   app.querySelectorAll('[data-clone]').forEach(btn => btn.onclick = async () => {
     if (!me) { sessionStorage.authNext = location.hash; location.hash = '#/login'; return; }
+    btn.disabled = true;
     const r = await fetch(`/api/scenarios/${btn.dataset.clone}/clone`, { method: 'POST' });
     if (r.ok) { toast('Cloned to your private library'); location.hash = '#/library'; }
-    else toast('Clone failed', 'bg-rose-600');
+    else { toast('Clone failed', 'bg-rose-600'); btn.disabled = false; }
   });
   app.querySelectorAll('[data-report]').forEach(btn => btn.onclick = async () => {
     if (!me) { sessionStorage.authNext = location.hash; location.hash = '#/login'; return; }
@@ -3055,9 +3066,11 @@ async function renderScenarioDetail(id) {
   };
   $('#sd-clone').onclick = async () => {
     if (!me) { sessionStorage.authNext = location.hash; location.hash = '#/login'; return; }
+    const btn = $('#sd-clone');
+    btn.disabled = true;
     const r = await fetch(`/api/scenarios/${s.id}/clone`, { method: 'POST' });
     if (r.ok) { toast('Cloned to your private library'); location.hash = '#/library'; }
-    else toast('Clone failed', 'bg-rose-600');
+    else { toast('Clone failed', 'bg-rose-600'); btn.disabled = false; }
   };
 }
 
@@ -3410,11 +3423,12 @@ async function renderSessionDetail(id) {
 function bindLaunchButtons() {
   app.querySelectorAll('[data-launch]').forEach(btn => btn.onclick = async () => {
     if (!me) { sessionStorage.authNext = location.hash; location.hash = '#/login'; return; }
+    btn.disabled = true;
     const res = await fetch('/api/sessions', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ scenario_id: btn.dataset.launch }),
     });
-    if (!res.ok) { toast('Could not launch session', 'bg-rose-600'); return; }
+    if (!res.ok) { toast('Could not launch session', 'bg-rose-600'); btn.disabled = false; return; }
     location.hash = '#/host/' + (await res.json()).room_code;
   });
 }
@@ -3446,14 +3460,18 @@ async function renderDepartment() {
     </main>`;
     icons();
     $('#d-join').onclick = async () => {
+      const btn = $('#d-join');
+      btn.disabled = true;
       const r = await fetch('/api/departments/join', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code: $('#d-code').value }) });
       if (r.ok) { const d = await r.json(); toast(`Welcome to ${d.name}`); await refreshMe(); renderDepartment(); }
-      else toast((await r.json()).error, 'bg-rose-600');
+      else { toast((await r.json()).error, 'bg-rose-600'); btn.disabled = false; }
     };
     $('#d-create').onclick = async () => {
+      const btn = $('#d-create');
+      btn.disabled = true;
       const r = await fetch('/api/departments', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: $('#d-name').value }) });
       if (r.ok) { toast('Submitted — your department is awaiting site approval'); await refreshMe(); renderDepartment(); }
-      else toast((await r.json()).error, 'bg-rose-600');
+      else { toast((await r.json()).error, 'bg-rose-600'); btn.disabled = false; }
     };
     return;
   }
