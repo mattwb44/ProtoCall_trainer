@@ -243,12 +243,22 @@ const routes = {
 };
 function route() {
   leaveSocket();
+  leaveCreator();
   immersionLifted = false;
   renderSidebar();
   const [name, arg] = location.hash.replace(/^#\//, '').split('?')[0].split('/');
   (routes[name] || renderLanding)(arg);
 }
 window.addEventListener('hashchange', route);
+// PR 5 — autosave dirty-tracking + unload warning. Delegated on `app` (which
+// persists across renders) rather than on individual inputs, since the creator
+// view's fields are re-wired on every drawQs()/drawMedia()/etc. `click` and
+// `drop` are included because several edits (share toggles, add/delete question,
+// media add/delete, the map-editor insert) are button clicks, not input/change.
+['input', 'change', 'click', 'drop'].forEach(ev => app.addEventListener(ev, markDirty));
+const warnUnsavedExit = e => { if (unsavedChanges) { e.preventDefault(); e.returnValue = ''; } };
+window.addEventListener('beforeunload', warnUnsavedExit);
+window.addEventListener('pagehide', warnUnsavedExit);
 
 /* ═══ Landing ═══ */
 function renderLanding() {
@@ -646,6 +656,15 @@ const SUBCATS = {
   'Motor Vehicle Accidents': ['Extrication','Rollover','Hazardous Materials'],
 };
 let draftQs = [], draftShares = { dept: false, pub: false }, draftMedia = [], draftBldg = [], draftVeh = [], editingId = null, editingAsReviewer = false;
+// PR 5 — autosave. `creatorMounted` gates the delegated dirty-listeners and the
+// unload warning to only apply while the creator view is on screen. `autosaveEligible`
+// is decided once per load: a brand-new scenario or an existing draft — never a
+// published scenario, and never a reviewer's edit of someone else's scenario (that
+// could silently publish a draft that's mid-review). `autosaveBaseline` is the JSON
+// snapshot of the last successful save, so a debounce tick with nothing new to say
+// is skipped instead of firing a no-op request.
+let creatorMounted = false, autosaveEligible = false, autosaveTimer = null, autosaveInFlight = false, autosaveBaseline = null, unsavedChanges = false;
+const AUTOSAVE_DEBOUNCE_MS = 10000;
 const loadObjectives = cat =>
   fetch('/api/objectives?category=' + encodeURIComponent(cat)).then(r => r.json()).catch(() => []);
 // Building type is a multi-select tree (shop-filter style). Selections are
@@ -1163,6 +1182,7 @@ function drawSceneRef() {
 
 async function renderCreator(id) {
   if (!me) { sessionStorage.authNext = location.hash; location.hash = '#/login'; return; }
+  leaveCreator(); // in case this is the reviewer-save re-render, not a fresh route()
   editingId = id || null;
   editingAsReviewer = false;
   draftQs = [newQuestion()];
@@ -1295,6 +1315,7 @@ async function renderCreator(id) {
         <div id="vis-seg" class="grid ${me?.department ? 'grid-cols-3' : 'grid-cols-2'} gap-2"></div>
       </section>
       <div id="c-actions" class="space-y-2"></div>
+      <p id="c-autosave-status" class="text-xs text-center text-slate-400 min-h-[1em]"></p>
     </div>
     <aside id="scene-rail" class="hidden lg:block lg:sticky lg:top-20"></aside>
     </div>
@@ -1435,7 +1456,7 @@ async function renderCreator(id) {
     drawMedia();
   };
   $('#c-file').onchange = () => uploadImage($('#c-file').files[0]);
-  $('#c-map-open').onclick = () => openMapEditor(m => { draftMedia.push(m); drawMedia(); });
+  $('#c-map-open').onclick = () => openMapEditor(m => { draftMedia.push(m); drawMedia(); markDirty(); });
   // Drag & drop onto the same zone. The drop target is a <label> wrapping the
   // file input, so we stop the drop from bubbling to a native file open.
   const drop = $('#c-drop');
@@ -1529,6 +1550,15 @@ async function renderCreator(id) {
   if (tutX) tutX.onclick = () => { localStorage.pcCreateTutorialDismissed = '1'; $('#c-tut')?.remove(); };
   $('#c-desc').addEventListener('input', drawSceneRef);
   drawQs(); drawMedia(); drawBldg(); drawVeh(); drawSceneRef(); icons();
+  // PR 5 — autosave. Eligible for a brand-new scenario or an existing draft only;
+  // never a published scenario, and never a reviewer editing someone else's
+  // scenario (which could still be a draft mid-review — see leaveCreator/runAutosave).
+  // The baseline snapshot is taken now, after the form reflects the loaded state,
+  // so the first autosave only fires once something actually changes.
+  autosaveEligible = !editingAsReviewer && (!editingId || !!(existing && existing.is_draft));
+  autosaveBaseline = JSON.stringify(buildScenarioBody(true).body);
+  unsavedChanges = false;
+  creatorMounted = true;
 }
 function drawBldg() {
   const wrap = $('#c-bldg-tree'); if (!wrap) return;
@@ -1739,15 +1769,13 @@ function drawQs() {
   });
   icons();
 }
-async function saveScenario(opts = {}) {
-  const draft = opts.draft === true;
-  // In-flight guard: disable every button in the actions bar (draft + finish,
-  // or the single publish/reviewer/save-changes button) so a double-click
-  // can't fire two creates/updates for the same scenario.
-  const actionBtns = [...$('#c-actions').querySelectorAll('button')];
-  const restore = actionBtns.map(b => [b, b.disabled, b.innerHTML]);
-  actionBtns.forEach(b => { b.disabled = true; b.innerHTML = 'Saving…'; });
-  try {
+// Shared by the manual Save/Draft/Finish buttons and autosave, so both send the
+// exact same shape and an id backfilled onto a question (see runAutosave) is
+// picked up by whichever path saves next. `includedQs` are the actual draftQs
+// entries behind each submitted question (not copies), so callers can write a
+// server-assigned id back onto them.
+function buildScenarioBody(draft) {
+  const includedQs = draftQs.filter(q => q.prompt.trim());
   const body = {
     draft,
     title: $('#c-title').value.trim(), description: $('#c-desc').value.trim(),
@@ -1759,7 +1787,7 @@ async function saveScenario(opts = {}) {
     // is cleared so switching category doesn't strand a stale selection.
     building_type: DETAIL_FIELD_BY_CAT[$('#c-cat').value] === 'building' ? draftBldg : [],
     vehicle_type: DETAIL_FIELD_BY_CAT[$('#c-cat').value] === 'vehicle' ? draftVeh : [],
-    questions: draftQs.filter(q => q.prompt.trim()).map(q => {
+    questions: includedQs.map(q => {
       syncAnswer(q);
       const choice = q.kind === 'multiple_choice' || q.kind === 'select_all';
       return {
@@ -1772,6 +1800,87 @@ async function saveScenario(opts = {}) {
     }),
     media: draftMedia,
   };
+  return { body, includedQs };
+}
+function setAutosaveStatus(state) {
+  const el = $('#c-autosave-status');
+  if (!el) return;
+  el.textContent = state === 'saving' ? 'Saving…'
+    : state === 'saved' ? 'Saved just now'
+    : state === 'failed' ? 'Autosave failed — will retry' : '';
+}
+// Delegated on `app` (see the listener registered near `route()`); fires on
+// every input/change/click/drop while the creator view is mounted.
+function markDirty() {
+  if (!creatorMounted) return;
+  unsavedChanges = true;
+  setAutosaveStatus('');
+  if (!autosaveEligible) return;
+  clearTimeout(autosaveTimer);
+  autosaveTimer = setTimeout(runAutosave, AUTOSAVE_DEBOUNCE_MS);
+}
+// Tears down the autosave timer and dirty-tracking when the creator view is
+// left, whether via SPA navigation (route(), see above) or by renderCreator
+// re-entering itself (the reviewer-save path below calls it directly).
+function leaveCreator() {
+  creatorMounted = false;
+  clearTimeout(autosaveTimer);
+  autosaveTimer = null;
+  autosaveInFlight = false;
+  unsavedChanges = false;
+}
+// Debounced draft save. Only ever sends draft:true — an autosave must never be
+// the thing that finishes/publishes a scenario. `autosaveEligible` (set once per
+// renderCreator load) already restricts this to a brand-new scenario or an
+// existing draft, so this never touches a published row.
+async function runAutosave() {
+  if (!creatorMounted || !autosaveEligible) return;
+  if (autosaveInFlight) { autosaveTimer = setTimeout(runAutosave, AUTOSAVE_DEBOUNCE_MS); return; }
+  const { body, includedQs } = buildScenarioBody(true);
+  const snapshot = JSON.stringify(body);
+  if (snapshot === autosaveBaseline) return; // nothing changed since the last save
+  autosaveInFlight = true;
+  setAutosaveStatus('saving');
+  try {
+    const res = await fetch(editingId ? `/api/scenarios/${editingId}` : '/api/scenarios', {
+      method: editingId ? 'PUT' : 'POST',
+      headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    });
+    if (!res.ok) throw new Error('autosave failed');
+    const data = await res.json().catch(() => ({}));
+    // First autosave of a new scenario: capture the id so every later save
+    // (auto and manual) targets this same row instead of creating another.
+    if (!editingId && data.id) editingId = data.id;
+    autosaveBaseline = snapshot;
+    // The user may have kept typing while this request was in flight — only
+    // clear the dirty flag if the form still matches what we just saved.
+    unsavedChanges = creatorMounted && JSON.stringify(buildScenarioBody(true).body) !== snapshot;
+    setAutosaveStatus('saved');
+    // Backfill server-assigned ids for questions that were just inserted, so the
+    // next autosave updates these rows in place instead of re-inserting them
+    // (the API doesn't echo question ids back on save — see docs/execution-plan.md PR 5).
+    if (includedQs.some(q => !q.id)) {
+      const fresh = await fetch(`/api/scenarios/${editingId}`).then(r => r.ok ? r.json() : null).catch(() => null);
+      if (fresh?.questions?.length === includedQs.length)
+        includedQs.forEach((q, i) => { if (!q.id) q.id = fresh.questions[i].id; });
+    }
+  } catch {
+    setAutosaveStatus('failed');
+    if (creatorMounted) autosaveTimer = setTimeout(runAutosave, AUTOSAVE_DEBOUNCE_MS);
+  } finally {
+    autosaveInFlight = false;
+  }
+}
+async function saveScenario(opts = {}) {
+  const draft = opts.draft === true;
+  // In-flight guard: disable every button in the actions bar (draft + finish,
+  // or the single publish/reviewer/save-changes button) so a double-click
+  // can't fire two creates/updates for the same scenario.
+  const actionBtns = [...$('#c-actions').querySelectorAll('button')];
+  const restore = actionBtns.map(b => [b, b.disabled, b.innerHTML]);
+  actionBtns.forEach(b => { b.disabled = true; b.innerHTML = 'Saving…'; });
+  try {
+  const { body } = buildScenarioBody(draft);
   // Drafts require nothing (validation is deferred to Finish, server-enforced).
   if (!draft) {
     if (!body.title) return toast('Title is required', 'bg-amber-500');
@@ -1784,11 +1893,17 @@ async function saveScenario(opts = {}) {
     if (body.objective_secondary && body.objective_secondary === body.objective_primary)
       return toast('Objectives must differ', 'bg-amber-500');
   }
+  // A manual save (auto or not — same fetch) supersedes any pending autosave tick.
+  clearTimeout(autosaveTimer);
   const res = await fetch(editingId ? `/api/scenarios/${editingId}` : '/api/scenarios', {
     method: editingId ? 'PUT' : 'POST',
     headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
   });
   if (res.ok) {
+    const data = await res.json().catch(() => ({}));
+    if (!editingId && data.id) editingId = data.id;
+    autosaveBaseline = JSON.stringify(body);
+    unsavedChanges = false;
     toast(draft ? 'Draft saved' : editingId ? 'Scenario updated' : 'Scenario saved');
     // reviewers return to their queue (visibility stays the author's; the
     // server ignores it on reviewer PUTs), authors to their library. A saved
