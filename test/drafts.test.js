@@ -96,6 +96,53 @@ test('editing a published scenario with draft:true does not demote it', async ()
   assert.equal(row(id).is_draft, 0, 'never demoted to draft');
 });
 
+// PR 5: the editor autosaves a draft on a debounce, backfilling any question id
+// the server assigns so the next autosave updates rows in place. These tests
+// pin down the server-side half of that contract.
+test('repeated draft PUTs (ids preserved) are idempotent — no duplicate or orphaned questions', async () => {
+  const id = (await (await post('/api/scenarios', author, { draft: true, title: 'Idempotent WIP' })).json()).id;
+  const first = await put(`/api/scenarios/${id}`, author, {
+    draft: true, title: 'Idempotent WIP', questions: [{ prompt: 'Q1', instructor_answer: 'A1' }],
+  });
+  assert.equal(first.status, 200);
+  const afterFirst = ctx.db.prepare('SELECT id FROM questions WHERE scenario_id=? AND deleted=0').all(id);
+  assert.equal(afterFirst.length, 1);
+  const qId = afterFirst[0].id;
+  // An autosave client backfills the returned question id before its next save
+  // (see runAutosave in public/index.html) — simulate two more rounds with it set.
+  const body = { draft: true, title: 'Idempotent WIP', questions: [{ id: qId, prompt: 'Q1 edited', instructor_answer: 'A1' }] };
+  const second = await put(`/api/scenarios/${id}`, author, body);
+  const third = await put(`/api/scenarios/${id}`, author, body);
+  assert.equal(second.status, 200);
+  assert.equal(third.status, 200);
+  const active = ctx.db.prepare('SELECT id, prompt FROM questions WHERE scenario_id=? AND deleted=0').all(id);
+  assert.equal(active.length, 1, 'still exactly one active question after two more PUTs');
+  assert.equal(active[0].id, qId, 'same row updated in place, not re-inserted');
+  assert.equal(active[0].prompt, 'Q1 edited');
+  assert.equal(
+    ctx.db.prepare('SELECT COUNT(*) c FROM questions WHERE scenario_id=?').get(id).c, 1,
+    'no soft-deleted duplicates left behind either',
+  );
+  assert.equal(row(id).is_draft, 1, 'still a draft after repeated autosave-style PUTs');
+});
+
+test('draft:true on a published scenario is ignored for is_draft but still overwrites content', async () => {
+  // This is exactly why the client-side autosave gate exists: a PUT with
+  // draft:true never demotes a published scenario, but it isn't a no-op either.
+  const id = (await (await post('/api/scenarios', author, {
+    title: 'Published Original', category: 'Fireground', subcategory: 'Residential',
+    objective_primary: 'Scene Size-Up', questions: [{ prompt: 'Original', instructor_answer: 'A' }],
+  })).json()).id;
+  const res = await put(`/api/scenarios/${id}`, author, {
+    draft: true, title: 'Overwritten By Autosave', category: 'Fireground', subcategory: 'Residential',
+    objective_primary: 'Scene Size-Up', questions: [{ prompt: 'Overwritten', instructor_answer: 'A' }],
+  });
+  assert.equal(res.status, 200);
+  const r = row(id);
+  assert.equal(r.is_draft, 0, 'still published, not demoted');
+  assert.equal(r.title, 'Overwritten By Autosave', 'content is overwritten regardless — the client must never send this PUT idly');
+});
+
 test('a normal (non-draft) create still requires the core fields', async () => {
   assert.equal((await post('/api/scenarios', author, { title: 'X' })).status, 400);
   assert.equal((await post('/api/scenarios', author, {
