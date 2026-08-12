@@ -23,11 +23,10 @@ whether it dies during build or after start, and whether the boot-guard
 further static-analysis guessing without that.
 
 ## Execution plan status (`docs/execution-plan.md`)
-P1 (pre-beta) progress: PR 1–6 done (`[x]`). **PR 6's own done-when criterion
-("one induced 500 in prod reaches you") is still unverified** — that needs a
-real deploy with `ERROR_ALERT_EMAIL` set and an induced 500, which no agent
-session can do. P2+ (PR 7–12) not started. Full checklist is in the doc;
-don't duplicate it here — this file only tracks what's *different* from the
+P1 (pre-beta) progress: PR 1–6 done (`[x]`), including PR 6's prod
+verification (induced `/__test-error`, alert email confirmed, route
+removed). P2+ (PR 7–12) not started. Full checklist is in the doc; don't
+duplicate it here — this file only tracks what's *different* from the
 doc's own checkboxes (nothing right now; PR 3's checkbox was fixed this
 session to
 match its already-merged state).

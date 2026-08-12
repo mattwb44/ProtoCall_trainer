@@ -78,7 +78,7 @@ Do these as PRs 1–6, in order. Details per PR in [PR sequence](#pr-sequence).
       Fastify `setErrorHandler` → throttled email via `server/mailer.js`.
       Fire-and-forget; no request bodies (passwords) in reports.
       *Done when:* one induced 500 in prod reaches you.
-      *(2026-08-11)*
+      *(2026-08-11, verified via induced `/__test-error` route in prod — email confirmed, route removed)*
 
 **→ Invite the 10 beta users.** Run the beta 2–3 weeks while doing P2.
 
