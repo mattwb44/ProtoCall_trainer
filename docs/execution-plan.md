@@ -66,12 +66,13 @@ Do these as PRs 1–6, in order. Details per PR in [PR sequence](#pr-sequence).
       save; sweep other create buttons (solo save at ~3273 is the model).
       *Done when:* double-click creates exactly one scenario/session/clone.
       *(2026-08-10)*
-- [ ] **PR 5 — Editor autosave + unload warning** (Opus designs, Sonnet implements; risk: medium)
+- [x] **PR 5 — Editor autosave + unload warning** (Opus designs, Sonnet implements; risk: medium)
       Debounced 10s autosave via the existing draft API; new/draft scenarios
       only — never auto-PUT a published scenario; capture returned `id` on
       first save; status chip; `beforeunload` **and** `pagehide` (mobile Safari).
       *Done when:* kill-tab test recovers the draft on desktop and phone;
       published scenario untouched by an idle editor.
+      *(2026-08-11)*
 - [ ] **PR 6 — Error alerting** (Sonnet 5, risk: low)
       Fastify `setErrorHandler` → Sentry or throttled email via `server/mailer.js`.
       Fire-and-forget; no request bodies (passwords) in reports.
@@ -426,7 +427,7 @@ risky — run them all at High. Sonnet tasks are Medium unless marked Low.
 - [ ] Error alerting live; one induced 500 received
 - [ ] Backup-freshness alert merged and test-fired once
 - [x] CI on every push; main green
-- [ ] Autosave merged; kill-tab test passed on desktop and mobile
+- [x] Autosave merged; kill-tab test passed on desktop and mobile
 - [x] In-flight guards merged; double-click test passed on every create button
 - [ ] Optimistic concurrency merged; two-tab 409 test passed, no silent overwrite
 - [ ] Response dedupe merged; migration ran clean in prod (check logs)
