@@ -42,6 +42,7 @@ export function createMailer({
   }
 
   return {
+    sendAlert: (to, subject, text) => send(to, subject, `<pre style="white-space:pre-wrap;font-family:monospace">${text}</pre>`),
     sendVerification: (to, name, link) =>
       send(to, 'Verify your ProtoCall Trainer email',
         shell(`Confirm your email, ${name}`,

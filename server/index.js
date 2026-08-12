@@ -26,7 +26,27 @@ import { createAnalyzer } from './analysis.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRateMax = 300, mailer = createMailer(), analyzer = createAnalyzer(), backup } = {}) {
+// Fire-and-forget error alerting via the mailer. Enabled only when ERROR_ALERT_EMAIL
+// is set, so tests/dev stay silent. Throttled to one email per distinct error
+// message per hour (in-memory — resets on restart, which is fine for this scale).
+// Never passed the request, so bodies/cookies can never leak into a report.
+const alertMailer = createMailer();
+const lastAlerted = new Map();
+function defaultReportError(error) {
+  try {
+    const to = process.env.ERROR_ALERT_EMAIL;
+    if (!to) return;
+    const sig = String(error?.message ?? error);
+    const now = Date.now();
+    if (now - (lastAlerted.get(sig) || 0) < 60 * 60 * 1000) return;
+    lastAlerted.set(sig, now);
+    alertMailer.sendAlert(to, `ProtoCall error: ${sig}`, error?.stack || sig).catch(() => {});
+  } catch { /* reporting must never crash the caller */ }
+}
+process.on('unhandledRejection', defaultReportError);
+process.on('uncaughtException', error => { defaultReportError(error); process.exit(1); });
+
+export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRateMax = 300, mailer = createMailer(), analyzer = createAnalyzer(), backup, reportError = defaultReportError } = {}) {
   const db = createDb(dbFile);
   seedIfEmpty(db);
 
@@ -75,6 +95,12 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
     cacheControl: true, maxAge: '365d', immutable: true, // filenames are content-unique UUIDs
   });
   app.register(fastifyMultipart, { limits: { fileSize: MAX_UPLOAD_BYTES, files: 1 } });
+  // Reporting is wrapped so a throwing/misbehaving reporter can never affect the response.
+  app.setErrorHandler((error, request, reply) => {
+    try { reportError(error); } catch { /* reporting must never affect the response */ }
+    const statusCode = error.statusCode || 500;
+    reply.code(statusCode).send({ error: statusCode >= 500 ? 'internal server error' : error.message });
+  });
 
   // Base URL for email links. APP_URL pins it in prod; otherwise derive from the request
   // (req.protocol is https behind Railway thanks to trustProxy).

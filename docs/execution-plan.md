@@ -57,10 +57,11 @@ Do these as PRs 1–6, in order. Details per PR in [PR sequence](#pr-sequence).
       `.github/workflows/test.yml` running `npm ci && npm test` on every push/PR.
       *Done when:* a deliberately red branch shows a red check. From here on:
       **never deploy without green CI.**
-- [ ] **PR 3 — DB_PATH boot guard** (Opus 4.8, risk: low)
+- [x] **PR 3 — DB_PATH boot guard** (Opus 4.8, risk: low)
       On Railway (`RAILWAY_ENVIRONMENT` set) with no `DB_PATH`, refuse to boot
       loudly instead of silently writing to ephemeral disk (`server/db.js:8`).
       *Done when:* guard test green; all 123 existing tests pass.
+      *(merged in `efdf11c`; checkbox was missed at the time)*
 - [x] **PR 4 — Save-button in-flight guard** (Sonnet 5, risk: low)
       Disable buttons in `saveScenario()` (`public/index.html:~1742`) during
       save; sweep other create buttons (solo save at ~3273 is the model).
@@ -73,10 +74,11 @@ Do these as PRs 1–6, in order. Details per PR in [PR sequence](#pr-sequence).
       *Done when:* kill-tab test recovers the draft on desktop and phone;
       published scenario untouched by an idle editor.
       *(2026-08-11)*
-- [ ] **PR 6 — Error alerting** (Sonnet 5, risk: low)
-      Fastify `setErrorHandler` → Sentry or throttled email via `server/mailer.js`.
+- [x] **PR 6 — Error alerting** (Sonnet 5, risk: low)
+      Fastify `setErrorHandler` → throttled email via `server/mailer.js`.
       Fire-and-forget; no request bodies (passwords) in reports.
       *Done when:* one induced 500 in prod reaches you.
+      *(2026-08-11)*
 
 **→ Invite the 10 beta users.** Run the beta 2–3 weeks while doing P2.
 
