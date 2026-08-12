@@ -998,7 +998,7 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
     });
     tx();
     reply.code(201);
-    return { id };
+    return { id, rev: 0 };
   });
 
   app.put('/api/scenarios/:id', (req, reply) => {
@@ -1007,6 +1007,13 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
     // v8: an in-scope reviewer may edit a submitted scenario (content only).
     const asReviewer = !!s && s.author_id !== user.id && s.review_status !== '' && isReviewerOf(user, s);
     if (!s || (s.author_id !== user.id && !asReviewer)) return reply.code(404).send({ error: 'not found' });
+    // PR 7 (optimistic concurrency): if the client sends a `rev` and it no longer
+    // matches, another edit (own tab or in-scope reviewer) landed first — refuse
+    // rather than clobber it (the question soft-delete reconcile below would drop
+    // questions the winning edit added). A versionless request skips the check for
+    // back-compat: existing tests and old cached pages keep saving.
+    if (req.body?.rev !== undefined && req.body.rev !== s.rev)
+      return reply.code(409).send({ error: 'edited in another tab', current_rev: s.rev });
     // Phase 2 drafts: only a scenario that is *still* a draft can stay a draft or
     // be finished. Editing a published scenario never demotes it (the draft flag
     // is ignored), so a stray draft:true can't unpublish live work.
@@ -1052,7 +1059,7 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
     const tx = db.transaction(() => {
       db.prepare(`UPDATE scenarios SET title=?, description=?, category=?, subcategory=?, image_url=?, visibility=?,
                   shared_department=?, shared_public=?, department_id=?, is_official=?, review_status=?, submitted_at=?,
-                  objective_primary=?, objective_secondary=?, difficulty=?, building_type=?, vehicle_type=?, is_draft=? WHERE id=?`)
+                  objective_primary=?, objective_secondary=?, difficulty=?, building_type=?, vehicle_type=?, is_draft=?, rev=rev+1 WHERE id=?`)
         .run(title, description, category, subcategory, image_url, shares.visibility,
              shares.dept ? 1 : 0, shares.pub ? 1 : 0, dept, official, status, submittedAt,
              t.objective_primary, t.objective_secondary, t.difficulty, t.building_type, t.vehicle_type, draft ? 1 : 0, s.id);
@@ -1077,7 +1084,7 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
       if (!asReviewer) rememberStages(user.id, questions);
     });
     tx();
-    return { id: s.id };
+    return { id: s.id, rev: s.rev + 1 };
   });
 
   app.delete('/api/scenarios/:id', (req, reply) => {

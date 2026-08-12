@@ -5,7 +5,7 @@ need feature-track background — as of this update, active work is the
 **ops-hardening execution plan** at `docs/execution-plan.md`, not the phase
 tracks described in those two files (which are all shipped/merged)._
 
-`npm test` = 127 passing, all on `main`, CI green.
+`npm test` = 133 passing, all on `main`, CI green.
 
 ## Resume here: one thing
 
@@ -23,15 +23,34 @@ whether it dies during build or after start, and whether the boot-guard
 further static-analysis guessing without that.
 
 ## Execution plan status (`docs/execution-plan.md`)
-P1 (pre-beta) progress: PR 1–6 done (`[x]`), including PR 6's prod
-verification (induced `/__test-error`, alert email confirmed, route
-removed). P2+ (PR 7–12) not started. Full checklist is in the doc; don't
-duplicate it here — this file only tracks what's *different* from the
-doc's own checkboxes (nothing right now; PR 3's checkbox was fixed this
-session to
-match its already-merged state).
+P1 (pre-beta) done: PR 1–6 (`[x]`), incl. PR 6's prod verification. P2
+started: **PR 7 server side is implemented** (optimistic concurrency — see
+history below); the **PR 7 client side is NOT done yet** (Sonnet task, prompt
+in the plan). PR 8–12 not started. Full checklist is in the doc; this file
+only tracks deltas.
+
+**Resume PR 7 here — client side.** `public/index.html` `buildScenarioBody()`
+must thread `rev` into PUT bodies, and `saveScenario()`/`runAutosave()` must
+capture the `rev` returned by every POST/PUT/GET and show a persistent
+"edited in another tab" banner on a 409 (keep the form populated, no
+auto-reload). Server contract details in the history section below.
 
 ## Recent history (this session)
+- **PR 7 (server side) — optimistic concurrency**: implemented, tested
+  (133/133). Added a `rev INTEGER NOT NULL DEFAULT 0` column to `scenarios`
+  (`server/db.js` `migrate()`, `addColumn` pattern). Scenario PUT
+  (`server/index.js` ~1009) now checks: if the body carries `rev` and it
+  `!== s.rev`, reply **409 `{error, current_rev}`** before doing any work;
+  a versionless body skips the check (back-compat for old cached pages and
+  existing tests). The check sits ahead of the transaction, which bumps
+  `rev=rev+1` inside the same UPDATE. `rev` is returned by POST (`{id, rev:0}`),
+  PUT (`{id, rev: s.rev+1}`), and GET `/api/scenarios/:id` (already via
+  `SELECT s.*`). Reviewer edits (`asReviewer` path) are version-checked too —
+  the check is above the reviewer/draft branching. `test/optimistic-concurrency.test.js`
+  covers stale→409, fresh→200, versionless→200, reviewer-collision→409.
+  **Client contract for the follow-up PR:** capture `rev` from every
+  POST/PUT/GET response into editor state; send it in PUT bodies; on 409, show
+  the banner and keep the form (the user can reload to pick up `current_rev`).
 - **PR 6 — error alerting**: implemented, tested (128/128), committed.
   Fastify `setErrorHandler` reports fire-and-forget (own try/catch, never
   passed `request` so bodies/cookies can't leak) via new `mailer.sendAlert`,

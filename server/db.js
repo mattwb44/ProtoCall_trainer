@@ -283,6 +283,12 @@ function migrate(db) {
   // refused, not just the socket dropped) and hides them from the roster. Their
   // already-submitted responses stay in the archive.
   addColumn('participants', 'booted_at', 'booted_at TEXT');
+  // PR 7 (optimistic concurrency): a monotonically increasing revision, bumped
+  // inside each scenario PUT. A client that sends a stale `rev` gets a 409 with
+  // the current value instead of silently overwriting a concurrent edit. Legacy
+  // rows (and versionless requests) default to 0 and keep working — `rev` is an
+  // opt-in on the client side. See server/index.js PUT /api/scenarios/:id.
+  addColumn('scenarios', 'rev', 'rev INTEGER NOT NULL DEFAULT 0');
   if (!hasFlag(db, 'roles_as_sets_backfill')) {
     db.exec(`UPDATE questions SET roles=json_array(role_track) WHERE role_track<>'' AND roles='[]'`);
     db.exec(`UPDATE participants SET roles=json_array(role_track) WHERE role_track<>'' AND roles='[]'`);
