@@ -1240,7 +1240,10 @@ async function renderCreator(id) {
   };
   app.innerHTML = `
   <main class="max-w-6xl mx-auto p-4 sm:p-6 anim-in">
-    <h1 class="text-2xl font-bold">${editingId ? (existing.can_review && !existing.mine ? 'Review Scenario' : 'Edit Scenario') : 'Scenario Creator'}</h1>
+    <div class="sticky top-14 z-10 bg-slate-950/95 backdrop-blur -mt-1 pt-1 pb-3 border-b border-slate-800 flex items-center justify-between gap-3 flex-wrap">
+      <h1 class="text-2xl font-bold">${editingId ? (existing.can_review && !existing.mine ? 'Review Scenario' : 'Edit Scenario') : 'Scenario Creator'}</h1>
+      <p id="c-autosave-status" class="text-xs text-slate-400 min-h-[1em]"></p>
+    </div>
     <div class="mt-4 lg:grid lg:grid-cols-[minmax(0,1fr)_19rem] lg:gap-6 lg:items-start">
     <div class="space-y-5 min-w-0">
       ${reviewBanner()}
@@ -1315,7 +1318,6 @@ async function renderCreator(id) {
         <div id="vis-seg" class="grid ${me?.department ? 'grid-cols-3' : 'grid-cols-2'} gap-2"></div>
       </section>
       <div id="c-actions" class="space-y-2"></div>
-      <p id="c-autosave-status" class="text-xs text-center text-slate-400 min-h-[1em]"></p>
     </div>
     <aside id="scene-rail" class="hidden lg:block lg:sticky lg:top-20"></aside>
     </div>
