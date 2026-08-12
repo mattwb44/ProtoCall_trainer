@@ -43,6 +43,7 @@ Environment variables read by `server/`:
 | `PORT` | Port the HTTP server listens on. | Yes (platform-provided) | Defaults to `3000`. |
 | `RESEND_API_KEY` | API key for sending transactional email (verification, password reset) via Resend. | Yes | Mailer no-ops and logs the link instead of emailing it — users can't self-serve verification/reset. |
 | `MAIL_FROM` | From address/name used on outgoing email. | No | Defaults to `ProtoCall Trainer <onboarding@resend.dev>`. |
+| `ERROR_ALERT_EMAIL` | Address to email (via Resend/`RESEND_API_KEY`) on server errors — 500s, `unhandledRejection`, `uncaughtException`. Throttled to one email per distinct error message per hour. | No | Error alerting is off; errors are only logged to stdout. |
 | `ANTHROPIC_API_KEY` | API key for Claude-powered scenario analysis. | Yes (if analysis features are used) | Analyzer can't be created / analysis endpoints fail. |
 | `ANALYSIS_MODEL` | Claude model used for scenario analysis. | No | Defaults to `claude-opus-4-8`. |
 | `MEDIA_DIR` | Directory for uploaded media storage. | No | Defaults to a `media/` folder next to the source. |
