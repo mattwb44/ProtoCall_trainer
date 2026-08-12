@@ -1592,6 +1592,10 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
     });
   });
 
+  // TEMPORARY: manual verification that ERROR_ALERT_EMAIL alerts actually reach an inbox.
+  // Remove this route once confirmed — see docs/execution-plan.md PR 6.
+  app.get('/__test-error', () => { throw new Error('test alert — PR 6 verification'); });
+
   app.addHook('onClose', () => backupScheduler?.stop());
 
   return { app, io, db, backup: backupScheduler };
