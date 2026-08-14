@@ -394,7 +394,7 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
   // ── Reporting & moderation ──
   app.post('/api/scenarios/:id/report', (req, reply) => {
     const user = requireUser(req, reply); if (!user) return;
-    const s = db.prepare("SELECT id FROM scenarios WHERE id=? AND visibility='public' AND deleted_at IS NULL")
+    const s = db.prepare(`SELECT id FROM scenarios s WHERE s.id=? AND ${APPROVED_PUBLIC} AND s.deleted_at IS NULL`)
       .get(req.params.id);
     if (!s) return reply.code(404).send({ error: 'not found' });
     const reason = req.body?.reason?.trim();
@@ -1125,7 +1125,8 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
 
   app.post('/api/scenarios/:id/vote', (req, reply) => {
     const user = requireUser(req, reply); if (!user) return;
-    const s = db.prepare("SELECT id FROM scenarios WHERE id=? AND visibility='public'").get(req.params.id);
+    const s = db.prepare(`SELECT id FROM scenarios s WHERE s.id=? AND ${APPROVED_PUBLIC} AND s.deleted_at IS NULL`)
+      .get(req.params.id);
     if (!s) return reply.code(404).send({ error: 'not found' });
     const existing = db.prepare('SELECT 1 FROM scenario_votes WHERE user_id=? AND scenario_id=?').get(user.id, s.id);
     if (existing) db.prepare('DELETE FROM scenario_votes WHERE user_id=? AND scenario_id=?').run(user.id, s.id);

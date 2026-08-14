@@ -145,6 +145,10 @@ function toast(msg, color) {
   t.classList.remove('hidden');
   clearTimeout(t._t); t._t = setTimeout(() => t.classList.add('hidden'), 2500);
 }
+function showConflictBanner() {
+  const b = $('#c-conflict-banner');
+  if (b) b.classList.remove('hidden');
+}
 function icons(){ lucide.createIcons(); }
 const token = localStorage.pcToken || (localStorage.pcToken = crypto.randomUUID());
 
@@ -664,7 +668,12 @@ let draftQs = [], draftShares = { dept: false, pub: false }, draftMedia = [], dr
 // snapshot of the last successful save, so a debounce tick with nothing new to say
 // is skipped instead of firing a no-op request.
 let creatorMounted = false, autosaveEligible = false, autosaveTimer = null, autosaveInFlight = false, autosaveBaseline = null, unsavedChanges = false;
-const AUTOSAVE_DEBOUNCE_MS = 10000;
+// PR 7 client — optimistic concurrency. `editingRev` tracks the last rev this tab
+// knows about (from the initial GET or the most recent successful save) and rides
+// along on every PUT; a 409 means another tab saved first, so the form stays put
+// and the banner (#c-conflict-banner) explains it instead of silently overwriting.
+let editingRev = null;
+const AUTOSAVE_DEBOUNCE_MS = 5000;
 const loadObjectives = cat =>
   fetch('/api/objectives?category=' + encodeURIComponent(cat)).then(r => r.json()).catch(() => []);
 // Building type is a multi-select tree (shop-filter style). Selections are
@@ -1185,6 +1194,7 @@ async function renderCreator(id) {
   leaveCreator(); // in case this is the reviewer-save re-render, not a fresh route()
   editingId = id || null;
   editingAsReviewer = false;
+  editingRev = null;
   draftQs = [newQuestion()];
   draftMedia = [];
   myStagePresets = await fetch('/api/me/stage-presets').then(r => r.json()).catch(() => []);
@@ -1194,6 +1204,7 @@ async function renderCreator(id) {
     existing = res.ok ? await res.json() : null;
     if (!existing || (!existing.mine && !existing.can_review)) { toast('Scenario not found', 'bg-rose-600'); location.hash = '#/library'; return; }
     editingAsReviewer = !existing.mine && existing.can_review;
+    editingRev = existing.rev;
     draftQs = existing.questions.map(q => {
       const qq = { id: q.id, prompt: q.prompt, kind: q.kind, choices: q.choices, instructor_answer: q.instructor_answer, roles: rolesArr(q.roles ?? q.role_track), stage: q.stage ?? '', objective: q.objective ?? '', _correct: [] };
       if ((q.kind === 'multiple_choice' || q.kind === 'select_all') && Array.isArray(q.choices)) {
@@ -1243,6 +1254,10 @@ async function renderCreator(id) {
     <div class="sticky top-14 z-10 bg-slate-950/95 backdrop-blur -mt-1 pt-1 pb-3 border-b border-slate-800 flex items-center justify-between gap-3 flex-wrap">
       <h1 class="text-2xl font-bold">${editingId ? (existing.can_review && !existing.mine ? 'Review Scenario' : 'Edit Scenario') : 'Scenario Creator'}</h1>
       <p id="c-autosave-status" class="text-xs text-slate-400 min-h-[1em]"></p>
+    </div>
+    <div id="c-conflict-banner" class="hidden fixed top-0 inset-x-0 z-50 text-sm font-semibold bg-rose-600 text-white px-4 py-3 shadow-xl flex items-center justify-center gap-3 flex-wrap text-center">
+      <span>Edited in another tab — reload to get the latest. Your changes here are kept until you leave.</span>
+      <button type="button" id="c-conflict-dismiss" class="tap text-xs font-bold bg-rose-800 hover:bg-rose-900 rounded-lg px-3 py-1">Dismiss</button>
     </div>
     <div class="mt-4 lg:grid lg:grid-cols-[minmax(0,1fr)_19rem] lg:gap-6 lg:items-start">
     <div class="space-y-5 min-w-0">
@@ -1322,6 +1337,7 @@ async function renderCreator(id) {
     <aside id="scene-rail" class="hidden lg:block lg:sticky lg:top-20"></aside>
     </div>
   </main>`;
+  $('#c-conflict-dismiss').onclick = () => $('#c-conflict-banner').classList.add('hidden');
   const rvAct = async (action, note, official = false) => {
     const r = await fetch(`/api/scenarios/${editingId}/review`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -1780,6 +1796,7 @@ function buildScenarioBody(draft) {
   const includedQs = draftQs.filter(q => q.prompt.trim());
   const body = {
     draft,
+    ...(editingId && editingRev !== null ? { rev: editingRev } : {}),
     title: $('#c-title').value.trim(), description: $('#c-desc').value.trim(),
     category: $('#c-cat').value, subcategory: $('#c-sub').value,
     shared_department: draftShares.dept, shared_public: draftShares.pub,
@@ -1813,12 +1830,19 @@ function setAutosaveStatus(state) {
 }
 // Delegated on `app` (see the listener registered near `route()`); fires on
 // every input/change/click/drop while the creator view is mounted.
+//
+// This is a max-wait debounce, not a plain one: the timer is set once per
+// unsaved streak and left alone. A plain debounce (clear + restart on every
+// edit) never fires while the user keeps interacting — a slow typist writing
+// one long paragraph, or someone clicking between fields, could go well past
+// 10s without a single save. runAutosave always clears autosaveTimer for its
+// own tick (rescheduling only on retry); markDirty never clears it early.
 function markDirty() {
   if (!creatorMounted) return;
   unsavedChanges = true;
   setAutosaveStatus('');
   if (!autosaveEligible) return;
-  clearTimeout(autosaveTimer);
+  if (autosaveTimer) return; // already counting down for this unsaved streak
   autosaveTimer = setTimeout(runAutosave, AUTOSAVE_DEBOUNCE_MS);
 }
 // Tears down the autosave timer and dirty-tracking when the creator view is
@@ -1836,6 +1860,7 @@ function leaveCreator() {
 // renderCreator load) already restricts this to a brand-new scenario or an
 // existing draft, so this never touches a published row.
 async function runAutosave() {
+  autosaveTimer = null; // this tick is spent — markDirty may start counting the next streak
   if (!creatorMounted || !autosaveEligible) return;
   if (autosaveInFlight) { autosaveTimer = setTimeout(runAutosave, AUTOSAVE_DEBOUNCE_MS); return; }
   const { body, includedQs } = buildScenarioBody(true);
@@ -1848,11 +1873,13 @@ async function runAutosave() {
       method: editingId ? 'PUT' : 'POST',
       headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
     });
+    if (res.status === 409) { showConflictBanner(); throw new Error('autosave conflict'); }
     if (!res.ok) throw new Error('autosave failed');
     const data = await res.json().catch(() => ({}));
     // First autosave of a new scenario: capture the id so every later save
     // (auto and manual) targets this same row instead of creating another.
     if (!editingId && data.id) editingId = data.id;
+    if (data.rev !== undefined) editingRev = data.rev;
     autosaveBaseline = snapshot;
     // The user may have kept typing while this request was in flight — only
     // clear the dirty flag if the form still matches what we just saved.
@@ -1904,6 +1931,7 @@ async function saveScenario(opts = {}) {
   if (res.ok) {
     const data = await res.json().catch(() => ({}));
     if (!editingId && data.id) editingId = data.id;
+    if (data.rev !== undefined) editingRev = data.rev;
     autosaveBaseline = JSON.stringify(body);
     unsavedChanges = false;
     toast(draft ? 'Draft saved' : editingId ? 'Scenario updated' : 'Scenario saved');
@@ -1912,6 +1940,11 @@ async function saveScenario(opts = {}) {
     // draft lands on the Drafts sub-tab.
     location.hash = editingAsReviewer ? `#/create/${editingId}` : draft ? '#/library?tab=drafts' : '#/library';
     if (editingAsReviewer) renderCreator(editingId);
+  } else if (res.status === 409) {
+    // Another tab saved first. Don't reload or redirect — that would either
+    // silently discard this tab's unsaved form state or force a re-fetch of an
+    // article the user is mid-edit on. Leave the form exactly as it is.
+    showConflictBanner();
   } else toast((await res.json().catch(() => ({}))).error || 'Save failed', 'bg-rose-600');
   } finally {
     restore.forEach(([b, disabled, html]) => { b.disabled = disabled; b.innerHTML = html; });

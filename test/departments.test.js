@@ -224,6 +224,7 @@ test('report → queue → unlist flips private and closes all reports; access c
       questions: [{ prompt: 'Enter alone without command approval?', instructor_answer: 'yes' }],
     }),
   }).then(r => r.json());
+  approvePublic(ctx.db, id); // reporting requires it to have cleared the Community review gate
 
   assert.equal((await post(`/api/scenarios/${id}/report`, chief, { reason: 'Unsafe: encourages freelancing' })).status, 201);
   assert.equal((await post(`/api/scenarios/${id}/report`, chief, { reason: 'dup' })).status, 409, 'one open report per user');
