@@ -96,12 +96,14 @@ Do these as PRs 1–6, in order. Details per PR in [PR sequence](#pr-sequence).
       Last successful offsite upload tracked in `app_meta`; >48h stale → email,
       max once/24h. Uses existing seams (`now`, `offsite`, `log`) in `server/backup.js`.
       *Done when:* test green; one real alert verified by breaking the S3 secret briefly.
-- [ ] **PR 9 — Live response dedupe** (Opus 4.8, risk: medium)
+- [x] **PR 9 — Live response dedupe** (Opus 4.8, risk: medium)
       Flag-guarded one-shot migration: remove duplicate responses (keep
       `is_pushed=1` row if any, else earliest), unique index on
       `(session_id, participant_id, question_id)`, `INSERT OR IGNORE` in
       `Rooms.submitResponse` (`server/rooms.js:76`).
       *Done when:* seeded-dupes migration test passes; double-submit yields one row.
+      *(2026-08-15; verifier CONFIRMED, 140/140. Prod migration-log check still
+      pending — see the readiness checklist item.)*
 - [ ] **PR 10 — Moderation consistency** (Sonnet 5, risk: low)
       `vote` (`server/index.js:~1095`) and `report` (~371) switch from legacy
       `visibility='public'` to the `APPROVED_PUBLIC` predicate (~530).

@@ -295,6 +295,32 @@ function migrate(db) {
     setFlag(db, 'roles_as_sets_backfill');
   }
 
+  // PR 9 (live response dedupe): a participant answers each question exactly once
+  // (the client locks the whole track after the first submit), but a socket
+  // double-fire — an offline-queue flush or a timed-out re-emit — could insert a
+  // duplicate response. Collapse any existing duplicates per
+  // (session_id, participant_id, question_id), keeping a pushed row (is_pushed=1)
+  // if one exists, else the earliest, then enforce uniqueness with an index.
+  // One-shot dedupe (flag-guarded, since a re-run over post-migration data is a
+  // no-op but the intent is clearly once); the index creation is idempotent and
+  // must run before the first INSERT OR IGNORE relies on it, so it lives outside
+  // the flag guard. Ordering matters: dedupe MUST precede the index or the
+  // CREATE would fail on the very duplicates it exists to prevent.
+  if (!hasFlag(db, 'responses_dedupe')) {
+    db.exec(`
+      DELETE FROM responses WHERE id NOT IN (
+        SELECT id FROM (
+          SELECT id, ROW_NUMBER() OVER (
+            PARTITION BY session_id, participant_id, question_id
+            ORDER BY is_pushed DESC, submitted_at ASC, rowid ASC
+          ) AS rn FROM responses
+        ) WHERE rn = 1
+      )`);
+    setFlag(db, 'responses_dedupe');
+  }
+  db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS ux_responses_session_participant_question
+             ON responses (session_id, participant_id, question_id)`);
+
   // Seed the controlled vocabulary (PRD-v7); site admins extend it in-app.
   // Part 6: each objective carries a category so the creator can show only the
   // relevant ones. Category '' is general and offered under every category.

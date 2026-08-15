@@ -1,11 +1,11 @@
 # Next session
 
-_Updated 2026-08-11. Read `current-focus.md` and `decisions.md` first if you
+_Updated 2026-08-15. Read `current-focus.md` and `decisions.md` first if you
 need feature-track background — as of this update, active work is the
 **ops-hardening execution plan** at `docs/execution-plan.md`, not the phase
 tracks described in those two files (which are all shipped/merged)._
 
-`npm test` = 133 passing, all on `main`, CI green.
+`npm test` = 140 passing, all on `main`, CI green.
 
 ## Resume here: one thing
 
@@ -23,19 +23,33 @@ whether it dies during build or after start, and whether the boot-guard
 further static-analysis guessing without that.
 
 ## Execution plan status (`docs/execution-plan.md`)
-P1 (pre-beta) done: PR 1–6 (`[x]`), incl. PR 6's prod verification. P2
-started: **PR 7 server side is implemented** (optimistic concurrency — see
-history below); the **PR 7 client side is NOT done yet** (Sonnet task, prompt
-in the plan). PR 8–12 not started. Full checklist is in the doc; this file
-only tracks deltas.
+P1 (pre-beta) done: PR 1–6. P2: PR 7 (optimistic concurrency, server+client),
+PR 8 (backup-freshness alert), PR 9 (response dedupe), and the moderation-
+consistency fix are all merged/implemented. **Remaining before the 50-user
+gate: PR 11 (runbooks — `docs/runbooks.md`) and the Opus final authorization
+sweep.** A few checklist items are prod-verification gated (e.g. PR 9's
+"migration ran clean in prod (check logs)" — verify on the next deploy).
 
-**Resume PR 7 here — client side.** `public/index.html` `buildScenarioBody()`
-must thread `rev` into PUT bodies, and `saveScenario()`/`runAutosave()` must
-capture the `rev` returned by every POST/PUT/GET and show a persistent
-"edited in another tab" banner on a 409 (keep the form populated, no
-auto-reload). Server contract details in the history section below.
+**Resume here — PR 11 (runbooks).** Sonnet task, prompt in the plan: write
+`docs/runbooks.md` (deploy, migration deploy, rollback, missing-data,
+outage/restore) with exact commands. Docs only. Then the Opus final review
+(inspect-only authorization sweep of every mutating route + socket handler).
 
-## Recent history (this session)
+## Recent history
+- **PR 9 (2026-08-15) — live response dedupe**: implemented, verified (140/140,
+  fresh-context verifier CONFIRMED). Flag-guarded one-shot in `server/db.js`
+  `migrate()` (`app_meta` `responses_dedupe`) collapses duplicate responses per
+  `(session_id, participant_id, question_id)` — keep the `is_pushed=1` row if
+  any, else earliest (`ROW_NUMBER() ... ORDER BY is_pushed DESC, submitted_at
+  ASC, rowid ASC`) — then a `CREATE UNIQUE INDEX IF NOT EXISTS
+  ux_responses_session_participant_question` (idempotent, runs every boot,
+  outside the flag guard; the DELETE is inside it and must precede the index).
+  `server/rooms.js` `submitResponse` → `INSERT OR IGNORE`, returns the existing
+  row on collision so a socket double-fire acks normally. Re-answering confirmed
+  *not* a feature (client locks the track at `public/index.html:2324`; solo REST
+  already 409s at `server/index.js:1246`). Tests: `test/response-dedupe.test.js`
+  (seeded-dupes migration + double-submit-one-row). See `decisions.md` → Live
+  sessions.
 - **PR 7 (server side) — optimistic concurrency**: implemented, tested
   (133/133). Added a `rev INTEGER NOT NULL DEFAULT 0` column to `scenarios`
   (`server/db.js` `migrate()`, `addColumn` pattern). Scenario PUT

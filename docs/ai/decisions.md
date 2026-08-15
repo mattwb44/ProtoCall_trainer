@@ -187,6 +187,16 @@ full rationale lives in the PRDs (`PRD-v*.md`), `SPEC.md`, and `VOICE.md`.
   participant's* visible questions (role intersection); "N of M done" header;
   tapping a chip expands their per-question detail. **No auto-advance, ever** —
   the roster informs, the host decides.
+- **One response per (session, participant, question) — enforced in the DB.**
+  Re-answering is deliberately not a feature: the client locks the whole track
+  after the first submit, and reveal/roster math already dedupes with
+  `DISTINCT question_id`. A UNIQUE index on
+  `(session_id, participant_id, question_id)` makes that invariant real, so a
+  socket double-fire (offline-queue flush, timed-out re-emit) can't create a
+  second row. `submitResponse` uses `INSERT OR IGNORE` and returns the existing
+  row on collision, so the double-fire still acks normally. A flag-guarded
+  one-shot (`app_meta` `responses_dedupe`) collapsed any pre-existing dupes —
+  pushed row wins, else earliest — before the index was added (PR 9).
 
 ## Browse UI defaults
 - **List/grid toggle** on all scenario pages: default grid, remembered per user

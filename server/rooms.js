@@ -75,12 +75,21 @@ export class Rooms {
 
   submitResponse(sessionId, questionId, participantId, body) {
     const id = uuid();
-    this.db.prepare(
-      'INSERT INTO responses (id, session_id, question_id, participant_id, body) VALUES (?,?,?,?,?)')
+    // PR 9: a unique index on (session_id, participant_id, question_id) makes a
+    // duplicate insert a no-op instead of a constraint crash, so a socket
+    // double-fire (offline-queue flush, timed-out re-emit) still acks normally.
+    // On an ignore, return the row already stored for that natural key.
+    const info = this.db.prepare(
+      'INSERT OR IGNORE INTO responses (id, session_id, question_id, participant_id, body) VALUES (?,?,?,?,?)')
       .run(id, sessionId, questionId, participantId, body);
+    const rowId = info.changes
+      ? id
+      : this.db.prepare(
+          'SELECT id FROM responses WHERE session_id=? AND participant_id=? AND question_id=?')
+          .get(sessionId, participantId, questionId).id;
     return withRoleFields(this.db.prepare(
       `SELECT r.*, p.display_tag, p.roles, p.shift_label FROM responses r
-       JOIN participants p ON p.id = r.participant_id WHERE r.id=?`).get(id));
+       JOIN participants p ON p.id = r.participant_id WHERE r.id=?`).get(rowId));
   }
 
   // F4: a participant sets/changes their shift label freely until their first
