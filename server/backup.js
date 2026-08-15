@@ -19,9 +19,20 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { createOffsiteUploaderFromEnv } from './offsite.js';
+import { createMailer } from './mailer.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+const OFFSITE_STALE_MS = 2 * DAY_MS; // 48h
+const ALERT_COOLDOWN_MS = DAY_MS; // at most one freshness alert per 24h
 const FILE_RE = /^protocall-.*\.db$/;
+
+function readMeta(db, key) {
+  return db.prepare('SELECT value FROM app_meta WHERE key=?').get(key)?.value ?? null;
+}
+function writeMeta(db, key, value) {
+  db.prepare(`INSERT INTO app_meta (key, value) VALUES (?, ?)
+    ON CONFLICT(key) DO UPDATE SET value=excluded.value`).run(key, value);
+}
 
 // Sorts chronologically because the timestamp is a fixed-width ISO prefix.
 function listBackups(dir) {
@@ -64,14 +75,48 @@ function isStale(dir, intervalMs, now) {
   }
 }
 
+// Offsite is defence-in-depth on top of the local snapshot, but a silently
+// broken uploader (bad/rotated secret, bucket deleted) defeats that — so once
+// it's configured, staleness has to reach the operator. Runs after every
+// upload attempt (success or failure) so a stale condition is caught even
+// when this cycle's own upload just failed. Never throws: a mailer outage
+// must not take down the backup cycle.
+async function checkOffsiteFreshness(db, { now, log, mailer, alertEmail }) {
+  if (!alertEmail) return;
+  const lastOkRaw = readMeta(db, 'last_offsite_ok');
+  const lastOk = lastOkRaw ? new Date(lastOkRaw).getTime() : null;
+  const stale = lastOk === null || now().getTime() - lastOk >= OFFSITE_STALE_MS;
+  if (!stale) return;
+
+  const lastAlertRaw = readMeta(db, 'last_offsite_alert');
+  const lastAlert = lastAlertRaw ? new Date(lastAlertRaw).getTime() : null;
+  if (lastAlert !== null && now().getTime() - lastAlert < ALERT_COOLDOWN_MS) return;
+
+  try {
+    const body = lastOkRaw
+      ? `Last successful offsite backup upload: ${lastOkRaw}. Offsite backups are meant to run daily — check BACKUP_S3_* credentials and the bucket.`
+      : 'No successful offsite backup upload has ever been recorded. Check BACKUP_S3_* credentials and the bucket.';
+    await mailer.sendAlert(alertEmail, 'ProtoCall offsite backup is stale', body);
+  } catch (err) {
+    log.error?.(`Offsite freshness alert FAILED: ${err?.message ?? 'unknown error'}`);
+  }
+  writeMeta(db, 'last_offsite_alert', now().toISOString());
+}
+
 // Start the recurring backup. Returns { stop, runOnce }. The interval is
 // unref'd so it never keeps the process (or a test) alive on its own.
 // `offsite` defaults to the env-configured uploader (null when the BACKUP_S3_*
 // vars aren't set, which is the case in dev/test); pass `offsite: null` to force
 // it off or an object with `.upload(path)` to inject one.
+// `mailer`/`alertEmail` are the freshness-alert seams, same shape as `offsite`:
+// `mailer` defaults to the env-configured Resend client (no-ops without
+// RESEND_API_KEY); `alertEmail` defaults to ERROR_ALERT_EMAIL (the same
+// operator address PR 6's error alerting uses) and the check is skipped
+// entirely when it's unset, so dev/test stay silent.
 export function startBackupScheduler(db, {
   dir, intervalMs = DAY_MS, keep = 14, now = () => new Date(), log = console,
   offsite = createOffsiteUploaderFromEnv({ log }),
+  mailer = createMailer(), alertEmail = process.env.ERROR_ALERT_EMAIL,
 } = {}) {
   // Serialize: a slow backup that outruns the interval (or the boot catch-up
   // overlapping the first tick) must not start a second concurrent snapshot.
@@ -88,14 +133,17 @@ export function startBackupScheduler(db, {
         if (offsite) {
           try {
             const res = await offsite.upload(dest);
-            if (res?.ok) log.log?.(`Offsite backup uploaded: ${res.key} (HTTP ${res.status})`);
-            else {
+            if (res?.ok) {
+              log.log?.(`Offsite backup uploaded: ${res.key} (HTTP ${res.status})`);
+              writeMeta(db, 'last_offsite_ok', now().toISOString());
+            } else {
               const why = res?.error ? res.error : `HTTP ${res?.status}${res?.code ? ` ${res.code}` : ''}`;
               log.error?.(`Offsite backup FAILED for ${res?.key ?? path.basename(dest)}: ${why}`);
             }
           } catch (err) {
             log.error?.(`Offsite backup FAILED: ${err?.message ?? 'unknown error'}`);
           }
+          await checkOffsiteFreshness(db, { now, log, mailer, alertEmail });
         }
         return dest;
       })
