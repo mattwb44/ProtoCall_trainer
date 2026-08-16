@@ -770,7 +770,7 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
     if (s.review_status === 'pending') return reply.code(409).send({ error: 'already awaiting review' });
     if (s.review_status === 'approved') return reply.code(409).send({ error: 'already approved' });
     const qCount = db.prepare('SELECT COUNT(*) c FROM questions WHERE scenario_id=? AND deleted=0').get(s.id).c;
-    if (!qCount) return reply.code(400).send({ error: 'add at least one question first' });
+    if (!qCount) return reply.code(400).send({ error: 'Add at least one question first.' });
     db.prepare(`UPDATE scenarios SET review_status='pending', review_note='', submitted_at=datetime('now') WHERE id=?`)
       .run(s.id);
     return { review_status: 'pending' };
