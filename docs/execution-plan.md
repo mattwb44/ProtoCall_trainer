@@ -11,7 +11,10 @@ named for the task, and paste its prompt. Every prompt tells the model to read
 this file and the audit context it needs. One task per session; merge and
 deploy before starting the next.
 
-**Status:** P0 complete (2026-08-10, see `docs/ops-log.md`). Currently executing P1.
+**Status:** P0 complete (2026-08-10). P1 complete. P2 (PRs 7–11 + Opus review)
+complete as of 2026-08-16 — see `docs/ops-log.md`. Remaining before opening up:
+confirm PR 9's migration ran clean in prod (check logs), `SITE_ADMIN_EMAIL`
+set, and post-deploy verification followed on the last 3 deploys.
 
 ---
 
@@ -86,16 +89,21 @@ Do these as PRs 1–6, in order. Details per PR in [PR sequence](#pr-sequence).
 
 ## P2 — Before 50+ users
 
-- [ ] **PR 7 — Optimistic concurrency** (Opus server, Sonnet client; risk: med-high)
+- [x] **PR 7 — Optimistic concurrency** (Opus server, Sonnet client; risk: med-high)
       Integer `rev` on `scenarios`; stale PUT → 409 `{error, current_rev}`;
       versionless PUT still accepted (back-compat — old tabs must keep working);
       client sends `rev`, shows "edited in another tab" banner on 409, keeps
       form populated. Reviewer edits version-checked too.
       *Done when:* two-tab test 409s without data loss; all existing tests pass.
-- [ ] **PR 8 — Backup freshness alert** (Sonnet 5, risk: low)
+      *(already implemented and tested; checkbox was missed at the time —
+      confirmed via `test/optimistic-concurrency.test.js`, 5/5 green.)*
+- [x] **PR 8 — Backup freshness alert** (Sonnet 5, risk: low)
       Last successful offsite upload tracked in `app_meta`; >48h stale → email,
       max once/24h. Uses existing seams (`now`, `offsite`, `log`) in `server/backup.js`.
       *Done when:* test green; one real alert verified by breaking the S3 secret briefly.
+      *(2026-08-16; live drill in prod — secret broken, failure logged, real
+      alert email received, secret restored, recovery confirmed. See
+      `docs/ops-log.md`.)*
 - [x] **PR 9 — Live response dedupe** (Opus 4.8, risk: medium)
       Flag-guarded one-shot migration: remove duplicate responses (keep
       `is_pushed=1` row if any, else earliest), unique index on
@@ -104,17 +112,25 @@ Do these as PRs 1–6, in order. Details per PR in [PR sequence](#pr-sequence).
       *Done when:* seeded-dupes migration test passes; double-submit yields one row.
       *(2026-08-15; verifier CONFIRMED, 140/140. Prod migration-log check still
       pending — see the readiness checklist item.)*
-- [ ] **PR 10 — Moderation consistency** (Sonnet 5, risk: low)
+- [x] **PR 10 — Moderation consistency** (Sonnet 5, risk: low)
       `vote` (`server/index.js:~1095`) and `report` (~371) switch from legacy
       `visibility='public'` to the `APPROVED_PUBLIC` predicate (~530).
       *Done when:* pending scenario → 404 on vote/report; approved → works.
-- [ ] **PR 11 — Runbooks** (Sonnet 5 writes, Opus reviews; risk: none)
+      *(already implemented and tested; checkbox was missed at the time —
+      confirmed via `test/moderation-gate.test.js`, both cases green.)*
+- [x] **PR 11 — Runbooks** (Sonnet 5 writes, Opus reviews; risk: none)
       `docs/runbooks.md`: deploy, migration, rollback, missing-data,
       outage/restore — exact commands, executable without thinking.
       *Done when:* missing-data runbook dry-run once against a backup copy.
-- [ ] **Opus final review** (inspect-only)
+      *(2026-08-15; dry-run passed against a `db.backup()` snapshot — see
+      `docs/ops-log.md`.)*
+- [x] **Opus final review** (inspect-only)
       Authorization sweep of every mutating route + socket handler; runbook
       review; go/no-go against the readiness checklist below.
+      *(2026-08-15; found one gap — socket `push_answer` had no session
+      scoping, letting a host push/read a response from another host's
+      session — fixed same day with a regression test. Runbook command bugs
+      also found and fixed. See `docs/ops-log.md` and git history.)*
 
 **→ Work the 50-user checklist, then open it up.**
 
@@ -424,20 +440,26 @@ risky — run them all at High. Sonnet tasks are Medium unless marked Low.
 - [x] `DB_PATH=/data/protocall.db` on the mounted volume (dashboard-verified)
 - [x] A deploy survived with accounts/scenarios intact
 - [x] `railway.json` with healthcheck merged; deploy log shows healthcheck passing
-- [ ] Boot guard merged (prod without DB_PATH refuses to start; test green)
+- [x] Boot guard merged (prod without DB_PATH refuses to start; test green)
+      *(PR 3, merged in `efdf11c`; confirmed via `test/boot-guard.test.js`.)*
 - [x] `BACKUP_S3_*` set; logs show "Offsite backup uploaded"
 - [x] Restore rehearsal within the last 30 days (see ops-log)
 - [x] Uptime monitor live; test alert received
-- [ ] Error alerting live; one induced 500 received
-- [ ] Backup-freshness alert merged and test-fired once
+- [x] Error alerting live; one induced 500 received
+      *(PR 6; verified via induced `/__test-error` route in prod, email
+      confirmed, route removed — see git history and `docs/ops-log.md`.)*
+- [x] Backup-freshness alert merged and test-fired once (2026-08-16, see ops-log)
 - [x] CI on every push; main green
 - [x] Autosave merged; kill-tab test passed on desktop and mobile
 - [x] In-flight guards merged; double-click test passed on every create button
-- [ ] Optimistic concurrency merged; two-tab 409 test passed, no silent overwrite
+- [x] Optimistic concurrency merged; two-tab 409 test passed, no silent overwrite
+      *(confirmed via `test/optimistic-concurrency.test.js`, 5/5 green.)*
 - [ ] Response dedupe merged; migration ran clean in prod (check logs)
-- [ ] Moderation consistency fix merged
-- [ ] Opus authorization sweep completed with zero open gaps
-- [ ] Runbooks merged; missing-data runbook dry-run once
+- [x] Moderation consistency fix merged (verified via test/moderation-gate.test.js)
+- [x] Opus authorization sweep completed with zero open gaps (2026-08-15; one
+      gap found — socket `push_answer` cross-session leak — fixed same day,
+      see git history and `docs/ops-log.md`)
+- [x] Runbooks merged; missing-data runbook dry-run once (2026-08-15, see ops-log)
 - [ ] `SITE_ADMIN_EMAIL` set; your account shows site_admin
 - [ ] Post-deploy verification followed on the last 3 deploys
 

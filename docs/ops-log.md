@@ -8,6 +8,28 @@ Newest entries first.
 
 ---
 
+## 2026-08-16 — Backup freshness alert (PR 8) — live drill (pass)
+
+Verified the offsite backup freshness alert end-to-end in production, not
+just under test. Temporarily broke `BACKUP_S3_SECRET_ACCESS_KEY` on Railway
+(one character altered) to force real offsite upload failures.
+
+Confirmed in Railway logs:
+```
+Offsite backup FAILED for protocall/protocall-2026-08-16T15-30-03.db: HTTP 403 SignatureDoesNotMatch
+```
+Once `last_offsite_ok` crossed the 48h staleness threshold, the freshness
+check fired a real email to the configured `ERROR_ALERT_EMAIL` — subject
+"ProtoCall offsite backup is stale" — received and confirmed.
+
+Restored the correct `BACKUP_S3_SECRET_ACCESS_KEY` afterward. Confirmed
+recovery via a subsequent `Offsite backup uploaded ... (HTTP 200)` log line.
+
+**Result:** Pass. Both the failure path (logged, doesn't crash the local
+backup) and the alert path (real email, correct 48h/24h-cooldown gating)
+verified live. This closes PR 8's Definition of Done
+(`docs/execution-plan.md`).
+
 ## 2026-08-15 — Missing-data runbook dry-run (pass)
 
 Dry-ran Runbook 4 ("Missing user data") from `docs/runbooks.md` against a
