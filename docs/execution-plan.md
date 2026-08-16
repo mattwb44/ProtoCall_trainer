@@ -11,10 +11,10 @@ named for the task, and paste its prompt. Every prompt tells the model to read
 this file and the audit context it needs. One task per session; merge and
 deploy before starting the next.
 
-**Status:** P0 complete (2026-08-10). P1 complete. P2 (PRs 7–11 + Opus review)
-complete as of 2026-08-16 — see `docs/ops-log.md`. Remaining before opening up:
-confirm PR 9's migration ran clean in prod (check logs), `SITE_ADMIN_EMAIL`
-set, and post-deploy verification followed on the last 3 deploys.
+**Status:** P0 complete (2026-08-10). P1 complete. P2 complete as of
+2026-08-16 — see `docs/ops-log.md`. The 50-user readiness checklist below is
+fully checked off. Ready to work the checklist's final read-through and open
+up to 50+ users.
 
 ---
 
@@ -110,8 +110,8 @@ Do these as PRs 1–6, in order. Details per PR in [PR sequence](#pr-sequence).
       `(session_id, participant_id, question_id)`, `INSERT OR IGNORE` in
       `Rooms.submitResponse` (`server/rooms.js:76`).
       *Done when:* seeded-dupes migration test passes; double-submit yields one row.
-      *(2026-08-15; verifier CONFIRMED, 140/140. Prod migration-log check still
-      pending — see the readiness checklist item.)*
+      *(2026-08-15; verifier CONFIRMED, 140/140. Prod migration-log check
+      done 2026-08-16 — see the readiness checklist item.)*
 - [x] **PR 10 — Moderation consistency** (Sonnet 5, risk: low)
       `vote` (`server/index.js:~1095`) and `report` (~371) switch from legacy
       `visibility='public'` to the `APPROVED_PUBLIC` predicate (~530).
@@ -454,14 +454,14 @@ risky — run them all at High. Sonnet tasks are Medium unless marked Low.
 - [x] In-flight guards merged; double-click test passed on every create button
 - [x] Optimistic concurrency merged; two-tab 409 test passed, no silent overwrite
       *(confirmed via `test/optimistic-concurrency.test.js`, 5/5 green.)*
-- [ ] Response dedupe merged; migration ran clean in prod (check logs)
+- [x] Response dedupe merged; migration ran clean in prod (2026-08-16, logs checked)
 - [x] Moderation consistency fix merged (verified via test/moderation-gate.test.js)
 - [x] Opus authorization sweep completed with zero open gaps (2026-08-15; one
       gap found — socket `push_answer` cross-session leak — fixed same day,
       see git history and `docs/ops-log.md`)
 - [x] Runbooks merged; missing-data runbook dry-run once (2026-08-15, see ops-log)
-- [ ] `SITE_ADMIN_EMAIL` set; your account shows site_admin
-- [ ] Post-deploy verification followed on the last 3 deploys
+- [x] `SITE_ADMIN_EMAIL` set; your account shows site_admin
+- [x] Post-deploy verification followed on the last 3 deploys
 
 ---
 
