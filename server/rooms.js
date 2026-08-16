@@ -103,8 +103,15 @@ export class Rooms {
     return shift;
   }
 
-  pushAnswer(responseId) {
-    this.db.prepare('UPDATE responses SET is_pushed=1 WHERE id=?').run(responseId);
+  // Scoped to the caller's own session: a host can only push responses that
+  // belong to the room they host. Without the session_id in the WHERE, a host
+  // of any room could flip is_pushed on — and read back the body/tag of — an
+  // arbitrary response from another live session by supplying its id. Returns
+  // null (no row, no broadcast) when the response isn't in this session.
+  pushAnswer(sessionId, responseId) {
+    const info = this.db.prepare('UPDATE responses SET is_pushed=1 WHERE id=? AND session_id=?')
+      .run(responseId, sessionId);
+    if (!info.changes) return null;
     return this.db.prepare(
       `SELECT r.*, p.display_tag FROM responses r
        JOIN participants p ON p.id = r.participant_id WHERE r.id=?`).get(responseId);

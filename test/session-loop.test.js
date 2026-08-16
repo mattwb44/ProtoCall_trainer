@@ -134,3 +134,41 @@ test('access control: hosting needs login; only the host user opens the control 
     assert.equal(denied3.error, 'host only');
   } finally { stranger.close(); anonSock.close(); a.close(); b.close(); }
 });
+
+test('push_answer cannot touch a response from another session', async () => {
+  // Session A: our host runs a room, a crew member answers → responseA.
+  const a = await createSession();
+  const hostA = ioc(base, { extraHeaders: { cookie: hostCookie } });
+  const crewA = ioc(base);
+  // Session B: a different user hosts their own room.
+  const { cookie: hostBCookie } = await signup(base, { email: 'attacker@station3.test' });
+  const b = await (async () => {
+    const [{ id: scenarioId }] = await fetch(`${base}/api/scenarios`).then(r => r.json());
+    return fetch(`${base}/api/sessions`, {
+      method: 'POST', headers: authed(hostBCookie),
+      body: JSON.stringify({ scenario_id: scenarioId }),
+    }).then(r => r.json());
+  })();
+  const hostB = ioc(base, { extraHeaders: { cookie: hostBCookie } });
+
+  try {
+    await emit(hostA, 'join_room', { code: a.room_code, role: 'host' });
+    const crewJoin = await emit(crewA, 'join_room', { code: a.room_code, token: 'a-1', role: 'participant' });
+    const qid = crewJoin.state.questions[0].id;
+    const incoming = once(hostA, 'response_incoming');
+    await emit(crewA, 'submit_response', { question_id: qid, body: 'secret to room A' });
+    const responseA = await incoming;
+
+    // hostB (host of a *different* room) tries to push a response that lives in
+    // session A. It must be a no-op: no write, no broadcast into room B.
+    await emit(hostB, 'join_room', { code: b.room_code, role: 'host' });
+    let leaked = null;
+    hostB.on('answer_pushed', r => { leaked = r; });
+    hostB.emit('push_answer', { response_id: responseA.id });
+    await new Promise(r => setTimeout(r, 100)); // give any (buggy) broadcast time to arrive
+
+    assert.equal(leaked, null, 'a foreign response must not be broadcast into the attacker\'s room');
+    const row = ctx.db.prepare('SELECT is_pushed FROM responses WHERE id=?').get(responseA.id);
+    assert.equal(row.is_pushed, 0, 'a foreign response must not be flippable to pushed');
+  } finally { hostA.close(); crewA.close(); hostB.close(); }
+});

@@ -1549,9 +1549,9 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
     });
 
     socket.on('push_answer', ({ response_id }) => {
-      const { code, role } = socket.data ?? {};
+      const { code, role, sessionId } = socket.data ?? {};
       if (role !== 'host' || !code) return;
-      const resp = rooms.pushAnswer(response_id);
+      const resp = rooms.pushAnswer(sessionId, response_id);
       if (resp) io.to(`room:${code}`).emit('answer_pushed', resp);
     });
 

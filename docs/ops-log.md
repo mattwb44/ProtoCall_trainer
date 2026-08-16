@@ -8,6 +8,24 @@ Newest entries first.
 
 ---
 
+## 2026-08-15 — Missing-data runbook dry-run (pass)
+
+Dry-ran Runbook 4 ("Missing user data") from `docs/runbooks.md` against a
+backup copy, closing PR 11's Definition of Done. Built a real on-disk DB via
+the app's own `createDb`/`seedIfEmpty`, seeded a user with one draft scenario
+(`is_draft=1`) and one soft-deleted scenario (`deleted_at` set), then took a
+`db.backup()` snapshot — the same consistent-copy call that backs
+`GET /api/admin/backup`. Ran the runbook's `sqlite3` queries verbatim against
+that snapshot copy (never the live file).
+
+**Result:** Pass. The find-user query returned the account; the
+all-scenarios-incl-deleted query surfaced both rows — the draft flagged
+`is_draft=1` (the "why can't others see it" case) and the soft-deleted one
+with `deleted_at` populated (the "not actually gone" case), which are exactly
+the two diagnoses the runbook exists to make. The session/participant queries
+ran clean (empty, as expected — none seeded). No syntax or column-name drift
+between the runbook and the current schema.
+
 ## 2026-08-10 — Restore rehearsal (pass)
 
 Downloaded the offsite snapshot `protocall-2026-08-09T20-56-14.db` from the
