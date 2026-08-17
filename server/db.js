@@ -289,6 +289,14 @@ function migrate(db) {
   // rows (and versionless requests) default to 0 and keep working — `rev` is an
   // opt-in on the client side. See server/index.js PUT /api/scenarios/:id.
   addColumn('scenarios', 'rev', 'rev INTEGER NOT NULL DEFAULT 0');
+  // Phase B (B2): last-content-edit timestamp powering the "Recently updated"
+  // sort in My Library. Bumped on every real scenario save/publish (see the PUT
+  // in server/index.js), never by plays/views/being-cloned. Backfilled to
+  // created_at so pre-B2 rows sort sanely; the backfill also (cheaply) keeps any
+  // freshly-created, never-edited row populated on the next boot. Client sorts
+  // via COALESCE(updated_at, created_at) so a brand-new row is covered meanwhile.
+  addColumn('scenarios', 'updated_at', 'updated_at TEXT');
+  db.exec('UPDATE scenarios SET updated_at=created_at WHERE updated_at IS NULL');
   if (!hasFlag(db, 'roles_as_sets_backfill')) {
     db.exec(`UPDATE questions SET roles=json_array(role_track) WHERE role_track<>'' AND roles='[]'`);
     db.exec(`UPDATE participants SET roles=json_array(role_track) WHERE role_track<>'' AND roles='[]'`);

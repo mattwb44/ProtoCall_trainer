@@ -145,6 +145,34 @@ function toast(msg, color) {
   t.classList.remove('hidden');
   clearTimeout(t._t); t._t = setTimeout(() => t.classList.add('hidden'), 2500);
 }
+// B5: bottom-left "Clone Successful" toast with an Undo affordance. Timing:
+// 5s fully visible, then a 2s fade-out (~7s total). Hovering pauses the
+// countdown and snaps a fading toast back to fully opaque; leaving restarts it.
+// Undo runs onUndo (deletes the just-made clone) and dismisses immediately.
+function cloneToast(onUndo) {
+  document.getElementById('clone-toast')?.remove();
+  const el = document.createElement('div');
+  el.id = 'clone-toast';
+  el.className = 'fixed bottom-4 left-4 z-50 flex items-center gap-3 bg-slate-800 border border-slate-700 rounded-xl px-4 py-3 shadow-2xl anim-in';
+  el.style.transition = 'opacity 2s ease';
+  el.innerHTML = `
+    <i data-lucide="check-circle-2" class="w-5 h-5 text-emerald-400 shrink-0"></i>
+    <span class="text-sm font-semibold">Clone Successful</span>
+    <button id="clone-undo" class="tap text-sm font-bold text-rose-400 hover:text-rose-300 underline underline-offset-2">Undo clone</button>`;
+  document.body.appendChild(el);
+  icons();
+  let fadeT, killT;
+  const start = () => {
+    el.style.opacity = '1';
+    fadeT = setTimeout(() => { el.style.opacity = '0'; }, 5000); // 5s visible
+    killT = setTimeout(() => el.remove(), 7000);                 // +2s fade
+  };
+  const pause = () => { clearTimeout(fadeT); clearTimeout(killT); el.style.opacity = '1'; };
+  el.onmouseenter = pause;
+  el.onmouseleave = start;
+  el.querySelector('#clone-undo').onclick = () => { pause(); el.remove(); onUndo(); };
+  start();
+}
 function showConflictBanner() {
   const b = $('#c-conflict-banner');
   if (b) b.classList.remove('hidden');
@@ -331,6 +359,9 @@ const scenarioChips = s => [
   s.mine && s.review_status === 'pending' ? '<span class="text-[10px] font-bold bg-sky-600 text-white px-2 py-0.5 rounded-full">IN REVIEW</span>' : '',
   s.mine && s.review_status === 'changes_requested' ? '<span class="text-[10px] font-bold bg-amber-500 text-slate-900 px-2 py-0.5 rounded-full">CHANGES</span>' : '',
   s.difficulty ? `<span class="text-[10px] font-bold bg-slate-700 text-slate-300 px-2 py-0.5 rounded-full">${esc(s.difficulty.toUpperCase())}</span>` : '',
+  // B5: a low-emphasis marker that this scenario is a clone of another (persists
+  // via the cloned_from column). Mostly seen in My Library on your copies.
+  s.cloned_from ? '<span class="text-[10px] font-bold tracking-wider bg-slate-700 text-slate-300 px-2 py-0.5 rounded-full inline-flex items-center gap-1" title="Cloned from another scenario"><i data-lucide="copy" class="w-3 h-3"></i>CLONED</span>' : '',
 ].filter(Boolean).join('');
 
 const scenarioCard = (s, { corner = '', footer = '' } = {}) => {
@@ -524,7 +555,22 @@ async function renderLibrary() {
     fetch('/api/objectives').then(r => r.json()).catch(() => []),
   ]);
   const wantDrafts = new URLSearchParams(location.hash.split('?')[1] || '').get('tab') === 'drafts';
-  const st = { q: '', cat: '', sub: '', diff: '', obj: '', bucket: wantDrafts ? 'drafts' : 'published' };
+  const st = { q: '', cat: '', sub: '', diff: '', obj: '', sort: 'updated', bucket: wantDrafts ? 'drafts' : 'published' };
+  // B2: sort the visible set client-side (My Library is already client-filtered).
+  // "Recently updated" is the default; timestamps are SQLite datetime strings, so
+  // lexical compare == chronological. COALESCE(updated_at, created_at) covers a
+  // brand-new row whose updated_at hasn't been backfilled yet.
+  const sortScenarios = arr => {
+    const upd = s => s.updated_at || s.created_at || '';
+    const cre = s => s.created_at || '';
+    const title = s => (s.title || '').toLowerCase();
+    const a = arr.slice();
+    if (st.sort === 'created_desc') a.sort((x, y) => cre(y).localeCompare(cre(x)));
+    else if (st.sort === 'created_asc') a.sort((x, y) => cre(x).localeCompare(cre(y)));
+    else if (st.sort === 'az') a.sort((x, y) => title(x).localeCompare(title(y)));
+    else a.sort((x, y) => upd(y).localeCompare(upd(x))); // 'updated' (default)
+    return a;
+  };
   let view = browseView();
   // Everything here is already the caller's own (scope=mine), so there is no
   // ownership filter — just search + taxonomy. The bucket toggle splits drafts
@@ -555,7 +601,15 @@ async function renderLibrary() {
   app.innerHTML = myLibraryShell('scenarios', `
     <div class="flex items-center justify-between gap-3 mb-4">
       <div id="lib-bucket" class="flex gap-1.5"></div>
-      <div id="lib-view"></div>
+      <div class="flex items-center gap-2">
+        <select id="lib-sort" aria-label="Sort by" class="tap bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-200 focus:border-rose-500 focus:outline-none">
+          <option value="updated">Recently updated</option>
+          <option value="created_desc">Newest</option>
+          <option value="created_asc">Oldest</option>
+          <option value="az">A–Z</option>
+        </select>
+        <div id="lib-view"></div>
+      </div>
     </div>
     ${catStrip(st.cat)}
     <div class="flex gap-6 items-start">
@@ -580,7 +634,7 @@ async function renderLibrary() {
     const isDraft = st.bucket === 'drafts';
     const grid = $('#lib-grid');
     grid.className = view === 'list' ? 'space-y-2' : GRID_CLASS;
-    grid.innerHTML = visible().map(s => view === 'list' ? scenarioRow(s, rowActions(s)) : scenarioCard(s, {
+    grid.innerHTML = sortScenarios(visible()).map(s => view === 'list' ? scenarioRow(s, rowActions(s)) : scenarioCard(s, {
       corner: `<div class="flex items-center gap-0.5 -mt-1 -mr-1">
         <a href="#/create/${s.id}" class="p-1.5 text-slate-400 hover:text-white" title="Edit"><i data-lucide="pencil" class="w-3.5 h-3.5"></i></a>
         <button data-del="${s.id}" class="p-1.5 text-slate-400 hover:text-rose-400" title="Delete"><i data-lucide="trash-2" class="w-3.5 h-3.5"></i></button></div>`,
@@ -650,6 +704,9 @@ async function renderLibrary() {
   };
   bind('lf-'); bind('lfm-');
   bindFilterSheet('lfm-', st);
+  const sortSel = $('#lib-sort');
+  sortSel.value = st.sort;
+  sortSel.onchange = e => { st.sort = e.target.value; drawGrid(); };
   drawBucket();
   drawView();
   drawGrid();
@@ -3067,8 +3124,15 @@ async function renderPublic(scopeArg) {
     if (!me) { sessionStorage.authNext = location.hash; location.hash = '#/login'; return; }
     btn.disabled = true;
     const r = await fetch(`/api/scenarios/${btn.dataset.clone}/clone`, { method: 'POST' });
-    if (r.ok) { toast('Cloned to your private library'); location.hash = '#/library'; }
-    else { toast('Clone failed', 'bg-rose-600'); btn.disabled = false; }
+    btn.disabled = false;
+    if (!r.ok) return toast('Clone failed', 'bg-rose-600');
+    // B5: stay put and offer an undo instead of yanking to My Library. Undo
+    // deletes the copy we just made.
+    const { id } = await r.json();
+    cloneToast(async () => {
+      const d = await fetch(`/api/scenarios/${id}`, { method: 'DELETE' });
+      toast(d.ok ? 'Clone removed' : 'Could not undo the clone', d.ok ? undefined : 'bg-rose-600');
+    });
   });
   app.querySelectorAll('[data-report]').forEach(btn => btn.onclick = async () => {
     if (!me) { sessionStorage.authNext = location.hash; location.hash = '#/login'; return; }
@@ -3332,8 +3396,14 @@ async function renderScenarioDetail(id) {
     const btn = $('#sd-clone');
     btn.disabled = true;
     const r = await fetch(`/api/scenarios/${s.id}/clone`, { method: 'POST' });
-    if (r.ok) { toast('Cloned to your private library'); location.hash = '#/library'; }
-    else { toast('Clone failed', 'bg-rose-600'); btn.disabled = false; }
+    btn.disabled = false;
+    if (!r.ok) return toast('Clone failed', 'bg-rose-600');
+    // B5: same as the browse clone — stay put, offer undo.
+    const { id } = await r.json();
+    cloneToast(async () => {
+      const d = await fetch(`/api/scenarios/${id}`, { method: 'DELETE' });
+      toast(d.ok ? 'Clone removed' : 'Could not undo the clone', d.ok ? undefined : 'bg-rose-600');
+    });
   };
 }
 

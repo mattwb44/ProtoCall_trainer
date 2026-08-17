@@ -1059,7 +1059,8 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
     const tx = db.transaction(() => {
       db.prepare(`UPDATE scenarios SET title=?, description=?, category=?, subcategory=?, image_url=?, visibility=?,
                   shared_department=?, shared_public=?, department_id=?, is_official=?, review_status=?, submitted_at=?,
-                  objective_primary=?, objective_secondary=?, difficulty=?, building_type=?, vehicle_type=?, is_draft=?, rev=rev+1 WHERE id=?`)
+                  objective_primary=?, objective_secondary=?, difficulty=?, building_type=?, vehicle_type=?, is_draft=?,
+                  rev=rev+1, updated_at=datetime('now') WHERE id=?`)
         .run(title, description, category, subcategory, image_url, shares.visibility,
              shares.dept ? 1 : 0, shares.pub ? 1 : 0, dept, official, status, submittedAt,
              t.objective_primary, t.objective_secondary, t.difficulty, t.building_type, t.vehicle_type, draft ? 1 : 0, s.id);
