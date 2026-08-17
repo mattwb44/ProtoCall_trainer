@@ -9,12 +9,20 @@ is now the **UX / polish backlog** at `docs/ai/ux-backlog.md` (grill 2026-08-16)
 ## Resume here
 
 **0. UX / polish backlog (grill 2026-08-16) — `docs/ai/ux-backlog.md`.** 25 items
-in phases A–D + future stubs; four owner-decided forks recorded in
-`decisions.md`. Start with **Phase A** (live-session correctness): host-view
-rework + question numbers (re-examine the existing `drawHost`/`drawRoster` —
-Phase 3 was meant to do this), roster presence cleanup, ended-session lock +
-"Finished Reviewing" wrap-up, session auto-complete + stuck-row sweep, and the
-map-editor back-nav guard. One item per branch; verifier pass before done.
+in phases A–D + future stubs; owner-decided forks recorded in `decisions.md`.
+
+**Phase A — DONE & DEPLOYED** (commit `7098b1e` on `main`, 141/141 tests pass).
+All six items shipped: A1 host crew-mirror (`drawMatrix` rewrite — numbered Qs,
+host-only answers, N/total counter), A2 presence header, A3 ended-session review
+(auto-save + Return to Homepage + Discard), A4 ended-session lock
+(`advance_stage`/`submit_response` guards + `rooms.advanceStage` status check),
+A5 finished-session sweep (flag `finished_sessions_swept_v1`, age-guarded), A6
+map-editor Back guard. **Owner is spot-checking a live hosted session + the map
+Back guard on the deploy** — the two paths not exercisable headlessly.
+
+**Next: Phase B** (library & filters) — the Categories/Subcategories synced
+multi-select (biggest), Sort By (`updated_at` column needed), Reset Filters,
+compact desktop filter, clone confirm→toast→tag. See `ux-backlog.md`.
 
 **1. Open bug report — Railway deploy crash (not yet diagnosed).**
 User reports "Railway always crashes with a new deployment." Missing

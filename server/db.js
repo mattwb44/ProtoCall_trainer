@@ -321,36 +321,28 @@ function migrate(db) {
   db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS ux_responses_session_participant_question
              ON responses (session_id, participant_id, question_id)`);
 
-  // Phase A (A5): one-shot sweep of finished-but-never-closed sessions. Solo runs
-  // now auto-end on completion and hosts end their rooms, but historical rows —
-  // an abandoned host room, or a solo run from before auto-end — linger as
-  // status='live' and read "In Progress" forever in My Sessions. Flip a live
-  // session to 'ended' only when it's *genuinely* finished: every non-deleted
-  // question in its scenario has at least one distinct response. Guards:
-  //   • age (started_at > 1 day ago) so a redeploy can never close a room that's
-  //     live right now, even on re-run;
-  //   • question count > 0 so an empty scenario never counts as "finished".
-  // Conservative on role-tracked runs (uses the full question set), so a
-  // role-limited finished run stays live/resumable rather than being mis-swept.
-  // ended_at gets the last response time (else started_at) so it sorts sanely.
-  if (!hasFlag(db, 'finished_sessions_swept_v1')) {
-    db.exec(`
-      UPDATE live_sessions SET
-        status='ended',
-        ended_at=COALESCE(ended_at,
-          (SELECT MAX(r.submitted_at) FROM responses r WHERE r.session_id=live_sessions.id),
-          started_at)
-      WHERE status='live'
-        AND started_at < datetime('now','-1 day')
-        AND (SELECT COUNT(*) FROM questions q
-               WHERE q.scenario_id=live_sessions.scenario_id AND q.deleted=0) > 0
-        AND (SELECT COUNT(*) FROM questions q
-               WHERE q.scenario_id=live_sessions.scenario_id AND q.deleted=0)
-            <= (SELECT COUNT(DISTINCT r.question_id) FROM responses r
-                  JOIN questions q2 ON q2.id=r.question_id AND q2.deleted=0
-                 WHERE r.session_id=live_sessions.id)`);
-    setFlag(db, 'finished_sessions_swept_v1');
-  }
+  // Phase A (A5): close out abandoned sessions so My Sessions stops showing dead
+  // "In Progress" rows with no way to resolve them. Solo runs auto-end on
+  // completion and hosts end their rooms, but an abandoned host room or a
+  // half-finished solo run lingers as status='live' forever. A live session that
+  // has been *idle* — no new response — past the threshold is treated as
+  // abandoned (a real live drill is a single sitting, never idle for hours) and
+  // flipped to 'ended'. Runs every boot and is naturally idempotent (a re-run
+  // only touches sessions that are still idle+live); the idle window means a
+  // session that's genuinely live right now is never closed by a redeploy.
+  // ended_at gets the last-activity time so it sorts sanely. Note: no answer
+  // completeness check — abandonment, not completion, is the signal here.
+  db.exec(`
+    UPDATE live_sessions SET
+      status='ended',
+      ended_at=COALESCE(ended_at,
+        (SELECT MAX(r.submitted_at) FROM responses r WHERE r.session_id=live_sessions.id),
+        started_at)
+    WHERE status='live'
+      AND COALESCE(
+            (SELECT MAX(r.submitted_at) FROM responses r WHERE r.session_id=live_sessions.id),
+            started_at
+          ) < datetime('now','-6 hours')`);
 
   // Seed the controlled vocabulary (PRD-v7); site admins extend it in-app.
   // Part 6: each objective carries a category so the creator can show only the
