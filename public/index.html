@@ -403,14 +403,6 @@ const scenarioRow = (s, actions = '') => {
   </div>`;
 };
 
-const filterPanel = (fields, mobile = false) => `
-  <div class="${mobile ? 'lg:hidden mb-4' : 'hidden lg:block w-56 shrink-0'}">
-    <div class="bg-slate-800 rounded-2xl p-4 space-y-4 ${mobile ? '' : 'sticky top-[4.5rem]'}">
-      <p class="text-xs font-black tracking-wider text-slate-500">FILTERS</p>
-      ${fields}
-    </div>
-  </div>`;
-
 // Phase 2: on mobile the filter rail collapses to a "Filters · N" button that
 // opens a bottom sheet (the category tabs stay visible above). `prefix` scopes
 // the field ids (lfm-/pfm-) so the existing bind() wiring still finds them.
@@ -443,8 +435,69 @@ const bindFilterSheet = (prefix, st) => {
 const updateFilterCount = (prefix, st) => {
   const el = $(`#${prefix}n`);
   if (!el) return;
-  const n = [st.q, st.sub, st.diff, st.obj].filter(Boolean).length + (st.veh?.size ? 1 : 0);
+  // Count everything narrowing the set: subcategory checks, the free-text search,
+  // difficulty, objective, vehicle types. Categories live in the prominent top
+  // strip, so they're not double-counted here.
+  const n = (st.subs?.size || 0) + [st.q, st.diff, st.obj].filter(Boolean).length + (st.veh?.size ? 1 : 0);
   el.textContent = n ? ` · ${n}` : '';
+};
+
+// B1: the filter-box category tree — each category is a checkbox synced with the
+// top strip; a checked category reveals its subcategories (from SUBCATS) as nested
+// checkboxes. Keys are "Category::Sub" so subs are unambiguous even if two
+// categories ever share a name. Rendered into every [data-cattree] container so the
+// desktop dropdown and the mobile sheet stay identical.
+const catTreeHtml = st => Object.entries(CAT_META).map(([name, m]) => {
+  const on = st.cats.has(name);
+  const subs = SUBCATS[name] || [];
+  return `
+  <div>
+    <label class="flex items-center gap-2 text-sm font-semibold cursor-pointer">
+      <input type="checkbox" data-catcheck="${esc(name)}" ${on ? 'checked' : ''} class="tap accent-rose-500 w-4 h-4">
+      <span>${esc(m.label)}</span>
+    </label>
+    ${on && subs.length ? `<div class="ml-6 mt-1.5 space-y-1.5">${subs.map(x => `
+      <label class="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
+        <input type="checkbox" data-subcheck="${esc(name)}::${esc(x)}" ${st.subs.has(`${name}::${x}`) ? 'checked' : ''} class="tap accent-rose-500 w-3.5 h-3.5">
+        <span>${esc(x)}</span>
+      </label>`).join('')}</div>` : ''}
+  </div>`;
+}).join('');
+
+// B3: shared Reset Filters button (rendered in both the desktop dropdown and the
+// mobile sheet via [data-reset]); the per-view resetFilters() does the clearing.
+const resetBtn = `
+  <button data-reset class="tap w-full flex items-center justify-center gap-2 text-sm font-semibold text-slate-300 hover:text-white border border-slate-700 rounded-xl py-2">
+    <i data-lucide="rotate-ccw" class="w-4 h-4"></i>Reset Filters</button>`;
+
+// B4: desktop equivalent of the mobile "Filters · N" sheet — a button that expands
+// an inline dropdown, collapsed by default so the grid keeps the full width.
+const filterRail = (fields, prefix) => `
+  <div class="hidden lg:block relative mb-4">
+    <button id="${prefix}toggle" aria-expanded="false" class="tap inline-flex items-center gap-2 bg-slate-800 hover:bg-slate-700 rounded-xl px-4 py-2.5 text-sm font-semibold">
+      <i data-lucide="sliders-horizontal" class="w-4 h-4"></i>Filters<span id="${prefix}n" class="text-rose-400"></span>
+      <i data-lucide="chevron-down" class="w-4 h-4 transition-transform" id="${prefix}chev"></i>
+    </button>
+    <div id="${prefix}panel" class="hidden absolute left-0 top-full mt-2 z-30 w-72 bg-slate-800 rounded-2xl p-4 space-y-4 shadow-xl border border-slate-700">
+      ${fields}
+    </div>
+  </div>`;
+// Toggle + outside-click close for a desktop filter dropdown. The outside listener
+// is only attached while open, so it doesn't leak across view re-renders.
+const bindFilterRail = prefix => {
+  const btn = $(`#${prefix}toggle`), panel = $(`#${prefix}panel`);
+  if (!btn) return;
+  const outside = e => { if (!panel.contains(e.target) && !btn.contains(e.target)) show(false); };
+  const show = on => {
+    panel.classList.toggle('hidden', !on);
+    btn.setAttribute('aria-expanded', on ? 'true' : 'false');
+    // lucide re-creates the chevron svg on every icons() pass, so query it fresh.
+    const chev = $(`#${prefix}chev`);
+    if (chev) chev.style.transform = on ? 'rotate(180deg)' : '';
+    if (on) document.addEventListener('mousedown', outside);
+    else document.removeEventListener('mousedown', outside);
+  };
+  btn.onclick = () => show(panel.classList.contains('hidden'));
 };
 
 /* ── Part 8: category strip — icon row (helmet/axe · star of life · MVA) with
@@ -486,8 +539,13 @@ const catIcon = (kind, detail) => ({
     <path d="M143.25 220.81l-12.42 46.37c-3.01 11.25-3.63 22.89-2.41 34.39l-35.2 28.98c-6.57 5.41-16.31-.43-14.62-8.77l15.44-76.68c1.06-5.26-2.66-10.28-8-10.79l-77.86-7.55c-8.47-.82-11.23-11.83-4.14-16.54l65.15-43.3c4.46-2.97 5.38-9.15 1.98-13.29L21.46 93.22c-5.41-6.57.43-16.3 8.78-14.62l76.68 15.44c5.26 1.06 10.28-2.66 10.8-8l7.55-77.86c.82-8.48 11.83-11.23 16.55-4.14l43.3 65.14c2.97 4.46 9.15 5.38 13.29 1.98l60.4-49.71c6.57-5.41 16.3.43 14.62 8.77L262.1 86.38c-2.71 3.05-5.43 6.09-7.91 9.4l-32.15 42.97-10.71 14.32c-32.73 8.76-59.18 34.53-68.08 67.74zm494.57 132.51l-12.42 46.36c-3.13 11.68-9.38 21.61-17.55 29.36a66.876 66.876 0 0 1-8.76 7l-13.99 52.23c-1.14 4.27-3.1 8.1-5.65 11.38-7.67 9.84-20.74 14.68-33.54 11.25L515 502.62c-17.07-4.57-27.2-22.12-22.63-39.19l8.28-30.91-247.28-66.26-8.28 30.91c-4.57 17.07-22.12 27.2-39.19 22.63l-30.91-8.28c-12.8-3.43-21.7-14.16-23.42-26.51-.57-4.12-.35-8.42.79-12.68l13.99-52.23a66.62 66.62 0 0 1-4.09-10.45c-3.2-10.79-3.65-22.52-.52-34.2l12.42-46.37c5.31-19.8 19.36-34.83 36.89-42.21a64.336 64.336 0 0 1 18.49-4.72l18.13-24.23 32.15-42.97c3.45-4.61 7.19-8.9 11.2-12.84 8-7.89 17.03-14.44 26.74-19.51 4.86-2.54 9.89-4.71 15.05-6.49 10.33-3.58 21.19-5.63 32.24-6.04 11.05-.41 22.31.82 33.43 3.8l122.68 32.87c11.12 2.98 21.48 7.54 30.85 13.43a111.11 111.11 0 0 1 34.69 34.5c8.82 13.88 14.64 29.84 16.68 46.99l6.36 53.29 3.59 30.05a64.49 64.49 0 0 1 22.74 29.93c4.39 11.88 5.29 25.19 1.75 38.39zM255.58 234.34c-18.55-4.97-34.21 4.04-39.17 22.53-4.96 18.49 4.11 34.12 22.65 39.09 18.55 4.97 45.54 15.51 50.49-2.98 4.96-18.49-15.43-53.67-33.97-58.64zm290.61 28.17l-6.36-53.29c-.58-4.87-1.89-9.53-3.82-13.86-5.8-12.99-17.2-23.01-31.42-26.82l-122.68-32.87a48.008 48.008 0 0 0-50.86 17.61l-32.15 42.97 172 46.08 75.29 20.18zm18.49 54.65c-18.55-4.97-53.8 15.31-58.75 33.79-4.95 18.49 23.69 22.86 42.24 27.83 18.55 4.97 34.21-4.04 39.17-22.53 4.95-18.48-4.11-34.12-22.66-39.09z"/></svg>`,
 }[kind]);
 
-const catStrip = cur => {
-  const on = name => cur === '' || cur === name;
+// B1: multi-toggle category strip. `cats` is a Set of selected category names;
+// empty = show everything (every tab reads "on"/colored, as before). Selecting a
+// subset colors just those; the rest stay in their neutral look rather than graying
+// out. The strip is categories-only (quick toggle) — nested subcategories live in
+// the filter box (catTreeHtml). ALL (data-cattab="") clears the selection.
+const catStrip = cats => {
+  const on = name => cats.size === 0 || cats.has(name);
   const iconBtn = ([name, m]) => `
     <button data-cattab="${name}" class="cat-icon cat-k-${m.icon} ${on(name) ? 'on' : ''}" aria-label="${m.label}" title="${m.label}">
       <span class="basec">${catIcon(m.icon, '#94a3b8')}</span>
@@ -497,7 +555,7 @@ const catStrip = cur => {
   const qrs = `<svg class="qrs" viewBox="0 0 34 12" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg">
     <polyline points="1,7 9,7 12,10 16,1 20,11 23,4 26,7 33,7" stroke="currentColor"/></svg>`;
   const tabBtn = ([name, m]) => `
-    <button data-cattab="${name}" class="cat-tab cat-k-${m.icon} ${on(name) ? 'on' : ''} ${cur === name ? 'active' : ''}">
+    <button data-cattab="${name}" class="cat-tab cat-k-${m.icon} ${on(name) ? 'on' : ''} ${cats.has(name) ? 'active' : ''}">
       <span class="stripe s1"></span><span class="stripe s2"></span><span class="lbl">${m.label}${m.accent ? qrs : ''}</span>
     </button>`;
   return `
@@ -506,7 +564,7 @@ const catStrip = cur => {
       ${Object.entries(CAT_META).map(iconBtn).join('<span class="cat-line"></span>')}
     </div>
     <div class="flex items-center justify-center gap-2.5 sm:gap-3 flex-wrap px-3">
-      <button data-cattab="" class="cat-tab cat-k-all on ${cur === '' ? 'active' : ''}">
+      <button data-cattab="" class="cat-tab cat-k-all on ${cats.size === 0 ? 'active' : ''}">
         <span class="stripe s1"></span><span class="stripe s2"></span><span class="lbl">ALL</span>
       </button>
       ${Object.entries(CAT_META).map(tabBtn).join('')}
@@ -515,20 +573,35 @@ const catStrip = cur => {
 };
 
 // Class-toggle update (no re-render) so the fill/drain transitions actually run.
-const updateCatStrip = cur => {
+// `active` (the neon glow) marks each explicitly-selected category; ALL glows only
+// when nothing is selected. The mat behind the grid takes a single category's tint
+// only when exactly one is selected (ambiguous with several, neutral with none).
+const updateCatStrip = cats => {
+  const showAll = cats.size === 0;
   app.querySelectorAll('[data-cattab]').forEach(el => {
     const name = el.dataset.cattab;
-    el.classList.toggle('on', name === '' || cur === '' || cur === name);
-    el.classList.toggle('active', cur === name);
+    if (name === '') { // ALL
+      el.classList.toggle('active', showAll);
+    } else {
+      el.classList.toggle('on', showAll || cats.has(name));
+      el.classList.toggle('active', cats.has(name));
+    }
   });
   const mat = $('#cat-mat');
   if (!mat) return;
-  const m = CAT_META[cur];
+  const m = cats.size === 1 ? CAT_META[[...cats][0]] : null;
   mat.className = `cat-mat ${m ? `colored cat-k-${m.icon}` : ''}`;
 };
 
 const bindCatStrip = onPick =>
   app.querySelectorAll('[data-cattab]').forEach(el => el.onclick = () => onPick(el.dataset.cattab));
+// Apply a top-strip / filter-box category toggle to the shared state Set. name===''
+// (ALL) clears everything; re-toggling a category also drops its checked subs.
+const toggleCat = (st, name) => {
+  if (name === '') { st.cats.clear(); st.subs.clear(); return; }
+  if (st.cats.has(name)) { st.cats.delete(name); (SUBCATS[name] || []).forEach(x => st.subs.delete(`${name}::${x}`)); }
+  else st.cats.add(name);
+};
 
 // My Library is a personal area — your own scenarios and your own session
 // history, behind login. Browsing everyone else's work lives on Community
@@ -555,7 +628,7 @@ async function renderLibrary() {
     fetch('/api/objectives').then(r => r.json()).catch(() => []),
   ]);
   const wantDrafts = new URLSearchParams(location.hash.split('?')[1] || '').get('tab') === 'drafts';
-  const st = { q: '', cat: '', sub: '', diff: '', obj: '', sort: 'updated', bucket: wantDrafts ? 'drafts' : 'published' };
+  const st = { q: '', cats: new Set(), subs: new Set(), diff: '', obj: '', sort: 'updated', bucket: wantDrafts ? 'drafts' : 'published' };
   // B2: sort the visible set client-side (My Library is already client-filtered).
   // "Recently updated" is the default; timestamps are SQLite datetime strings, so
   // lexical compare == chronological. COALESCE(updated_at, created_at) covers a
@@ -579,8 +652,13 @@ async function renderLibrary() {
   const visible = () => scenarios.filter(s => {
     if (s.deleted_at) return false;
     if ((st.bucket === 'drafts') !== !!s.is_draft) return false;
-    if (st.cat && s.category !== st.cat) return false;
-    if (st.sub && s.subcategory !== st.sub) return false;
+    // B1 union: with categories selected, keep only those categories; within a
+    // selected category, subcategory checks narrow it (no checks = all of it).
+    if (st.cats.size) {
+      if (!st.cats.has(s.category)) return false;
+      const checked = (SUBCATS[s.category] || []).filter(x => st.subs.has(`${s.category}::${x}`));
+      if (checked.length && !st.subs.has(`${s.category}::${s.subcategory}`)) return false;
+    }
     if (st.diff && s.difficulty !== st.diff) return false;
     if (st.obj && s.objective_primary !== st.obj && s.objective_secondary !== st.obj) return false;
     if (st.q && !`${s.title} ${s.description}`.toLowerCase().includes(st.q.toLowerCase())) return false;
@@ -592,12 +670,13 @@ async function renderLibrary() {
   const sel = 'tap w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-sm';
   const fields = `
     <input id="lf-q" placeholder="Search…" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-sm focus:border-rose-500 focus:outline-none">
-    <div><label class="text-xs font-semibold text-slate-400">Subcategory</label>
-      <select id="lf-sub" class="${sel} mt-1"><option value="">All</option></select></div>
+    <div><label class="text-xs font-semibold text-slate-400">Category</label>
+      <div data-cattree class="mt-1.5 space-y-2.5"></div></div>
     <div><label class="text-xs font-semibold text-slate-400">Difficulty Level</label>
       <select id="lf-diff" class="${sel} mt-1"><option value="">All</option><option>Rookie</option><option>Experienced</option><option>Veteran</option></select></div>
     <div><label class="text-xs font-semibold text-slate-400">Objective</label>
-      <select id="lf-obj" class="${sel} mt-1"><option value="">All</option>${objectives.map(o => `<option>${esc(o)}</option>`).join('')}</select></div>`;
+      <select id="lf-obj" class="${sel} mt-1"><option value="">All</option>${objectives.map(o => `<option>${esc(o)}</option>`).join('')}</select></div>
+    ${resetBtn}`;
   app.innerHTML = myLibraryShell('scenarios', `
     <div class="flex items-center justify-between gap-3 mb-4">
       <div id="lib-bucket" class="flex gap-1.5"></div>
@@ -611,16 +690,14 @@ async function renderLibrary() {
         <div id="lib-view"></div>
       </div>
     </div>
-    ${catStrip(st.cat)}
-    <div class="flex gap-6 items-start">
-      ${filterPanel(fields)}
-      <div class="flex-1 min-w-0">
-        ${filterSheet(fields.replaceAll('lf-', 'lfm-'), 'lfm-')}
-        <div id="cat-mat" class="cat-mat">
-          <div id="lib-grid" class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4"></div>
-        </div>
-        <div id="lib-deleted" class="mt-6"></div>
+    ${catStrip(st.cats)}
+    <div class="min-w-0">
+      ${filterSheet(fields.replaceAll('lf-', 'lfm-'), 'lfm-')}
+      ${filterRail(fields, 'lf-')}
+      <div id="cat-mat" class="cat-mat">
+        <div id="lib-grid" class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4"></div>
       </div>
+      <div id="lib-deleted" class="mt-6"></div>
     </div>`);
   // Compact right-side actions for the list view (same data-* attrs → same
   // handlers as the grid buttons).
@@ -656,7 +733,7 @@ async function renderLibrary() {
             <p class="text-xs text-slate-500">deleted ${esc(s.deleted_at)}</p></div>
           <button data-restore="${s.id}" class="tap bg-slate-700 hover:bg-slate-600 rounded-xl px-4 py-2.5 font-bold text-sm">Restore</button>
         </div>`).join('')}</div></details>` : '';
-    updateFilterCount('lfm-', st);
+    updateFilterCount('lf-', st); updateFilterCount('lfm-', st);
     icons();
     bindLaunchButtons();
     app.querySelectorAll('[data-del]').forEach(btn => btn.onclick = async () => {
@@ -669,24 +746,41 @@ async function renderLibrary() {
       if (r.ok) { toast('Scenario restored'); renderLibrary(); } else toast('Restore failed', 'bg-rose-600');
     });
   };
-  // desktop + mobile filter panels share state; bind both prefixes.
-  // Category moved out of the panel and into the Part 8 tab strip.
-  const subSels = [];
+  // desktop + mobile filter panels share state; bind both prefixes. Category +
+  // subcategory now live in the synced checkbox tree (renderCatTree), so bind()
+  // only wires the free-text/select fields.
   const bind = pre => {
     const g = id => $(`#${pre}${id}`);
-    const subSel = () => { g('sub').innerHTML = `<option value="">All</option>` + (SUBCATS[st.cat] || []).map(x => `<option ${x === st.sub ? 'selected' : ''}>${x}</option>`).join(''); };
-    subSel(); subSels.push(subSel);
     g('q').oninput = e => { st.q = e.target.value; drawGrid(); };
-    g('sub').onchange = e => { st.sub = e.target.value; drawGrid(); };
     g('diff').onchange = e => { st.diff = e.target.value; drawGrid(); };
     g('obj').onchange = e => { st.obj = e.target.value; drawGrid(); };
   };
-  bindCatStrip(cat => {
-    st.cat = cat; st.sub = '';
-    subSels.forEach(f => f());
-    updateCatStrip(cat);
-    drawGrid();
+  // B1: render the category/subcategory checkbox tree into every [data-cattree]
+  // container (desktop dropdown + mobile sheet) and (re)bind. Toggling a category
+  // syncs the top strip and re-renders to reveal/hide its nested subcategories.
+  const renderCatTree = () => {
+    app.querySelectorAll('[data-cattree]').forEach(box => box.innerHTML = catTreeHtml(st));
+    app.querySelectorAll('[data-catcheck]').forEach(cb => cb.onchange = () => {
+      toggleCat(st, cb.dataset.catcheck);
+      updateCatStrip(st.cats); renderCatTree(); drawGrid();
+    });
+    app.querySelectorAll('[data-subcheck]').forEach(cb => cb.onchange = () => {
+      st.subs[cb.checked ? 'add' : 'delete'](cb.dataset.subcheck); drawGrid();
+    });
+    icons();
+  };
+  bindCatStrip(name => {
+    toggleCat(st, name);
+    updateCatStrip(st.cats); renderCatTree(); drawGrid();
   });
+  // B3: clear every filter back to the show-everything default.
+  const resetFilters = () => {
+    st.cats.clear(); st.subs.clear(); st.q = ''; st.diff = ''; st.obj = ''; st.sort = 'updated';
+    app.querySelectorAll('#lf-q, #lfm-q').forEach(i => i.value = '');
+    app.querySelectorAll('#lf-diff, #lfm-diff, #lf-obj, #lfm-obj').forEach(s => s.value = '');
+    $('#lib-sort').value = 'updated';
+    updateCatStrip(st.cats); renderCatTree(); drawGrid();
+  };
   const bucketPill = (v, label, n) =>
     `<button data-bucket="${v}" class="tap px-3.5 py-1.5 rounded-full text-sm font-semibold ${st.bucket === v ? 'bg-rose-600 text-white' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'}">${label}${n ? ` <span class="opacity-70">${n}</span>` : ''}</button>`;
   const drawBucket = () => {
@@ -703,12 +797,16 @@ async function renderLibrary() {
     });
   };
   bind('lf-'); bind('lfm-');
+  renderCatTree();
   bindFilterSheet('lfm-', st);
+  bindFilterRail('lf-');
+  app.querySelectorAll('[data-reset]').forEach(b => b.onclick = resetFilters);
   const sortSel = $('#lib-sort');
   sortSel.value = st.sort;
   sortSel.onchange = e => { st.sort = e.target.value; drawGrid(); };
   drawBucket();
   drawView();
+  updateCatStrip(st.cats);
   drawGrid();
   icons();
 }
@@ -2977,11 +3075,19 @@ async function renderPublic(scopeArg) {
     fetch('/api/public/scenarios' + (scope === 'department' ? '?scope=department' : '')).then(r => r.json()),
     fetch('/api/objectives').then(r => r.json()).catch(() => []),
   ]);
-  const st = { q: '', cat: hq.get('category') || '', sub: hq.get('subcategory') || '', diff: '', obj: '', veh: new Set() };
+  const st = { q: '', cats: new Set(), subs: new Set(), diff: '', obj: '', veh: new Set() };
+  // Deep links (?category=…&subcategory=…) arrive pre-selected.
+  const dlCat = hq.get('category'), dlSub = hq.get('subcategory');
+  if (dlCat) { st.cats.add(dlCat); if (dlSub) st.subs.add(`${dlCat}::${dlSub}`); }
   let view = browseView();
   const visible = () => list.filter(s => {
-    if (st.cat && s.category !== st.cat) return false;
-    if (st.sub && s.subcategory !== st.sub) return false;
+    // B1 union: selected categories keep only those; checked subcategories narrow
+    // within their category (no checks = the whole category).
+    if (st.cats.size) {
+      if (!st.cats.has(s.category)) return false;
+      const checked = (SUBCATS[s.category] || []).filter(x => st.subs.has(`${s.category}::${x}`));
+      if (checked.length && !st.subs.has(`${s.category}::${s.subcategory}`)) return false;
+    }
     if (st.diff && s.difficulty !== st.diff) return false;
     if (st.obj && s.objective_primary !== st.obj && s.objective_secondary !== st.obj) return false;
     // Phase 4: vehicle type is match-any — a scenario passes if it carries any of
@@ -2993,8 +3099,8 @@ async function renderPublic(scopeArg) {
   const sel = 'tap w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-sm';
   const fields = `
     <input id="pf-q" placeholder="Search…" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-sm focus:border-rose-500 focus:outline-none">
-    <div><label class="text-xs font-semibold text-slate-400">Subcategory</label>
-      <select id="pf-sub" class="${sel} mt-1"><option value="">All</option></select></div>
+    <div><label class="text-xs font-semibold text-slate-400">Category</label>
+      <div data-cattree class="mt-1.5 space-y-2.5"></div></div>
     <div><label class="text-xs font-semibold text-slate-400">Difficulty</label>
       <select id="pf-diff" class="${sel} mt-1"><option value="">All</option><option>Introductory</option><option>Standard</option><option>Advanced</option></select></div>
     <div><label class="text-xs font-semibold text-slate-400">Objective</label>
@@ -3002,7 +3108,8 @@ async function renderPublic(scopeArg) {
     <div id="pf-veh-block" class="hidden"><label class="text-xs font-semibold text-slate-400">Vehicle type <span class="text-slate-500">(match any)</span></label>
       <div id="pf-veh" class="flex flex-wrap gap-1.5 mt-1.5">
         ${VEHICLE_TYPES.map(v => `<button type="button" data-veh="${esc(v)}" class="tap text-xs px-2.5 py-1 rounded-full border bg-slate-900 border-slate-700 text-slate-300 hover:border-slate-500">${esc(v)}</button>`).join('')}
-      </div></div>`;
+      </div></div>
+    ${resetBtn}`;
   app.innerHTML = `
   <main class="max-w-6xl mx-auto p-4 sm:p-6 anim-in">
     <div class="flex items-center justify-between mb-4">
@@ -3021,14 +3128,12 @@ async function renderPublic(scopeArg) {
         <a href="#/public/department" class="tap px-3.5 py-1.5 rounded-full text-sm font-semibold ${scope === 'department' ? 'bg-rose-600 text-white' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'}">${esc(me.department.name)}</a>` : ''}</div>
       <div id="pub-view"></div>
     </div>
-    ${catStrip(st.cat)}
-    <div class="flex gap-6 items-start">
-      ${filterPanel(fields)}
-      <div class="flex-1 min-w-0">
-        ${filterSheet(fields.replaceAll('pf-', 'pfm-'), 'pfm-')}
-        <div id="cat-mat" class="cat-mat">
-          <div id="pub-grid" class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4"></div>
-        </div>
+    ${catStrip(st.cats)}
+    <div class="min-w-0">
+      ${filterSheet(fields.replaceAll('pf-', 'pfm-'), 'pfm-')}
+      ${filterRail(fields, 'pf-')}
+      <div id="cat-mat" class="cat-mat">
+        <div id="pub-grid" class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4"></div>
       </div>
     </div>
   </main>`;
@@ -3053,7 +3158,7 @@ async function renderPublic(scopeArg) {
     })).join('') || (scope === 'department'
       ? '<p class="text-sm text-slate-500 italic col-span-full">Nothing shared with your department yet.</p>'
       : '<p class="text-sm text-slate-500 italic col-span-full">No public scenarios match.</p>');
-    updateFilterCount('pfm-', st);
+    updateFilterCount('pf-', st); updateFilterCount('pfm-', st);
     icons();
     bindPublicActions();
     bindLaunchButtons();
@@ -3066,12 +3171,11 @@ async function renderPublic(scopeArg) {
       drawView(); drawGrid();
     });
   };
-  const subSels = [];
-  // Phase 4: the vehicle-type filter only applies to MVA. Show its block under
-  // that category, restyle the chips to st.veh across both the desktop panel and
-  // the mobile sheet, and drop selections when the category moves away.
+  // Phase 4: the vehicle-type filter only applies to MVA. Show its block when that
+  // category is selected, restyle the chips to st.veh across both the desktop panel
+  // and the mobile sheet, and drop selections when the category is deselected.
   const syncVeh = () => {
-    const on = st.cat === 'Motor Vehicle Accidents';
+    const on = st.cats.has('Motor Vehicle Accidents');
     if (!on) st.veh.clear();
     ['pf-', 'pfm-'].forEach(pre => {
       const block = $(`#${pre}veh-block`); if (block) block.classList.toggle('hidden', !on);
@@ -3085,10 +3189,7 @@ async function renderPublic(scopeArg) {
   };
   const bind = pre => {
     const g = id => $(`#${pre}${id}`);
-    const subSel = () => { g('sub').innerHTML = `<option value="">All</option>` + (SUBCATS[st.cat] || []).map(x => `<option ${x === st.sub ? 'selected' : ''}>${x}</option>`).join(''); };
-    subSel(); subSels.push(subSel);
     g('q').oninput = e => { st.q = e.target.value; drawGrid(); };
-    g('sub').onchange = e => { st.sub = e.target.value; drawGrid(); };
     g('diff').onchange = e => { st.diff = e.target.value; drawGrid(); };
     g('obj').onchange = e => { st.obj = e.target.value; drawGrid(); };
     g('veh').querySelectorAll('[data-veh]').forEach(btn => btn.onclick = () => {
@@ -3097,17 +3198,36 @@ async function renderPublic(scopeArg) {
       syncVeh(); drawGrid();
     });
   };
-  bindCatStrip(cat => {
-    st.cat = cat; st.sub = '';
-    subSels.forEach(f => f());
-    updateCatStrip(cat);
-    syncVeh();
-    drawGrid();
+  // B1: synced category/subcategory checkbox tree (desktop dropdown + mobile sheet).
+  const renderCatTree = () => {
+    app.querySelectorAll('[data-cattree]').forEach(box => box.innerHTML = catTreeHtml(st));
+    app.querySelectorAll('[data-catcheck]').forEach(cb => cb.onchange = () => {
+      toggleCat(st, cb.dataset.catcheck);
+      updateCatStrip(st.cats); renderCatTree(); syncVeh(); drawGrid();
+    });
+    app.querySelectorAll('[data-subcheck]').forEach(cb => cb.onchange = () => {
+      st.subs[cb.checked ? 'add' : 'delete'](cb.dataset.subcheck); drawGrid();
+    });
+    icons();
+  };
+  bindCatStrip(name => {
+    toggleCat(st, name);
+    updateCatStrip(st.cats); renderCatTree(); syncVeh(); drawGrid();
   });
+  // B3: clear every filter back to the show-everything default.
+  const resetFilters = () => {
+    st.cats.clear(); st.subs.clear(); st.veh.clear(); st.q = ''; st.diff = ''; st.obj = '';
+    app.querySelectorAll('#pf-q, #pfm-q').forEach(i => i.value = '');
+    app.querySelectorAll('#pf-diff, #pfm-diff, #pf-obj, #pfm-obj').forEach(s => s.value = '');
+    updateCatStrip(st.cats); renderCatTree(); syncVeh(); drawGrid();
+  };
   bind('pf-'); bind('pfm-');
+  renderCatTree();
   syncVeh();
   bindFilterSheet('pfm-', st);
-  updateCatStrip(st.cat); // deep links (?category=…) arrive pre-selected
+  bindFilterRail('pf-');
+  app.querySelectorAll('[data-reset]').forEach(b => b.onclick = resetFilters);
+  updateCatStrip(st.cats); // deep links (?category=…) arrive pre-selected
   drawView();
   drawGrid();
   icons();

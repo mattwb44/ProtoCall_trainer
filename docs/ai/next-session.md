@@ -1,10 +1,10 @@
 # Next session
 
-_Updated 2026-08-16. Read `current-focus.md` and `decisions.md` first. The
+_Updated 2026-08-17. Read `current-focus.md` and `decisions.md` first. The
 ops-hardening execution plan (`docs/execution-plan.md`) is complete; active work
 is now the **UX / polish backlog** at `docs/ai/ux-backlog.md` (grill 2026-08-16)._
 
-`npm test` = 140 passing, all on `main`, CI green.
+`npm test` = 141 passing, all on `main`, CI green.
 
 ## Resume here
 
@@ -20,9 +20,17 @@ A5 finished-session sweep (flag `finished_sessions_swept_v1`, age-guarded), A6
 map-editor Back guard. **Owner is spot-checking a live hosted session + the map
 Back guard on the deploy** — the two paths not exercisable headlessly.
 
-**Next: Phase B** (library & filters) — the Categories/Subcategories synced
-multi-select (biggest), Sort By (`updated_at` column needed), Reset Filters,
-compact desktop filter, clone confirm→toast→tag. See `ux-backlog.md`.
+**Phase B — DONE (uncommitted working tree as of 2026-08-17).** B2 Sort By +
+B5 clone toast/Cloned tag shipped in `e3acc23`. B1/B3/B4 now implemented in
+`public/index.html` (client-only, 141/141 tests still pass, verified live in the
+browser preview): B1 multi-select category strip + synced nested subcategory
+checkbox tree in the filter box (`catStrip`/`updateCatStrip`/`toggleCat`/
+`catTreeHtml`; `st.cats`/`st.subs` Sets keyed `"Cat::Sub"`, union semantics in
+both `renderLibrary` and `renderPublic` `visible()`), B3 Reset Filters
+(`[data-reset]`, per-view `resetFilters()`), B4 desktop compact filter dropdown
+(`filterRail`/`bindFilterRail`, replaced the old always-on `filterPanel` rail,
+now removed). **Not yet committed — commit when the owner has eyeballed it.**
+Next after commit: **Phase C** (scenario-creator polish) — see `ux-backlog.md`.
 
 **1. Open bug report — Railway deploy crash (not yet diagnosed).**
 User reports "Railway always crashes with a new deployment." Missing

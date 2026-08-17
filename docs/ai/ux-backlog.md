@@ -70,7 +70,7 @@ Non-trivial items get a `verifier` pass before being marked done.
 
 ## Phase B — Library & filter UX
 
-- [ ] **B1. Categories + Subcategories → one synced multi-select control.**
+- [x] **B1. Categories + Subcategories → one synced multi-select control.** DONE.
   **DECIDED.** Replace the single-select category strip with an independent
   **multi-toggle** exposed in **two synced places**: the top-of-page strip and
   the filter box. Behavior:
@@ -114,12 +114,12 @@ Non-trivial items get a `verifier` pass before being marked done.
     `updated_at == created_at`; "Recently updated" and "Newest" diverge only once
     an older scenario is edited (which is exactly when floating it up helps).
     Draft autosave bumping it (raising an actively-edited draft) is intended.
-- [ ] **B3. Reset Filters button.** One click restores categories/subcategories/
-  sort/etc. to the show-everything default.
-- [ ] **B4. Compact the filter on web.** Collapse the filter into a button by
-  default; expand on click to cut page clutter. (Mobile already has the
-  "Filters · N" bottom sheet from Phase 2 `15b5001` — this is the desktop
-  equivalent.)
+- [x] **B3. Reset Filters button.** DONE. One click restores categories/
+  subcategories/sort/etc. to the show-everything default. Lives in both the
+  desktop dropdown and the mobile sheet (`[data-reset]`).
+- [x] **B4. Compact the filter on web.** DONE. Desktop "Filters · N" button
+  expands an inline dropdown (`filterRail`/`bindFilterRail`), collapsed by
+  default so the grid keeps full width; mobile keeps its Phase 2 bottom sheet.
 - [ ] **B5. Immediate clone + undo toast + "Cloned" tag.** **DECIDED (2026-08-16,
   revised in review — no pre-clone confirm).**
   Full flow:
