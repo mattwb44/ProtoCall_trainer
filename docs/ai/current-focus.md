@@ -1,6 +1,15 @@
 # Current focus
 
-**Milestone: post-grill build-out (Phases 1–5).**
+**Milestone: UX / polish backlog (grill 2026-08-16).** The 50-user ops-readiness
+plan (`docs/execution-plan.md`) is complete. Active work is now the owner UX
+backlog captured in `docs/ai/ux-backlog.md` — 25 items in phases A–D + future
+stubs, priority on Phase A (live-session correctness: host-view rework, ended-
+session lock + wrap-up, session auto-complete, map-editor back-nav guard). Four
+forks were decided in that session; see `decisions.md`.
+
+---
+
+**Prior milestone: post-grill build-out (Phases 1–5).**
 
 Tracks 0/A/B/C shipped. A grilling session on 2026-07-31 turned the owner's
 backlog into settled decisions (see `decisions.md` and `CONTEXT.md`); this is

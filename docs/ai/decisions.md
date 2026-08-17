@@ -3,6 +3,30 @@
 Settled decisions only — approved by the owner or already implemented. Concise;
 full rationale lives in the PRDs (`PRD-v*.md`), `SPEC.md`, and `VOICE.md`.
 
+## UX backlog (grill 2026-08-16)
+Full item list + grounding in `docs/ai/ux-backlog.md`. The four decided forks:
+- **Academies gated to the owner + WIP placeholder.** `+New Academy` restricted
+  to `site_admin` only (drops verified dept-admins; `site_admin` is
+  env-bootstrapped to one operator, so this = just the owner). Non-admins see a
+  work-in-progress placeholder describing what Academies will become.
+- **Ended sessions: "Finished Reviewing" end state, no restart.** On end,
+  logged-in hosts get **auto-save** + a prominent "Return to Homepage" (Discard is
+  secondary); **guests** get "Create account to save"/Discard. Applies to hosted
+  and solo. Ended sessions are locked — Advance stage cannot resurrect them;
+  re-running means going back to the scenario and clicking Host (fresh room).
+  (Testing confirmed no dup-save even across restarts — only the restart needs
+  blocking.)
+- **Sessions auto-complete on finish + sweep the backlog.** IN PROGRESS →
+  COMPLETED flips automatically when a session finishes; a one-time migration
+  sweeps the existing genuinely-finished stuck rows.
+- **Categories + Subcategories = one synced multi-select control.** Single-select
+  category strip becomes an independent multi-toggle, mirrored in the top strip
+  and the filter box (synced, same animation). Click = color + show scenarios;
+  re-click = gray + hide; zero selected = show all. Each selected category
+  reveals its subcategories as nested checkboxes from the existing `SUBCATS`.
+  This also fixes the "Subcategory filter only shows All" bug (a side effect of
+  the old single-select keying).
+
 ## Product / infrastructure
 - **Name stays ProtoCall.** "BlitzFire" carries trademark risk (a fire-ground
   monitor company). Placeholder until a cleared name exists.

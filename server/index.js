@@ -1525,7 +1525,10 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
     socket.on('submit_response', ({ question_id, body }, ack) => {
       const { sessionId, participantId, code, roles } = socket.data ?? {};
       if (!sessionId || !participantId || !body?.trim()) return ack?.({ error: 'invalid' });
-      const q = rooms.getByCode(code)?.questions.find(x => x.id === question_id);
+      const room = rooms.getByCode(code);
+      // A4: no new answers land after the session ends (the room is in review).
+      if (!room || room.session.status !== 'live') return ack?.({ error: 'This session has ended.' });
+      const q = room.questions.find(x => x.id === question_id);
       if (!q || !rolesMatch(q.roles, roles))
         return ack?.({ error: 'invalid' }); // not this participant's track
       const resp = rooms.submitResponse(sessionId, question_id, participantId, body.trim());
@@ -1544,6 +1547,9 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
       const { code, role, sessionId } = socket.data ?? {};
       if (role !== 'host' || !code) return ack?.({ error: 'host only' });
       const stage_index = rooms.advanceStage(sessionId);
+      // A4: advanceStage returns null once the session has ended — refuse rather
+      // than restart it, and don't emit a phantom stage change.
+      if (stage_index === null) return ack?.({ error: 'This session has ended.' });
       io.to(`room:${code}`).emit('stage_advanced', { stage_index });
       ack?.({ ok: true, stage_index });
     });
@@ -1582,6 +1588,10 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
     socket.on('end_session', (_payload, ack) => {
       const { code, role, sessionId } = socket.data ?? {};
       if (role !== 'host' || !code) return ack?.({ error: 'host only' });
+      // A4: ending is terminal + idempotent — a second end (double-click, or a
+      // re-end after restart attempts) must not re-archive or re-run analysis.
+      const room = rooms.getByCode(code);
+      if (room && room.session.status !== 'live') return ack?.({ ok: true, already: true });
       rooms.endSession(sessionId);
       io.to(`room:${code}`).emit('session_ended');
       // v6: kick off the after-action draft in the background — never blocks the

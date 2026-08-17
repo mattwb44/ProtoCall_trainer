@@ -545,7 +545,7 @@ async function renderLibrary() {
     <input id="lf-q" placeholder="Search…" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-sm focus:border-rose-500 focus:outline-none">
     <div><label class="text-xs font-semibold text-slate-400">Subcategory</label>
       <select id="lf-sub" class="${sel} mt-1"><option value="">All</option></select></div>
-    <div><label class="text-xs font-semibold text-slate-400">Difficulty of Scenario?</label>
+    <div><label class="text-xs font-semibold text-slate-400">Difficulty Level</label>
       <select id="lf-diff" class="${sel} mt-1"><option value="">All</option><option>Rookie</option><option>Experienced</option><option>Veteran</option></select></div>
     <div><label class="text-xs font-semibold text-slate-400">Objective</label>
       <select id="lf-obj" class="${sel} mt-1"><option value="">All</option>${objectives.map(o => `<option>${esc(o)}</option>`).join('')}</select></div>`;
@@ -974,6 +974,59 @@ function openMapEditor(onInsert) {
     </div>`;
   document.body.appendChild(ov);
 
+  // A6: the editor is a body-level overlay, so a browser/app "Back" swaps the
+  // hash route and re-renders #app *underneath* it — leaving the editor floating
+  // over the previous page. Trap the first Back with a pushed history entry and
+  // route every dismissal through closeEditor: Back closes the editor and lands
+  // cleanly back in the creator, and if the map has unsaved placements it first
+  // asks whether to insert or discard.
+  let editorClosed = false;
+  history.pushState({ pcMapEditor: 1 }, '');
+  function removeOverlay() {
+    if (editorClosed) return;
+    editorClosed = true;
+    window.removeEventListener('popstate', onBack);
+    ov.remove();
+  }
+  function closeEditor() {            // button/backdrop dismissal: also consume our trap entry
+    if (editorClosed) return;
+    removeOverlay();
+    history.back();                   // pops the trap (same URL → the creator stays mounted)
+  }
+  function requestClose() {           // guard unsaved work before closing
+    if (placed.length) showLeaveGuard(); else closeEditor();
+  }
+  function onBack() {                 // user pressed the browser/app Back
+    if (editorClosed) return;
+    if (!placed.length) { removeOverlay(); return; } // nothing to lose; the Back already landed
+    history.pushState({ pcMapEditor: 1 }, '');       // re-trap: cancel the navigation, stay put
+    showLeaveGuard();
+  }
+  window.addEventListener('popstate', onBack);
+  function showLeaveGuard() {
+    if (ov.querySelector('#map-leave-guard')) return;
+    const g = document.createElement('div');
+    g.id = 'map-leave-guard';
+    g.className = 'absolute inset-0 z-10 flex items-center justify-center bg-slate-950/80 p-4';
+    g.innerHTML = `
+      <div class="w-full max-w-sm bg-slate-900 border border-slate-700 rounded-2xl p-5 space-y-4 anim-in">
+        <div>
+          <h3 class="font-bold text-lg flex items-center gap-2"><i data-lucide="triangle-alert" class="w-5 h-5 text-amber-400"></i>Leave the map editor?</h3>
+          <p class="text-sm text-slate-400 mt-1">Your map hasn't been added to the scenario yet.</p>
+        </div>
+        <div class="flex flex-col gap-2">
+          <button id="mlg-insert" class="tap w-full bg-amber-500 hover:bg-amber-400 text-slate-950 rounded-xl py-2.5 font-bold">Insert map &amp; leave</button>
+          <button id="mlg-discard" class="tap w-full bg-slate-800 hover:bg-slate-700 rounded-xl py-2.5 font-semibold text-rose-300">Leave without saving</button>
+          <button id="mlg-stay" class="tap w-full text-slate-400 hover:text-white rounded-xl py-2">Keep editing</button>
+        </div>
+      </div>`;
+    ov.appendChild(g);
+    icons();
+    g.querySelector('#mlg-stay').onclick = () => g.remove();
+    g.querySelector('#mlg-discard').onclick = () => closeEditor();
+    g.querySelector('#mlg-insert').onclick = () => { g.remove(); ov.querySelector('#map-insert').click(); };
+  }
+
   const svg = ov.querySelector('#map-svg');
   const NS = 'http://www.w3.org/2000/svg';
 
@@ -1084,8 +1137,8 @@ function openMapEditor(onInsert) {
   svg.addEventListener('pointerup', endDrag);
   svg.addEventListener('pointercancel', endDrag);
 
-  ov.querySelector('#map-cancel').onclick = () => ov.remove();
-  ov.onclick = e => { if (e.target === ov) ov.remove(); };
+  ov.querySelector('#map-cancel').onclick = () => requestClose();
+  ov.onclick = e => { if (e.target === ov) requestClose(); };
 
   ov.querySelector('#map-insert').onclick = async () => {
     if (uploading) return;
@@ -1122,7 +1175,7 @@ function openMapEditor(onInsert) {
       const { url: mediaUrl } = await res.json();
       onInsert({ kind: 'map', url: mediaUrl });
       toast('Map added');
-      ov.remove();
+      closeEditor();
     } catch (err) {
       toast(err.message || 'Upload failed', 'bg-rose-600');
       selectedId = wasSelected;
@@ -1306,9 +1359,9 @@ async function renderCreator(id) {
           <button id="c-obj-suggest" type="button" class="tap text-xs font-semibold text-indigo-300 hover:text-indigo-200 inline-flex items-center gap-1.5"><i data-lucide="wand-2" class="w-3.5 h-3.5"></i>Suggest objectives from the scene</button>
           <div id="c-obj-suggest-out" class="mt-2 flex flex-wrap gap-2"></div>
         </div>
-        <div class="sm:w-1/2 sm:pr-2"><label class="text-sm font-medium text-slate-300">Difficulty</label>
+        <div class="sm:w-1/2 sm:pr-2"><label class="text-sm font-medium text-slate-300">Difficulty Level</label>
           <select id="c-diff" class="mt-1 w-full tap bg-slate-900 border border-slate-700 rounded-xl px-4 py-3">
-            <option value="">— unset —</option><option>Introductory</option><option>Standard</option><option>Advanced</option></select></div>
+            <option value="">— unset —</option><option>Rookie</option><option>Experienced</option><option>Veteran</option></select></div>
         <div id="c-bldg-wrap">
           <label class="text-sm font-medium text-slate-300">Building type</label>
           <p class="text-xs text-slate-500 mb-2">Check everything that fits...leave blank if it doesn't apply.</p>
@@ -1987,13 +2040,17 @@ function stageChip(st) {
 function drawHost(state) {
   hostState = state;
   const { session } = state;
+  // A3: once ended, the control room becomes a read-only review — no advance, no
+  // re-end, and a clear way out. The host is always signed in, so the session is
+  // already auto-saved to My Sessions (Discard deletes it).
+  const ended = session.status !== 'live';
   app.innerHTML = `
   <main class="p-4 sm:p-6 max-w-7xl mx-auto anim-in">
     <div class="flex flex-col lg:flex-row gap-5">
       <aside class="lg:w-[32%] space-y-4">
         <div class="bg-slate-800 rounded-2xl p-5">
-          <div id="live-flag" class="flex items-center gap-2 text-emerald-400 text-sm font-semibold mb-2">
-            <span class="w-2.5 h-2.5 bg-emerald-500 rounded-full live-dot"></span> LIVE SESSION</div>
+          <div id="live-flag" class="flex items-center gap-2 ${ended ? 'text-slate-400' : 'text-emerald-400'} text-sm font-semibold mb-2">
+            <span class="w-2.5 h-2.5 ${ended ? 'bg-slate-500' : 'bg-emerald-500 live-dot'} rounded-full"></span> ${ended ? 'SESSION ENDED' : 'LIVE SESSION'}</div>
           <h1 class="font-bold text-lg leading-snug">${esc(session.title)}</h1>
           <p class="text-sm text-slate-400 mt-1">${esc(session.category)} · ${esc(session.subcategory)}</p>
         </div>
@@ -2009,9 +2066,9 @@ function drawHost(state) {
         <div class="bg-slate-800 rounded-2xl p-5 space-y-3">
           <p class="text-sm text-slate-400">Stage <span id="stage-num" class="font-bold text-amber-400">${session.stage_index + 1}</span> of ${session.stages.length}</p>
           <p id="stage-name" class="font-bold text-lg text-amber-400">${esc(session.stages[session.stage_index])}</p>
-          <button id="advance-btn" class="tap w-full bg-amber-600 hover:bg-amber-500 rounded-xl py-3 font-bold text-sm flex items-center justify-center gap-2 ${session.stage_index >= session.stages.length - 1 ? 'hidden' : ''}">
+          <button id="advance-btn" class="tap w-full bg-amber-600 hover:bg-amber-500 rounded-xl py-3 font-bold text-sm flex items-center justify-center gap-2 ${ended || session.stage_index >= session.stages.length - 1 ? 'hidden' : ''}">
             <i data-lucide="fast-forward" class="w-4 h-4"></i>Advance to “${esc(session.stages[session.stage_index + 1] ?? '')}”</button>
-          <p class="text-xs text-slate-500">You decide when to advance — nothing auto-advances. Participants see questions up to the current stage; each stage they finish reveals its official answers.</p>
+          <p class="text-xs text-slate-500">${ended ? 'The session has ended — this is a read-only review of where the crew finished.' : 'You decide when to advance — nothing auto-advances. Participants see questions up to the current stage; each stage they finish reveals its official answers.'}</p>
         </div>` : ''}
       </aside>
       <section class="lg:w-[68%] space-y-6 pb-24">
@@ -2029,9 +2086,15 @@ function drawHost(state) {
         </div>
       </section>
     </div>
-    <div class="fixed bottom-0 inset-x-0 bg-slate-900/95 backdrop-blur border-t border-slate-800 p-3 flex justify-end z-30">
-      <button id="end-btn" class="tap bg-rose-700 hover:bg-rose-600 px-6 py-3 rounded-xl font-bold flex items-center gap-2">
-        <i data-lucide="power" class="w-5 h-5"></i>End Session</button>
+    <div class="fixed bottom-0 inset-x-0 bg-slate-900/95 backdrop-blur border-t border-slate-800 p-3 flex items-center justify-end gap-3 z-30">
+      ${ended ? `
+        <p class="text-xs text-slate-400 mr-auto flex items-center gap-1.5"><i data-lucide="check-circle-2" class="w-4 h-4 text-emerald-400"></i>Saved to My Sessions</p>
+        <button id="discard-btn" class="tap text-sm text-slate-400 hover:text-rose-400 px-4 py-3 rounded-xl">Discard session</button>
+        <a href="#/" class="tap bg-emerald-600 hover:bg-emerald-500 px-6 py-3 rounded-xl font-bold flex items-center gap-2"><i data-lucide="home" class="w-5 h-5"></i>Return to Homepage</a>
+      ` : `
+        <button id="end-btn" class="tap bg-rose-700 hover:bg-rose-600 px-6 py-3 rounded-xl font-bold flex items-center gap-2">
+          <i data-lucide="power" class="w-5 h-5"></i>End Session</button>
+      `}
     </div>
   </main>`;
   drawRoster(); drawMatrix(); icons();
@@ -2042,13 +2105,24 @@ function drawHost(state) {
     drawHost(hostState);
     toast(`Advanced to “${hostState.session.stages[res.stage_index]}”`);
   });
-  $('#end-btn').onclick = () => {
-    if (!confirm('End this session for all participants? The session will be archived to the database.')) return;
+  const endBtn = $('#end-btn');
+  if (endBtn) endBtn.onclick = () => {
+    if (!confirm('End this session for all participants? It stays saved in your My Sessions.')) return;
     getSocket().emit('end_session', {}, () => {
-      toast('Session ended and archived');
-      $('#live-flag').innerHTML = '<span class="w-2.5 h-2.5 bg-slate-500 rounded-full"></span> ENDED';
-      $('#live-flag').className = 'flex items-center gap-2 text-slate-400 text-sm font-semibold mb-2';
+      // A3: re-render into the read-only review state (Return to Homepage +
+      // Discard). The host is signed in, so it's already saved.
+      hostState.session.status = 'ended';
+      drawHost(hostState);
+      toast('Session ended — saved to My Sessions');
     });
+  };
+  const discardBtn = $('#discard-btn');
+  if (discardBtn) discardBtn.onclick = async () => {
+    if (!confirm('Discard this session? Its record and every answer will be permanently deleted.')) return;
+    const r = await fetch(`/api/me/sessions/${hostState.session.id}`, { method: 'DELETE' });
+    if (!r.ok) return toast('Could not discard the session', 'bg-rose-600');
+    toast('Session discarded');
+    location.hash = '#/';
   };
 }
 // Phase 3 Layer 2+3: the named crew roster with completion chips + boot. Each
@@ -2059,7 +2133,13 @@ function drawRoster() {
   const el = $('#roster'); if (!el) return;
   const roster = hostState.roster || [];
   const connected = roster.filter(p => p.connected).length;
-  const hdr = $('#crew-count'); if (hdr) hdr.textContent = `${connected} connected · ${roster.length} joined`;
+  // A2: once the session has ended, live presence is moot — show a historical
+  // "N participated" instead of a "0 connected · N joined" that reads as if
+  // people are still lingering in the room.
+  const hdr = $('#crew-count');
+  if (hdr) hdr.textContent = hostState.session.status !== 'live'
+    ? `${roster.length} participated`
+    : `${connected} connected · ${roster.length} joined`;
   if (!roster.length) {
     el.innerHTML = '<p class="text-sm text-slate-500 italic bg-slate-800/50 rounded-2xl p-4">No one has joined yet — share the room code.</p>';
     return;
@@ -2113,22 +2193,49 @@ function drawMatrix() {
         <span class="font-semibold text-slate-400 flex items-center gap-1"><i data-lucide="users" class="w-3.5 h-3.5"></i>By ${esc(SHIFT_LABEL)}:</span>
         ${shiftKeys.map(k => `<span class="font-bold text-sky-300 bg-sky-950/50 rounded px-2 py-0.5">${esc(k)} · ${byShift[k].size}</span>`).join('')}</div>`
     : '';
-  $('#matrix').innerHTML = tally + hqs.map((q, qi) => (q.stage && q.stage !== hqs[qi - 1]?.stage
-    ? `<div class="flex items-center gap-3 pt-2"><span class="text-xs font-black tracking-widest ${hostState.session.stages?.indexOf(q.stage) > hostState.session.stage_index ? 'text-slate-600' : 'text-amber-400'}">${esc(q.stage.toUpperCase())}${hostState.session.stages?.indexOf(q.stage) > hostState.session.stage_index ? ' — NOT YET VISIBLE' : ''}</span><span class="flex-1 h-px bg-slate-700"></span></div>` : '') + (q0 => {
-    const rows = hostState.responses.filter(r => r.question_id === q.id).map(r => `
+  const session = hostState.session;
+  const stages = session.stages || [];
+  // A1: the host sees the crew's screen — numbered questions with real text and
+  // choices — not an anonymous response feed. Per question: a host-only official
+  // answer, an "N/total answered" counter measured against the crew who can see
+  // it (role intersection), and the individual responses tucked into a <details>
+  // (still push-to-crew from there). No more empty "Waiting for responses" box.
+  const seersOf = q => (hostState.roster || []).filter(p =>
+    !p.roles.length || !hasRoles(q.roles) || rolesArr(q.roles).some(r => p.roles.includes(r)));
+  $('#matrix').innerHTML = tally + hqs.map((q, qi) => {
+    const futureStage = q.stage && stages.indexOf(q.stage) > session.stage_index;
+    const divider = (q.stage && q.stage !== hqs[qi - 1]?.stage)
+      ? `<div class="flex items-center gap-3 pt-2"><span class="text-xs font-black tracking-widest ${futureStage ? 'text-slate-600' : 'text-amber-400'}">${esc(q.stage.toUpperCase())}${futureStage ? ' — NOT YET VISIBLE' : ''}</span><span class="flex-1 h-px bg-slate-700"></span></div>`
+      : '';
+    const seers = seersOf(q);
+    const answeredIds = new Set(hostState.responses.filter(r => r.question_id === q.id).map(r => r.participant_id));
+    const nAns = seers.filter(p => answeredIds.has(p.id)).length;
+    const counter = seers.length
+      ? `<p class="text-xs font-semibold ${nAns >= seers.length ? 'text-emerald-400' : 'text-slate-400'} flex items-center gap-1"><i data-lucide="${nAns >= seers.length ? 'check-circle-2' : 'clock'}" class="w-3.5 h-3.5"></i>${nAns}/${seers.length} answered</p>`
+      : `<p class="text-xs text-slate-500 italic">No crew on this seat yet.</p>`;
+    const choices = (q.kind === 'multiple_choice' || q.kind === 'select_all')
+      ? `<div class="space-y-1.5">${q.kind === 'select_all' ? '<p class="text-xs text-slate-500">Select all that apply.</p>' : ''}${(q.choices || []).map(c =>
+          `<div class="flex items-center gap-2 bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-300"><span class="w-3.5 h-3.5 border border-slate-600 shrink-0 ${q.kind === 'select_all' ? 'rounded-sm' : 'rounded-full'}"></span>${esc(c)}</div>`).join('')}</div>`
+      : '';
+    const respRows = hostState.responses.filter(r => r.question_id === q.id);
+    const rows = respRows.map(r => `
       <div class="flex items-start gap-3 bg-slate-900 rounded-xl p-3 anim-in ${r.is_pushed ? 'ring-2 ring-rose-500' : ''}">
         <span class="shrink-0 w-8 h-8 rounded-full bg-slate-700 text-xs font-bold flex items-center justify-center text-slate-300" title="${esc(roleLabel(r.roles))}">${esc(r.display_tag)}</span>
         <p class="flex-1 text-sm text-slate-200 pt-1">${hasRoles(r.roles) ? `<span class="text-xs font-bold text-amber-400 mr-1.5">${esc(roleLabel(r.roles))}</span>` : ''}${r.shift_label ? `<span class="text-xs font-bold text-sky-300 mr-1.5">${esc(SHIFT_LABEL)} ${esc(r.shift_label)}</span>` : ''}${esc(r.body)}</p>
         <button data-push="${r.id}" ${r.is_pushed ? 'disabled' : ''} class="tap shrink-0 text-xs font-bold px-3 py-2 rounded-lg ${r.is_pushed ? 'bg-rose-900 text-rose-300' : 'bg-rose-600 hover:bg-rose-500'}">${r.is_pushed ? '✓ Pushed' : 'Push to Crew'}</button>
       </div>`).join('');
-    return `<div class="bg-slate-800 rounded-2xl p-4">
-      <p class="font-semibold text-sm mb-1">${hasRoles(q.roles) ? `<span class="text-amber-400">${esc(roleLabel(q.roles))}</span> · ` : ''}${esc(q.prompt)}</p>
-      ${q.instructor_answer ? `<details class="mb-3 group">
+    return divider + `<div class="bg-slate-800 rounded-2xl p-4 space-y-2.5 ${futureStage ? 'opacity-60' : ''}">
+      <p class="font-semibold text-sm leading-snug"><span class="text-rose-400 font-bold">Q${qi + 1}.</span> ${hasRoles(q.roles) ? `<span class="text-amber-400">${esc(roleLabel(q.roles))}</span> · ` : ''}${esc(q.prompt)}</p>
+      ${choices}
+      ${counter}
+      ${q.instructor_answer ? `<details class="group">
         <summary class="tap inline-flex items-center gap-1 text-xs font-bold text-emerald-400 cursor-pointer select-none"><i data-lucide="shield-check" class="w-3.5 h-3.5"></i>Official answer <span class="text-emerald-700 font-normal">(host only)</span></summary>
         <p class="text-xs text-emerald-300 mt-1 whitespace-pre-wrap">${esc(q.instructor_answer)}</p></details>` : ''}
-      <div class="space-y-2">${rows || '<p class="text-sm text-slate-500 italic">Waiting for responses…</p>'}</div>
+      ${rows ? `<details class="group">
+        <summary class="tap inline-flex items-center gap-1 text-xs font-bold text-slate-400 hover:text-slate-200 cursor-pointer select-none"><i data-lucide="messages-square" class="w-3.5 h-3.5"></i>View responses (${respRows.length})</summary>
+        <div class="space-y-2 mt-2">${rows}</div></details>` : ''}
     </div>`;
-  })(q)).join('');
+  }).join('');
   $('#matrix').querySelectorAll('[data-push]').forEach(btn =>
     btn.onclick = () => getSocket().emit('push_answer', { response_id: btn.dataset.push }));
   icons();

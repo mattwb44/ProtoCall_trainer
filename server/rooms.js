@@ -190,7 +190,9 @@ export class Rooms {
 
   advanceStage(sessionId) {
     const session = this.db.prepare('SELECT * FROM live_sessions WHERE id=?').get(sessionId);
-    if (!session) return null;
+    // A4: an ended session is terminal — advancing must not resurrect it. To run
+    // the scenario again the host goes back and hosts a fresh room.
+    if (!session || session.status !== 'live') return null;
     const qs = this.db.prepare(
       'SELECT * FROM questions WHERE scenario_id=? AND deleted=0 ORDER BY sort_order').all(session.scenario_id);
     const names = this.resolveStages(qs);

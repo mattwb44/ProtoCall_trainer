@@ -1,6 +1,12 @@
 # TODO
 
 ## Open
+- **UX / polish backlog (grill 2026-08-16)** — 25 items grouped + phased in
+  `docs/ai/ux-backlog.md`. Four owner-decided forks: Academies gated to owner +
+  WIP placeholder; ended-session "Finished Reviewing" save/discard + no restart;
+  auto-complete sessions + sweep stuck ones; Categories/Subcategories merged into
+  one synced multi-select (top strip + filter box). Phase A (live-session
+  correctness) is the priority.
 - **Implement v7 (PRD-v7.md)** — remaining: the 20-scenario content sprint
   (AI-drafted in dev sessions, owner-reviewed, incl. Georgetown Academy).
   - ✅ Stages: optional named stage headers per question (blank inherits the

@@ -1,13 +1,20 @@
 # Next session
 
-_Updated 2026-08-15. Read `current-focus.md` and `decisions.md` first if you
-need feature-track background — as of this update, active work is the
-**ops-hardening execution plan** at `docs/execution-plan.md`, not the phase
-tracks described in those two files (which are all shipped/merged)._
+_Updated 2026-08-16. Read `current-focus.md` and `decisions.md` first. The
+ops-hardening execution plan (`docs/execution-plan.md`) is complete; active work
+is now the **UX / polish backlog** at `docs/ai/ux-backlog.md` (grill 2026-08-16)._
 
 `npm test` = 140 passing, all on `main`, CI green.
 
-## Resume here: one thing
+## Resume here
+
+**0. UX / polish backlog (grill 2026-08-16) — `docs/ai/ux-backlog.md`.** 25 items
+in phases A–D + future stubs; four owner-decided forks recorded in
+`decisions.md`. Start with **Phase A** (live-session correctness): host-view
+rework + question numbers (re-examine the existing `drawHost`/`drawRoster` —
+Phase 3 was meant to do this), roster presence cleanup, ended-session lock +
+"Finished Reviewing" wrap-up, session auto-complete + stuck-row sweep, and the
+map-editor back-nav guard. One item per branch; verifier pass before done.
 
 **1. Open bug report — Railway deploy crash (not yet diagnosed).**
 User reports "Railway always crashes with a new deployment." Missing
