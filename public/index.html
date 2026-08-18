@@ -247,7 +247,7 @@ function renderSidebar() {
   };
   sb.innerHTML = `
   <div class="p-3 space-y-1">
-    ${me ? `<a href="#/create" class="sb-link tap flex items-center justify-center gap-2 w-full bg-rose-600 hover:bg-rose-500 rounded-xl py-2.5 font-bold text-sm mb-3"><i data-lucide="plus" class="w-4 h-4"></i>New Scenario</a>` : ''}
+    <a href="#/create" class="sb-link tap flex items-center justify-center gap-2 w-full bg-rose-600 hover:bg-rose-500 rounded-xl py-2.5 font-bold text-sm mb-3"><i data-lucide="plus" class="w-4 h-4 shrink-0"></i><span class="sb-label">Create Scenario</span></a>
     ${item('#/', 'house', 'Home')}
     ${item('#/public', 'globe', 'Community')}
     ${me ? item('#/library', 'library', 'My Library') : ''}
@@ -765,7 +765,7 @@ async function renderLibrary() {
         : `<a href="#/scenario/${s.id}" class="tap flex-1 text-center text-sm font-semibold bg-slate-700 hover:bg-slate-600 rounded-xl py-2.5">Details</a>
         <button data-launch="${s.id}" class="tap flex-1 text-sm font-bold bg-emerald-600 hover:bg-emerald-500 rounded-xl py-2.5 flex items-center justify-center gap-1.5"><i data-lucide="radio-tower" class="w-4 h-4"></i>Launch</button>`,
     })).join('') || (isDraft
-      ? '<p class="text-slate-500 italic col-span-full">No drafts. Start one from <a href="#/create" class="text-rose-400 hover:underline">New Scenario</a> and hit “Save as Draft”.</p>'
+      ? '<p class="text-slate-500 italic col-span-full">No drafts. Start one from <a href="#/create" class="text-rose-400 hover:underline">Create Scenario</a> and hit “Save as Draft”.</p>'
       : (pubCount || draftCount
         ? '<p class="text-slate-500 italic col-span-full">No scenarios match these filters.</p>'
         : '<p class="text-slate-500 italic col-span-full">Nothing here yet — <a href="#/create" class="text-rose-400 hover:underline">build a scenario</a> or <a href="#/public" class="text-rose-400 hover:underline">clone one from Community</a>.</p>'));
@@ -1457,7 +1457,9 @@ function drawSceneRef() {
 }
 
 async function renderCreator(id) {
-  if (!me) { sessionStorage.authNext = location.hash; location.hash = '#/login'; return; }
+  // Guests may build a *new* scenario (they sign up at save — see saveScenario).
+  // Editing an existing one still requires an account (it's someone's saved row).
+  if (!me && id) { sessionStorage.authNext = location.hash; location.hash = '#/login'; return; }
   leaveCreator(); // in case this is the reviewer-save re-render, not a fresh route()
   editingId = id || null;
   editingAsReviewer = false;
@@ -1729,6 +1731,8 @@ async function renderCreator(id) {
   const idle = 'Drag an image here, or click to browse';
   const uploadImage = async file => {
     if (!file) return;
+    // Media attaches server-side to an account; guests add it after they save.
+    if (!me) { toast('You can add photos & maps once you save — you’ll create a free account then', 'bg-slate-700'); $('#c-file').value = ''; return; }
     if (!file.type.startsWith('image/')) { toast('That’s not an image file', 'bg-rose-600'); return; }
     $('#c-upload-label').textContent = 'Uploading…';
     const form = new FormData();
@@ -1741,7 +1745,10 @@ async function renderCreator(id) {
     drawMedia();
   };
   $('#c-file').onchange = () => uploadImage($('#c-file').files[0]);
-  $('#c-map-open').onclick = () => openMapEditor(m => { draftMedia.push(m); drawMedia(); markDirty(); });
+  $('#c-map-open').onclick = () => {
+    if (!me) return toast('You can add photos & maps once you save — you’ll create a free account then', 'bg-slate-700');
+    openMapEditor(m => { draftMedia.push(m); drawMedia(); markDirty(); });
+  };
   // Drag & drop onto the same zone. The drop target is a <label> wrapping the
   // file input, so we stop the drop from bubbling to a native file open.
   const drop = $('#c-drop');
@@ -2194,6 +2201,16 @@ async function saveScenario(opts = {}) {
   }
   // A manual save (auto or not — same fetch) supersedes any pending autosave tick.
   clearTimeout(autosaveTimer);
+  // Guest creators build freely, then sign up at save: stash the finished body and
+  // hand off to signup, which posts it to the new account (see renderAuth `go`).
+  if (!me) {
+    sessionStorage.pendingScenario = JSON.stringify(body);
+    sessionStorage.authNext = draft ? '#/library?tab=drafts' : '#/library';
+    leaveCreator();
+    toast('Create a free account to save your scenario', 'bg-slate-700');
+    location.hash = '#/signup';
+    return;
+  }
   const res = await fetch(editingId ? `/api/scenarios/${editingId}` : '/api/scenarios', {
     method: editingId ? 'PUT' : 'POST',
     headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
@@ -2879,7 +2896,27 @@ function renderAuth(mode) {
         }
       } catch { /* fall through to the normal redirect */ }
     }
-    location.hash = sessionStorage.authNext || '#/library/sessions';
+    // Guest scenario creation: a guest who built in the creator and hit Save/Finish
+    // has their scenario body stashed — post it to their brand-new account now.
+    // Kept in sessionStorage until it actually saves, so a failure doesn't lose it.
+    const pendingScn = sessionStorage.pendingScenario;
+    if (pendingScn && me) {
+      try {
+        const scnBody = JSON.parse(pendingScn);
+        const r = await fetch('/api/scenarios', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: pendingScn,
+        });
+        if (r.ok) {
+          sessionStorage.removeItem('pendingScenario');
+          sessionStorage.removeItem('authNext');
+          toast('Your scenario was saved to your library');
+          location.hash = scnBody.draft ? '#/library?tab=drafts' : '#/library';
+          return;
+        }
+        toast((await r.json().catch(() => ({}))).error || 'Could not save your scenario', 'bg-rose-600');
+      } catch { /* keep the stash; fall through to the normal redirect */ }
+    }
+    location.hash = sessionStorage.authNext || '#/library';
     sessionStorage.removeItem('authNext');
   };
   $('#a-go').onclick = go;
