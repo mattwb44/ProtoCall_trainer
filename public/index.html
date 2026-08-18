@@ -60,10 +60,32 @@
   .cat-card-edge{border-left:4px solid var(--c);
     background-image:linear-gradient(100deg,var(--tint),transparent 45%)}
   /* per-category palettes as classes (not inline styles) so themes can override */
-  .cat-k-fire{--c:#ef4444;--tx:#fff;--glow:rgba(239,68,68,.55);--tint:rgba(239,68,68,.12)}
-  .cat-k-ems{--c:#e2e8f0;--tx:#0f172a;--glow:rgba(56,189,248,.6);--tint:rgba(56,189,248,.10)}
-  .cat-k-mva{--c:#f59e0b;--tx:#231a02;--glow:rgba(245,158,11,.55);--tint:rgba(245,158,11,.12)}
+  .cat-k-fire{--c:#ef4444;--tx:#fff;--glow:rgba(239,68,68,.55);--tint:rgba(239,68,68,.12);--hl:#ef4444}
+  .cat-k-ems{--c:#e2e8f0;--tx:#0f172a;--glow:rgba(56,189,248,.6);--tint:rgba(56,189,248,.10);--hl:#38bdf8}
+  .cat-k-mva{--c:#f59e0b;--tx:#231a02;--glow:rgba(245,158,11,.55);--tint:rgba(245,158,11,.12);--hl:#f59e0b}
   .cat-k-all{--c:#334155;--tx:#e2e8f0;--glow:rgba(148,163,184,.45)}
+  /* B1 refresh: Home-Depot-style filter accordion. Each category is a collapsible
+     header (expand ≠ select); picking All or a subcategory is what filters. Rows are
+     compact option buttons that take the category's --hl on hover + selection. */
+  .ft-cat + .ft-cat{margin-top:.3rem}
+  .ft-cat-head,.ft-opt{display:flex;align-items:center;gap:.5rem;width:100%;
+    padding:.4rem .55rem;border:1.5px solid transparent;border-radius:.55rem;
+    font-size:.8rem;line-height:1.15;text-align:left;background:transparent;color:inherit;
+    cursor:pointer;transition:border-color .15s ease,background-color .15s ease}
+  .ft-cat-head{font-weight:700}
+  .ft-opt{font-weight:500;font-size:.775rem}
+  .ft-cat-head:hover,.ft-opt:hover{border-color:var(--hl)}
+  .ft-cat-head.on,.ft-opt.on{border-color:var(--hl);background:var(--tint)}
+  .ft-check{margin-left:auto;width:15px;height:15px;flex:none;color:var(--hl);opacity:0;transition:opacity .15s ease}
+  .ft-cat-head.on .ft-check,.ft-opt.on .ft-check{opacity:1}
+  .ft-cat-head .ft-chev{margin-left:.15rem}
+  .ft-chev{width:15px;height:15px;flex:none;color:#94a3b8;transition:transform .2s ease}
+  .ft-cat.open .ft-chev{transform:rotate(180deg)}
+  .ft-subs{margin:.25rem 0 .1rem .45rem;padding-left:.5rem;border-left:2px solid #334155;
+    display:flex;flex-direction:column;gap:.1rem;animation:ftIn .18s ease}
+  html[data-theme=light] .ft-subs{border-color:#d3dae4}
+  html[data-theme=light] .ft-chev{color:#71809a}
+  @keyframes ftIn{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:none}}
   /* EMS "white" is invisible on the light theme — swap to a readable slate */
   html[data-theme=light] .cat-k-ems{--c:#94a3b8}
 
@@ -442,25 +464,31 @@ const updateFilterCount = (prefix, st) => {
   el.textContent = n ? ` · ${n}` : '';
 };
 
-// B1: the filter-box category tree — each category is a checkbox synced with the
-// top strip; a checked category reveals its subcategories (from SUBCATS) as nested
-// checkboxes. Keys are "Category::Sub" so subs are unambiguous even if two
-// categories ever share a name. Rendered into every [data-cattree] container so the
-// desktop dropdown and the mobile sheet stay identical.
+// Inline check + chevron glyphs for the filter accordion (currentColor so CSS can
+// tint the check with the category's --hl and rotate the chevron on open).
+const ftCheck = `<svg class="ft-check" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 10.5l4 4 8-9"/></svg>`;
+const ftChev = `<svg class="ft-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>`;
+
+// B1: the filter-box category accordion. Each category is a collapsible header
+// (data-catexpand toggles st.openCats — expanding does NOT select). A category
+// becomes an active filter only when its "All" (data-suball) or a specific
+// subcategory (data-sub, keyed "Category::Sub") is chosen. "All" = the whole
+// category with no narrowing (mutually exclusive with specific subs). Rendered into
+// every [data-cattree] container so the desktop dropdown and mobile sheet stay synced.
 const catTreeHtml = st => Object.entries(CAT_META).map(([name, m]) => {
-  const on = st.cats.has(name);
+  const sel = st.cats.has(name);
+  const open = st.openCats?.has(name);
   const subs = SUBCATS[name] || [];
+  const allOn = sel && !subs.some(x => st.subs.has(`${name}::${x}`));
   return `
-  <div>
-    <label class="flex items-center gap-2 text-sm font-semibold cursor-pointer">
-      <input type="checkbox" data-catcheck="${esc(name)}" ${on ? 'checked' : ''} class="tap accent-rose-500 w-4 h-4">
-      <span>${esc(m.label)}</span>
-    </label>
-    ${on && subs.length ? `<div class="ml-6 mt-1.5 space-y-1.5">${subs.map(x => `
-      <label class="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
-        <input type="checkbox" data-subcheck="${esc(name)}::${esc(x)}" ${st.subs.has(`${name}::${x}`) ? 'checked' : ''} class="tap accent-rose-500 w-3.5 h-3.5">
-        <span>${esc(x)}</span>
-      </label>`).join('')}</div>` : ''}
+  <div class="ft-cat cat-k-${m.icon} ${open ? 'open' : ''}">
+    <button type="button" class="ft-cat-head ${sel ? 'on' : ''}" data-catexpand="${esc(name)}" aria-expanded="${open ? 'true' : 'false'}">
+      <span>${esc(m.label)}</span>${ftCheck}${ftChev}
+    </button>
+    ${open ? `<div class="ft-subs">
+      <button type="button" class="ft-opt ${allOn ? 'on' : ''}" data-suball="${esc(name)}"><span>All</span>${ftCheck}</button>
+      ${subs.map(x => `<button type="button" class="ft-opt ${st.subs.has(`${name}::${x}`) ? 'on' : ''}" data-sub="${esc(name)}::${esc(x)}"><span>${esc(x)}</span>${ftCheck}</button>`).join('')}
+    </div>` : ''}
   </div>`;
 }).join('');
 
@@ -478,7 +506,7 @@ const filterRail = (fields, prefix) => `
       <i data-lucide="sliders-horizontal" class="w-4 h-4"></i>Filters<span id="${prefix}n" class="text-rose-400"></span>
       <i data-lucide="chevron-down" class="w-4 h-4 transition-transform" id="${prefix}chev"></i>
     </button>
-    <div id="${prefix}panel" class="hidden absolute left-0 top-full mt-2 z-30 w-72 bg-slate-800 rounded-2xl p-4 space-y-4 shadow-xl border border-slate-700">
+    <div id="${prefix}panel" class="hidden absolute left-0 top-full mt-2 z-30 w-72 max-h-[70vh] overflow-y-auto overscroll-contain bg-slate-800 rounded-2xl p-4 space-y-4 shadow-xl border border-slate-700">
       ${fields}
     </div>
   </div>`;
@@ -628,7 +656,7 @@ async function renderLibrary() {
     fetch('/api/objectives').then(r => r.json()).catch(() => []),
   ]);
   const wantDrafts = new URLSearchParams(location.hash.split('?')[1] || '').get('tab') === 'drafts';
-  const st = { q: '', cats: new Set(), subs: new Set(), diff: '', obj: '', sort: 'updated', bucket: wantDrafts ? 'drafts' : 'published' };
+  const st = { q: '', cats: new Set(), subs: new Set(), openCats: new Set(), diff: '', obj: '', sort: 'updated', bucket: wantDrafts ? 'drafts' : 'published' };
   // B2: sort the visible set client-side (My Library is already client-filtered).
   // "Recently updated" is the default; timestamps are SQLite datetime strings, so
   // lexical compare == chronological. COALESCE(updated_at, created_at) covers a
@@ -671,7 +699,7 @@ async function renderLibrary() {
   const fields = `
     <input id="lf-q" placeholder="Search…" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-sm focus:border-rose-500 focus:outline-none">
     <div><label class="text-xs font-semibold text-slate-400">Category</label>
-      <div data-cattree class="mt-1.5 space-y-2.5"></div></div>
+      <div data-cattree class="mt-1.5"></div></div>
     <div><label class="text-xs font-semibold text-slate-400">Difficulty Level</label>
       <select id="lf-diff" class="${sel} mt-1"><option value="">All</option><option>Rookie</option><option>Experienced</option><option>Veteran</option></select></div>
     <div><label class="text-xs font-semibold text-slate-400">Objective</label>
@@ -755,19 +783,31 @@ async function renderLibrary() {
     g('diff').onchange = e => { st.diff = e.target.value; drawGrid(); };
     g('obj').onchange = e => { st.obj = e.target.value; drawGrid(); };
   };
-  // B1: render the category/subcategory checkbox tree into every [data-cattree]
-  // container (desktop dropdown + mobile sheet) and (re)bind. Toggling a category
-  // syncs the top strip and re-renders to reveal/hide its nested subcategories.
+  // B1: render the category accordion into every [data-cattree] container (desktop
+  // dropdown + mobile sheet) and (re)bind. Expanding (data-catexpand) is UI-only;
+  // "All" (data-suball) / a subcategory (data-sub) is what actually filters.
   const renderCatTree = () => {
     app.querySelectorAll('[data-cattree]').forEach(box => box.innerHTML = catTreeHtml(st));
-    app.querySelectorAll('[data-catcheck]').forEach(cb => cb.onchange = () => {
-      toggleCat(st, cb.dataset.catcheck);
+    app.querySelectorAll('[data-catexpand]').forEach(b => b.onclick = () => {
+      const name = b.dataset.catexpand;
+      st.openCats.has(name) ? st.openCats.delete(name) : st.openCats.add(name);
+      renderCatTree();
+    });
+    app.querySelectorAll('[data-suball]').forEach(b => b.onclick = () => {
+      const name = b.dataset.suball, subs = SUBCATS[name] || [];
+      const allOn = st.cats.has(name) && !subs.some(x => st.subs.has(`${name}::${x}`));
+      if (allOn) st.cats.delete(name);                                  // toggle whole category off
+      else { st.cats.add(name); subs.forEach(x => st.subs.delete(`${name}::${x}`)); }
       updateCatStrip(st.cats); renderCatTree(); drawGrid();
     });
-    app.querySelectorAll('[data-subcheck]').forEach(cb => cb.onchange = () => {
-      st.subs[cb.checked ? 'add' : 'delete'](cb.dataset.subcheck); drawGrid();
+    app.querySelectorAll('[data-sub]').forEach(b => b.onclick = () => {
+      const key = b.dataset.sub, name = key.slice(0, key.indexOf('::'));
+      if (st.subs.has(key)) {
+        st.subs.delete(key);
+        if (!(SUBCATS[name] || []).some(x => st.subs.has(`${name}::${x}`))) st.cats.delete(name); // last sub → off
+      } else { st.cats.add(name); st.subs.add(key); }
+      updateCatStrip(st.cats); renderCatTree(); drawGrid();
     });
-    icons();
   };
   bindCatStrip(name => {
     toggleCat(st, name);
@@ -775,7 +815,7 @@ async function renderLibrary() {
   });
   // B3: clear every filter back to the show-everything default.
   const resetFilters = () => {
-    st.cats.clear(); st.subs.clear(); st.q = ''; st.diff = ''; st.obj = ''; st.sort = 'updated';
+    st.cats.clear(); st.subs.clear(); st.openCats.clear(); st.q = ''; st.diff = ''; st.obj = ''; st.sort = 'updated';
     app.querySelectorAll('#lf-q, #lfm-q').forEach(i => i.value = '');
     app.querySelectorAll('#lf-diff, #lfm-diff, #lf-obj, #lfm-obj').forEach(s => s.value = '');
     $('#lib-sort').value = 'updated';
@@ -3075,10 +3115,10 @@ async function renderPublic(scopeArg) {
     fetch('/api/public/scenarios' + (scope === 'department' ? '?scope=department' : '')).then(r => r.json()),
     fetch('/api/objectives').then(r => r.json()).catch(() => []),
   ]);
-  const st = { q: '', cats: new Set(), subs: new Set(), diff: '', obj: '', veh: new Set() };
-  // Deep links (?category=…&subcategory=…) arrive pre-selected.
+  const st = { q: '', cats: new Set(), subs: new Set(), openCats: new Set(), diff: '', obj: '', veh: new Set() };
+  // Deep links (?category=…&subcategory=…) arrive pre-selected (and expanded).
   const dlCat = hq.get('category'), dlSub = hq.get('subcategory');
-  if (dlCat) { st.cats.add(dlCat); if (dlSub) st.subs.add(`${dlCat}::${dlSub}`); }
+  if (dlCat) { st.cats.add(dlCat); st.openCats.add(dlCat); if (dlSub) st.subs.add(`${dlCat}::${dlSub}`); }
   let view = browseView();
   const visible = () => list.filter(s => {
     // B1 union: selected categories keep only those; checked subcategories narrow
@@ -3100,7 +3140,7 @@ async function renderPublic(scopeArg) {
   const fields = `
     <input id="pf-q" placeholder="Search…" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-sm focus:border-rose-500 focus:outline-none">
     <div><label class="text-xs font-semibold text-slate-400">Category</label>
-      <div data-cattree class="mt-1.5 space-y-2.5"></div></div>
+      <div data-cattree class="mt-1.5"></div></div>
     <div><label class="text-xs font-semibold text-slate-400">Difficulty</label>
       <select id="pf-diff" class="${sel} mt-1"><option value="">All</option><option>Introductory</option><option>Standard</option><option>Advanced</option></select></div>
     <div><label class="text-xs font-semibold text-slate-400">Objective</label>
@@ -3198,17 +3238,31 @@ async function renderPublic(scopeArg) {
       syncVeh(); drawGrid();
     });
   };
-  // B1: synced category/subcategory checkbox tree (desktop dropdown + mobile sheet).
+  // B1: category accordion (desktop dropdown + mobile sheet). Expanding
+  // (data-catexpand) is UI-only; "All" (data-suball) / a subcategory (data-sub) is
+  // what filters. syncVeh keeps the MVA vehicle-type block in step with the cats.
   const renderCatTree = () => {
     app.querySelectorAll('[data-cattree]').forEach(box => box.innerHTML = catTreeHtml(st));
-    app.querySelectorAll('[data-catcheck]').forEach(cb => cb.onchange = () => {
-      toggleCat(st, cb.dataset.catcheck);
+    app.querySelectorAll('[data-catexpand]').forEach(b => b.onclick = () => {
+      const name = b.dataset.catexpand;
+      st.openCats.has(name) ? st.openCats.delete(name) : st.openCats.add(name);
+      renderCatTree();
+    });
+    app.querySelectorAll('[data-suball]').forEach(b => b.onclick = () => {
+      const name = b.dataset.suball, subs = SUBCATS[name] || [];
+      const allOn = st.cats.has(name) && !subs.some(x => st.subs.has(`${name}::${x}`));
+      if (allOn) st.cats.delete(name);                                  // toggle whole category off
+      else { st.cats.add(name); subs.forEach(x => st.subs.delete(`${name}::${x}`)); }
       updateCatStrip(st.cats); renderCatTree(); syncVeh(); drawGrid();
     });
-    app.querySelectorAll('[data-subcheck]').forEach(cb => cb.onchange = () => {
-      st.subs[cb.checked ? 'add' : 'delete'](cb.dataset.subcheck); drawGrid();
+    app.querySelectorAll('[data-sub]').forEach(b => b.onclick = () => {
+      const key = b.dataset.sub, name = key.slice(0, key.indexOf('::'));
+      if (st.subs.has(key)) {
+        st.subs.delete(key);
+        if (!(SUBCATS[name] || []).some(x => st.subs.has(`${name}::${x}`))) st.cats.delete(name); // last sub → off
+      } else { st.cats.add(name); st.subs.add(key); }
+      updateCatStrip(st.cats); renderCatTree(); syncVeh(); drawGrid();
     });
-    icons();
   };
   bindCatStrip(name => {
     toggleCat(st, name);
@@ -3216,7 +3270,7 @@ async function renderPublic(scopeArg) {
   });
   // B3: clear every filter back to the show-everything default.
   const resetFilters = () => {
-    st.cats.clear(); st.subs.clear(); st.veh.clear(); st.q = ''; st.diff = ''; st.obj = '';
+    st.cats.clear(); st.subs.clear(); st.openCats.clear(); st.veh.clear(); st.q = ''; st.diff = ''; st.obj = '';
     app.querySelectorAll('#pf-q, #pfm-q').forEach(i => i.value = '');
     app.querySelectorAll('#pf-diff, #pfm-diff, #pf-obj, #pfm-obj').forEach(s => s.value = '');
     updateCatStrip(st.cats); renderCatTree(); syncVeh(); drawGrid();
