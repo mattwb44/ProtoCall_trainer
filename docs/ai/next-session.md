@@ -1,10 +1,25 @@
 # Next session
 
-_Updated 2026-08-17. Read `current-focus.md` and `decisions.md` first. The
+_Updated 2026-08-18. Read `current-focus.md` and `decisions.md` first. The
 ops-hardening execution plan (`docs/execution-plan.md`) is complete; active work
 is now the **UX / polish backlog** at `docs/ai/ux-backlog.md` (grill 2026-08-16)._
 
 `npm test` = 141 passing, all on `main`, CI green.
+
+## Recent (2026-08-18) — shell + access rework (committed to `main`, 141/141)
+Four features, each its own commit, all verified in the browser preview:
+- **Guest scenario creation** — "+ Create Scenario" (renamed) visible to all;
+  guests build freely, sign up at Save, work auto-posts to the new account
+  (stashed in `sessionStorage.pendingScenario`, replayed in `renderAuth` `go`).
+  Media prompts signup. Post-login default → My Library. See `decisions.md`
+  → Creation flow UX.
+- **Collapsible sidebar** — ☰ collapses to an icons-only rail (persisted),
+  hover tooltips on collapsed icons + account/logout. See `decisions.md` → Shell.
+- **Filter left drawer** — replaces the inline dropdown; docks right of the
+  sidebar, dims content, Esc/backdrop close. See `decisions.md` → Browse UI.
+- Not yet pushed by me — the user pushes/reviews. Media-upload-for-guests and a
+  possible "+ Create Scenario" rename on the My Library mobile "New" button are
+  the only loose threads.
 
 ## Resume here
 

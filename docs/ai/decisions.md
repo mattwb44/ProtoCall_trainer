@@ -105,6 +105,14 @@ Full item list + grounding in `docs/ai/ux-backlog.md`. The four decided forks:
   across. Save validates only against the current category.
 
 ## Creation flow UX
+- **Guests can create (2026-08-18).** "+ Create Scenario" (renamed from "New
+  Scenario") shows to everyone, logged in or out. A guest opens the creator and
+  builds a new scenario freely; at Save/Finish the finished body is stashed and
+  they're sent to signup, which posts it to their brand-new account right after
+  (same claim-on-signup pattern as guest solo runs — no anonymous rows, no
+  backend change). Media attaches server-side, so guests are told they can add
+  photos/maps once they save. Editing an *existing* scenario still requires an
+  account. Post-login default is now **My Library** (was My Sessions).
 - **Scene-first ordering:** media/dispatch at the top, degrading to
   dispatch-only when there's no image.
 - **Sticky scene reference:** desktop = pinned side rail; mobile = collapsible
@@ -227,6 +235,19 @@ Full item list + grounding in `docs/ai/ux-backlog.md`. The four decided forks:
   (localStorage), list rows are single-line dense. **Mobile filters** collapse
   to a "Filters · N" button opening a bottom sheet; category color tabs stay
   visible. Review queue's "Review & Edit" button sized to standard.
+- **Desktop filter = left drawer (2026-08-18).** The "Filters · N" button opens a
+  full-height drawer docked at the content's left edge (just right of the
+  sidebar), dimming/freezing the main content; the sidebar stays live (backdrop
+  starts at the sidebar's right edge). `left` tracks the sidebar's live width, so
+  it re-docks when the sidebar collapses. Closes on backdrop click or Esc.
+  Replaced the earlier inline dropdown (`filterRail`). Mobile keeps the sheet.
+
+## Shell / navigation
+- **Collapsible sidebar (2026-08-18).** The top-left ☰ collapses the desktop
+  sidebar to an icons-only rail (persisted, `localStorage.pcSidebarCollapsed`);
+  on mobile it still slides the full menu in/out. Collapsed icons show a light
+  pill tooltip on hover (data-tip); same styled tooltip on the top-nav account +
+  logout buttons.
 
 ## Onboarding
 - **One reusable spotlight-tour engine; one tour shipped.** Engine: auto-popping
