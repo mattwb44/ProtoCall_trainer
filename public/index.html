@@ -506,7 +506,7 @@ const filterRail = (fields, prefix) => `
       <i data-lucide="sliders-horizontal" class="w-4 h-4"></i>Filters<span id="${prefix}n" class="text-rose-400"></span>
       <i data-lucide="chevron-down" class="w-4 h-4 transition-transform" id="${prefix}chev"></i>
     </button>
-    <div id="${prefix}panel" class="hidden absolute left-0 top-full mt-2 z-30 w-72 max-h-[70vh] overflow-y-auto overscroll-contain bg-slate-800 rounded-2xl p-4 space-y-4 shadow-xl border border-slate-700">
+    <div id="${prefix}panel" class="hidden absolute left-0 top-full mt-2 z-30 w-72 overflow-y-auto overscroll-contain bg-slate-800 rounded-2xl p-4 space-y-4 shadow-xl border border-slate-700">
       ${fields}
     </div>
   </div>`;
@@ -516,14 +516,30 @@ const bindFilterRail = prefix => {
   const btn = $(`#${prefix}toggle`), panel = $(`#${prefix}panel`);
   if (!btn) return;
   const outside = e => { if (!panel.contains(e.target) && !btn.contains(e.target)) show(false); };
+  // The panel is absolutely positioned right under the button, which itself sits
+  // partway down the page — a flat 70vh cap could still run off the bottom of the
+  // viewport with nowhere to scroll it into view (the page doesn't scroll with an
+  // absolutely-positioned element). Instead, size it to whatever room is actually
+  // left below the button, so the whole panel — however many categories are
+  // expanded — is always reachable by scrolling *inside* it.
+  const fit = () => {
+    const top = panel.getBoundingClientRect().top;
+    panel.style.maxHeight = Math.max(160, window.innerHeight - top - 16) + 'px';
+  };
   const show = on => {
     panel.classList.toggle('hidden', !on);
     btn.setAttribute('aria-expanded', on ? 'true' : 'false');
     // lucide re-creates the chevron svg on every icons() pass, so query it fresh.
     const chev = $(`#${prefix}chev`);
     if (chev) chev.style.transform = on ? 'rotate(180deg)' : '';
-    if (on) document.addEventListener('mousedown', outside);
-    else document.removeEventListener('mousedown', outside);
+    if (on) {
+      fit();
+      document.addEventListener('mousedown', outside);
+      window.addEventListener('resize', fit);
+    } else {
+      document.removeEventListener('mousedown', outside);
+      window.removeEventListener('resize', fit);
+    }
   };
   btn.onclick = () => show(panel.classList.contains('hidden'));
 };
