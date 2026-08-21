@@ -1,27 +1,54 @@
 # Next session
 
-_Updated 2026-08-18. Read `current-focus.md` and `decisions.md` first. The
+_Updated 2026-08-21. Read `current-focus.md` and `decisions.md` first. The
 ops-hardening execution plan (`docs/execution-plan.md`) is complete; active work
 is now the **UX / polish backlog** at `docs/ai/ux-backlog.md` (grill 2026-08-16)._
 
-`npm test` = 141 passing, all on `main`, CI green.
+`npm test` = 141 passing, all committed on `main`, working tree clean.
 
-## Recent (2026-08-18) — shell + access rework (committed to `main`, 141/141)
-Four features, each its own commit, all verified in the browser preview:
-- **Guest scenario creation** — "+ Create Scenario" (renamed) visible to all;
+## Resume here — Phase C (scenario-creator polish)
+
+**Next item: C3 — Finish Scenario → center modal.** Clicking **Finish Scenario**
+should open a centered publish-options modal instead of expanding options at the
+bottom of the page. Can lean on `confirmDialog()`'s markup/pattern (built in C1).
+Full item list + grounding in `docs/ai/ux-backlog.md` Phase C. Remaining after
+C3: C4 (draft detail "Continue Editing" + hide play buttons), C5 (questions
+required asterisk), C6 (question numbers), C7 (template picker rework + yellow
+field highlights), C8 (dropdown caret indicators), C9 (MVA→MVC display-only
+relabel).
+
+**C2 — Scene Reference sticky buffer — DONE (uncommitted).** Bumped the desktop
+scene rail from `lg:top-20`→`lg:top-28` so it clears the sticky header bar
+(`public/index.html:1734`); verified in preview (rail 112px, header bottom 105px,
+7px gap). CSS-only, no test impact.
+
+Phase-C UI primitives already built in C1 and reusable downstream:
+`confirmDialog()` (styled promise-based modal) and `undoToast()` (bottom-left
+undo). C3's publish modal can lean on `confirmDialog`'s markup/pattern.
+
+## Recent (2026-08-18 → 08-21) — shell/access rework + C1 (all on `main`, 141/141)
+Each its own commit, all verified in the browser preview:
+- **C1. Delete-confirm modal + media undo** (`76fdf83`). `confirmDialog()`
+  replaces native `confirm()` on the 4 persistent deletes (scenario, discard
+  session, delete session, delete academy); Cancel focused, Esc/backdrop cancel.
+  Media removal now uses `undoToast()` (re-inserts at same index) not a confirm.
+  Moot/left as-is: delete-account (no such feature), in-form question/answer
+  removes, end-session/remove-participant/leave-department native confirms.
+- **Difficulty/Objective accordions + mobile rename** (`01a6775`) — diff/obj
+  filters use the same accordion dropdown as categories; mobile "New" → "Create
+  Scenario".
+- **Guest scenario creation** (`9ccf38a`) — "+ Create Scenario" visible to all;
   guests build freely, sign up at Save, work auto-posts to the new account
   (stashed in `sessionStorage.pendingScenario`, replayed in `renderAuth` `go`).
-  Media prompts signup. Post-login default → My Library. See `decisions.md`
-  → Creation flow UX.
-- **Collapsible sidebar** — ☰ collapses to an icons-only rail (persisted),
-  hover tooltips on collapsed icons + account/logout. See `decisions.md` → Shell.
-- **Filter left drawer** — replaces the inline dropdown; docks right of the
-  sidebar, dims content, Esc/backdrop close. See `decisions.md` → Browse UI.
-- Not yet pushed by me — the user pushes/reviews. Media-upload-for-guests and a
-  possible "+ Create Scenario" rename on the My Library mobile "New" button are
-  the only loose threads.
+  Media prompts signup. Post-login default → My Library.
+- **Collapsible sidebar** (`3a08de0`) — ☰ collapses to an icons-only rail
+  (persisted), hover tooltips on collapsed icons + account/logout.
+- **Filter left drawer** (`4344a57`) — replaces the inline dropdown; docks right
+  of the sidebar, dims content, Esc/backdrop close.
+- Decisions recorded in `f26103a`. Loose thread: guests still can't upload media
+  (prompt-to-signup only); revisit if owner wants inline guest media.
 
-## Resume here
+## Older backlog context
 
 **0. UX / polish backlog (grill 2026-08-16) — `docs/ai/ux-backlog.md`.** 25 items
 in phases A–D + future stubs; owner-decided forks recorded in `decisions.md`.
@@ -35,17 +62,15 @@ A5 finished-session sweep (flag `finished_sessions_swept_v1`, age-guarded), A6
 map-editor Back guard. **Owner is spot-checking a live hosted session + the map
 Back guard on the deploy** — the two paths not exercisable headlessly.
 
-**Phase B — DONE (uncommitted working tree as of 2026-08-17).** B2 Sort By +
-B5 clone toast/Cloned tag shipped in `e3acc23`. B1/B3/B4 now implemented in
-`public/index.html` (client-only, 141/141 tests still pass, verified live in the
-browser preview): B1 multi-select category strip + synced nested subcategory
-checkbox tree in the filter box (`catStrip`/`updateCatStrip`/`toggleCat`/
-`catTreeHtml`; `st.cats`/`st.subs` Sets keyed `"Cat::Sub"`, union semantics in
-both `renderLibrary` and `renderPublic` `visible()`), B3 Reset Filters
-(`[data-reset]`, per-view `resetFilters()`), B4 desktop compact filter dropdown
-(`filterRail`/`bindFilterRail`, replaced the old always-on `filterPanel` rail,
-now removed). **Not yet committed — commit when the owner has eyeballed it.**
-Next after commit: **Phase C** (scenario-creator polish) — see `ux-backlog.md`.
+**Phase B — DONE & COMMITTED on `main`.** B2 Sort By + B5 clone toast/Cloned
+tag (`e3acc23`); B1/B3/B4 filter rework (multi-select category strip + synced
+nested subcategory tree, Reset Filters, compact desktop filter). The B4 inline
+dropdown was later superseded by the **left-docked filter drawer** (`4344a57`);
+`filterRail`/`bindFilterRail` → `filterDrawer`/`bindFilterDrawer`. Category +
+subcategory state lives in `st.cats`/`st.subs` Sets keyed `"Cat::Sub"` with
+union semantics in both `renderLibrary` and `renderPublic`; the accordion markup
+is `catTreeHtml`, and diff/obj use `selAccordionHtml`. **Now in Phase C** — see
+"Resume here" at top.
 
 **1. Open bug report — Railway deploy crash (not yet diagnosed).**
 User reports "Railway always crashes with a new deployment." Missing

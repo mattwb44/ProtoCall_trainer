@@ -164,9 +164,12 @@ Non-trivial items get a `verifier` pass before being marked done.
     (delete scenario, delete session, delete academy, remove uploaded media,
     delete account) — **not** on in-form element removes (a question row or an
     answer option before save), which are cheap and reversible until save.
-- [ ] **C2. Scene Reference sticky buffer.** The sticky Scene Reference rail
-  scrolls ~10px behind the sticky "Edit Scenario" top bar. Add top offset so it
-  clears the bar and stays fully visible (CSS `scroll-margin`/sticky `top`).
+- [x] **C2. Scene Reference sticky buffer.** DONE (2026-08-21). The desktop scene
+  rail stuck at `lg:top-20` (80px) while the sticky "Edit Scenario"/"Scenario
+  Creator" header bar ends at 105px (56px nav + 49px header) — hiding the rail's
+  top ~25px. Bumped the rail to `lg:top-28` (112px), giving a ~7px clearance below
+  the header. CSS-only, one class on `#scene-rail` (`public/index.html:1734`).
+  Verified in preview at 1280px: rail top 112px, header bottom 105px, no overlap.
 - [ ] **C3. Finish Scenario → center modal.** Clicking **Finish Scenario** opens
   a centered publish-options modal instead of expanding options at the bottom of
   the page.

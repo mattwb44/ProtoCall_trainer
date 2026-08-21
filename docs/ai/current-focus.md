@@ -1,11 +1,13 @@
 # Current focus
 
 **Milestone: UX / polish backlog (grill 2026-08-16).** The 50-user ops-readiness
-plan (`docs/execution-plan.md`) is complete. Active work is now the owner UX
-backlog captured in `docs/ai/ux-backlog.md` — 25 items in phases A–D + future
-stubs, priority on Phase A (live-session correctness: host-view rework, ended-
-session lock + wrap-up, session auto-complete, map-editor back-nav guard). Four
-forks were decided in that session; see `decisions.md`.
+plan (`docs/execution-plan.md`) is complete. Active work is the owner UX backlog
+captured in `docs/ai/ux-backlog.md` — 25 items in phases A–D + future stubs.
+**Progress as of 2026-08-21:** Phase A (live-session correctness) and Phase B
+(library/filter UX) are DONE & committed on `main`; a shell/access rework
+(guest scenario creation, collapsible sidebar, left filter drawer) also landed.
+**Now in Phase C (scenario-creator polish): C1 done; C2 is next.** See
+`docs/ai/next-session.md` for the resume point. Forks decided; see `decisions.md`.
 
 ---
 
