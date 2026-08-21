@@ -219,6 +219,61 @@ function cloneToast(onUndo) {
   el.querySelector('#clone-undo').onclick = () => { pause(); el.remove(); onUndo(); };
   start();
 }
+// C1: reusable styled confirm dialog for destructive/persistent deletes (replaces
+// native confirm()). Returns a promise — true on Remove, false on Cancel/backdrop/
+// Esc. Cancel is focused by default so a stray Enter never confirms a delete.
+function confirmDialog({ title = 'Are you sure you want to delete?', body = '', confirmLabel = 'Remove', cancelLabel = 'Cancel' } = {}) {
+  return new Promise(resolve => {
+    document.getElementById('confirm-modal')?.remove();
+    const wrap = document.createElement('div');
+    wrap.id = 'confirm-modal';
+    wrap.className = 'fixed inset-0 z-[60] flex items-center justify-center p-4';
+    wrap.innerHTML = `
+      <div data-cm-bg class="absolute inset-0 bg-slate-950/70"></div>
+      <div class="relative w-full max-w-sm bg-slate-800 border border-slate-700 rounded-2xl p-5 shadow-2xl anim-in">
+        <div class="flex items-start gap-3">
+          <span class="w-9 h-9 rounded-full bg-rose-500/15 text-rose-400 flex items-center justify-center shrink-0"><i data-lucide="alert-triangle" class="w-5 h-5"></i></span>
+          <div class="min-w-0"><h2 class="text-base font-bold">${esc(title)}</h2>
+            ${body ? `<p class="text-sm text-slate-400 mt-1">${esc(body)}</p>` : ''}</div>
+        </div>
+        <div class="flex justify-end gap-2 mt-5">
+          <button data-cm-cancel class="tap text-sm font-semibold bg-slate-700 hover:bg-slate-600 rounded-xl px-4 py-2.5">${esc(cancelLabel)}</button>
+          <button data-cm-ok class="tap text-sm font-bold bg-rose-600 hover:bg-rose-500 rounded-xl px-4 py-2.5">${esc(confirmLabel)}</button>
+        </div>
+      </div>`;
+    document.body.appendChild(wrap);
+    icons();
+    const done = val => { document.removeEventListener('keydown', onKey); wrap.remove(); resolve(val); };
+    const onKey = e => { if (e.key === 'Escape') done(false); };
+    wrap.querySelector('[data-cm-ok]').onclick = () => done(true);
+    wrap.querySelector('[data-cm-cancel]').onclick = () => done(false);
+    wrap.querySelector('[data-cm-bg]').onclick = () => done(false);
+    document.addEventListener('keydown', onKey);
+    wrap.querySelector('[data-cm-cancel]').focus();
+  });
+}
+// C1: generic bottom-left undo toast (accidental-delete recovery). Same timing as
+// cloneToast — 5s visible, 2s fade, hover pauses/snaps back.
+function undoToast(message, undoLabel, onUndo) {
+  document.getElementById('undo-toast')?.remove();
+  const el = document.createElement('div');
+  el.id = 'undo-toast';
+  el.className = 'fixed bottom-4 left-4 z-50 flex items-center gap-3 bg-slate-800 border border-slate-700 rounded-xl px-4 py-3 shadow-2xl anim-in';
+  el.style.transition = 'opacity 2s ease';
+  el.innerHTML = `
+    <i data-lucide="trash-2" class="w-5 h-5 text-slate-400 shrink-0"></i>
+    <span class="text-sm font-semibold">${esc(message)}</span>
+    <button data-undo class="tap text-sm font-bold text-rose-400 hover:text-rose-300 underline underline-offset-2">${esc(undoLabel)}</button>`;
+  document.body.appendChild(el);
+  icons();
+  let fadeT, killT;
+  const start = () => { el.style.opacity = '1'; fadeT = setTimeout(() => { el.style.opacity = '0'; }, 5000); killT = setTimeout(() => el.remove(), 7000); };
+  const pause = () => { clearTimeout(fadeT); clearTimeout(killT); el.style.opacity = '1'; };
+  el.onmouseenter = pause;
+  el.onmouseleave = start;
+  el.querySelector('[data-undo]').onclick = () => { pause(); el.remove(); onUndo(); };
+  start();
+}
 function showConflictBanner() {
   const b = $('#c-conflict-banner');
   if (b) b.classList.remove('hidden');
@@ -838,7 +893,7 @@ async function renderLibrary() {
     icons();
     bindLaunchButtons();
     app.querySelectorAll('[data-del]').forEach(btn => btn.onclick = async () => {
-      if (!confirm('Delete this scenario? Past sessions are kept, and you can restore it later.')) return;
+      if (!(await confirmDialog({ title: 'Delete this scenario?', body: 'Past sessions are kept, and you can restore it later.' }))) return;
       const r = await fetch(`/api/scenarios/${btn.dataset.del}`, { method: 'DELETE' });
       if (r.ok) { toast('Scenario deleted'); renderLibrary(); } else toast('Delete failed', 'bg-rose-600');
     });
@@ -1975,7 +2030,16 @@ function drawMedia() {
       <button data-mdel="${i}" class="tap ml-auto text-slate-400 hover:text-rose-400 px-3"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
     </div>`).join('');
   $('#c-media').querySelectorAll('[data-mkind]').forEach(el => el.onchange = () => draftMedia[el.dataset.mkind].kind = el.value);
-  $('#c-media').querySelectorAll('[data-mdel]').forEach(el => el.onclick = () => { draftMedia.splice(el.dataset.mdel, 1); drawMedia(); });
+  // C1: media removal is cheap and client-side until save, so it's recovered by an
+  // Undo toast rather than a blocking confirm. Undo re-inserts at the same index.
+  // markDirty() is called explicitly on both paths because the undo button lives
+  // outside #app (the delegated autosave listener won't catch its click).
+  $('#c-media').querySelectorAll('[data-mdel]').forEach(el => el.onclick = () => {
+    const i = +el.dataset.mdel;
+    const [removed] = draftMedia.splice(i, 1);
+    drawMedia(); markDirty();
+    undoToast('Media removed', 'Undo', () => { draftMedia.splice(i, 0, removed); drawMedia(); markDirty(); });
+  });
   drawSceneRef(); // keep the sticky scene reference in sync with the primary image
   icons();
 }
@@ -2425,7 +2489,7 @@ function drawHost(state) {
   };
   const discardBtn = $('#discard-btn');
   if (discardBtn) discardBtn.onclick = async () => {
-    if (!confirm('Discard this session? Its record and every answer will be permanently deleted.')) return;
+    if (!(await confirmDialog({ title: 'Discard this session?', body: 'Its record and every answer will be permanently deleted.', confirmLabel: 'Discard' }))) return;
     const r = await fetch(`/api/me/sessions/${hostState.session.id}`, { method: 'DELETE' });
     if (!r.ok) return toast('Could not discard the session', 'bg-rose-600');
     toast('Session discarded');
@@ -3134,7 +3198,7 @@ async function renderMe() {
   };
   app.querySelectorAll('[data-delsession]').forEach(btn => btn.onclick = async e => {
     e.preventDefault(); e.stopPropagation(); // the row itself is a link
-    if (!confirm('Delete this session and its answers from your library? This can\'t be undone.')) return;
+    if (!(await confirmDialog({ title: 'Delete this session?', body: 'Its answers are removed from your library. This can\'t be undone.' }))) return;
     const r = await fetch(`/api/me/sessions/${btn.dataset.delsession}`, { method: 'DELETE' });
     if (r.ok) { toast('Session deleted'); renderMe(); }
     else toast((await r.json()).error ?? 'Delete failed', 'bg-rose-600');
@@ -3619,7 +3683,7 @@ async function renderAcademy(id) {
   };
   $('#ac-save').onclick = () => save();
   $('#ac-del').onclick = async () => {
-    if (!confirm(`Delete "${a.name}"? Scenarios themselves are untouched.`)) return;
+    if (!(await confirmDialog({ title: `Delete "${a.name}"?`, body: 'Scenarios themselves are untouched.' }))) return;
     const r = await fetch(`/api/academies/${a.id}`, { method: 'DELETE' });
     if (r.ok) { toast('Academy deleted'); location.hash = '#/academies'; }
     else toast('Delete failed', 'bg-rose-600');

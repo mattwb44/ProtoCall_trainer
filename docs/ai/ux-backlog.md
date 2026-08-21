@@ -100,7 +100,7 @@ Non-trivial items get a `verifier` pass before being marked done.
     it for free.
   - _Naming note:_ **DECIDED (2026-08-16): rename MVA → MVC everywhere** (MVC is
     now the prevalent term). See C9 for scope.
-- [ ] **B2. "Sort By" control + default "Recently updated" sort.**
+- [x] **B2. "Sort By" control + default "Recently updated" sort.** DONE (`e3acc23`).
   **DECIDED (2026-08-16, refined in review).** Add a **"Sort By"** control at the
   top of **My Library** (right-aligned above the grid, near the view toggle).
   Options: **Recently updated** (default) · **Newest** · **Oldest** · **A–Z**.
@@ -120,7 +120,7 @@ Non-trivial items get a `verifier` pass before being marked done.
 - [x] **B4. Compact the filter on web.** DONE. Desktop "Filters · N" button
   expands an inline dropdown (`filterRail`/`bindFilterRail`), collapsed by
   default so the grid keeps full width; mobile keeps its Phase 2 bottom sheet.
-- [ ] **B5. Immediate clone + undo toast + "Cloned" tag.** **DECIDED (2026-08-16,
+- [x] **B5. Immediate clone + undo toast + "Cloned" tag.** DONE (`e3acc23`). **DECIDED (2026-08-16,
   revised in review — no pre-clone confirm).**
   Full flow:
   1. Clicking **Clone** copies immediately (no confirm dialog — cloning is cheap
@@ -148,11 +148,18 @@ Non-trivial items get a `verifier` pass before being marked done.
 
 ## Phase C — Scenario-creator polish
 
-- [ ] **C1. Global delete-confirm modal + media undo.** Every delete button
-  site-wide gets a confirm dialog: **"Are you sure you want to delete?"** with a
-  neutral **Cancel** and, to its right, a theme-colored **Remove**. Additionally,
-  give uploaded scenario media an **Undo** after deletion (accidental-delete
-  recovery).
+- [x] **C1. Global delete-confirm modal + media undo.** DONE (2026-08-21). Reusable
+  styled `confirmDialog()` (promise-based, Cancel focused so a stray Enter can't
+  confirm; Esc/backdrop cancel) replaces native `confirm()` on the persistent
+  server-side deletes: **delete scenario, discard session, delete session, delete
+  academy**. **Media removal** uses a bottom-left **Undo toast** (`undoToast`,
+  re-inserts at the same index) instead of a blocking confirm — it's cheap and
+  client-side until save, so undo is the better recovery than double-friction.
+  - _Not done — no such feature exists yet:_ **delete account** (the account page
+    has no deletion). Add the confirm when/if account deletion is built.
+  - _Left as-is (per decision):_ in-form removes (question row / answer option) get
+    no modal; end-session / remove-participant / leave-department keep their native
+    confirms (not deletes of persistent records in the C1 sense).
   - _Decided (2026-08-16):_ confirm only on **destructive/persistent** deletes
     (delete scenario, delete session, delete academy, remove uploaded media,
     delete account) — **not** on in-form element removes (a question row or an
