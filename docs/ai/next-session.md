@@ -8,19 +8,25 @@ is now the **UX / polish backlog** at `docs/ai/ux-backlog.md` (grill 2026-08-16)
 
 ## Resume here — Phase C (scenario-creator polish)
 
-**Next item: C3 — Finish Scenario → center modal.** Clicking **Finish Scenario**
-should open a centered publish-options modal instead of expanding options at the
-bottom of the page. Can lean on `confirmDialog()`'s markup/pattern (built in C1).
-Full item list + grounding in `docs/ai/ux-backlog.md` Phase C. Remaining after
-C3: C4 (draft detail "Continue Editing" + hide play buttons), C5 (questions
-required asterisk), C6 (question numbers), C7 (template picker rework + yellow
-field highlights), C8 (dropdown caret indicators), C9 (MVA→MVC display-only
-relabel).
+**Next item: C4 — draft detail "Continue Editing" + hide play buttons.** Opening
+a draft from the Drafts list lands on a detail page with Try Solo / Host Session
+/ Clone but no Continue Editing (which exists on the draft *card*, `#/create/:id`,
+`public/index.html:571`). Add Continue Editing as the primary action and **hide
+Host Session / Try Solo on draft detail** (drafts are unplayable by design —
+decided 2026-08-16). Full item list + grounding in `docs/ai/ux-backlog.md` Phase
+C. Remaining after C4: C5 (questions required asterisk), C6 (question numbers),
+C7 (template picker rework + yellow field highlights), C8 (dropdown caret
+indicators), C9 (MVA→MVC display-only relabel).
 
-**C2 — Scene Reference sticky buffer — DONE (uncommitted).** Bumped the desktop
-scene rail from `lg:top-20`→`lg:top-28` so it clears the sticky header bar
-(`public/index.html:1734`); verified in preview (rail 112px, header bottom 105px,
-7px gap). CSS-only, no test impact.
+**C2 + C3 — DONE (uncommitted).**
+- **C2 (Scene Reference sticky buffer):** bumped the desktop scene rail
+  `lg:top-20`→`lg:top-28` so it clears the sticky header (`public/index.html:1734`);
+  verified in preview (rail 112px, header bottom 105px, 7px gap). CSS-only.
+- **C3 (Finish Scenario → center modal):** new promise-based `publishModal()` in
+  `renderCreator` replaces the inline bottom-expand publish step; `applyVis()`
+  parametrized `(seg, hint)` to serve both modal and the inline `#publish-block`
+  (kept for the editing-a-published-scenario "Save changes" path). Verified:
+  toggles/hint/Esc-cancel/Finish→POST 201→My Library; 141/141 pass.
 
 Phase-C UI primitives already built in C1 and reusable downstream:
 `confirmDialog()` (styled promise-based modal) and `undoToast()` (bottom-left

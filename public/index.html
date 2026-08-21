@@ -1831,27 +1831,32 @@ async function renderCreator(id) {
   // both at once. Private simply means neither share is on.
   draftShares = { dept: !!existing?.shared_department, pub: !!existing?.shared_public };
   if (draftShares.dept && !me?.department) draftShares.dept = false;
-  const applyVis = () => {
+  // Renders the "Publish to" visibility toggles into a given seg/hint pair, so the
+  // same control drives both the inline block (editing a published scenario) and
+  // the C3 finish-modal. Defaults to the inline block's elements.
+  const applyVis = (seg, hint) => {
+    seg = seg || $('#vis-seg'); hint = hint || $('#vis-hint');
+    if (!seg || !hint) return;
     const priv = !draftShares.dept && !draftShares.pub;
     const btn = (v, label, on, onClass) => `
       <button data-vis="${v}" class="tap py-3 rounded-xl text-sm font-semibold flex items-center justify-center gap-1.5 ${
         on ? onClass : 'bg-slate-900 border border-slate-700 hover:border-slate-500'}">
         ${on ? '<i data-lucide="check" class="w-4 h-4"></i>' : ''}${label}</button>`;
-    $('#vis-seg').innerHTML =
+    seg.innerHTML =
       btn('private', 'My Library', priv, 'bg-slate-600')
       + (me?.department ? btn('department', 'My Department', draftShares.dept, 'bg-emerald-600') : '')
       + btn('public', 'Community Library', draftShares.pub, 'bg-rose-600');
     const shared = [];
     if (draftShares.dept) shared.push(`every member of ${me.department.name}`);
     if (draftShares.pub) shared.push('the whole community library');
-    $('#vis-hint').textContent = priv
+    hint.textContent = priv
       ? 'Only you can see and launch it'
       : 'Shared with ' + shared.join(' and ') + (draftShares.dept ? '; your chief can mark it Official Protocol' : '');
-    $('#vis-seg').querySelectorAll('[data-vis]').forEach(b => b.onclick = () => {
+    seg.querySelectorAll('[data-vis]').forEach(b => b.onclick = () => {
       if (b.dataset.vis === 'private') { draftShares.dept = false; draftShares.pub = false; }
       else if (b.dataset.vis === 'department') draftShares.dept = !draftShares.dept;
       else draftShares.pub = !draftShares.pub;
-      applyVis();
+      applyVis(seg, hint);
     });
     icons();
   };
@@ -1906,7 +1911,44 @@ async function renderCreator(id) {
     if (!$('#c-obj1').value) return toast('Pick a primary learning objective — try “Suggest objectives from the scene”', 'bg-amber-500'), false;
     return true;
   };
-  const setActions = mode => {
+  // C3: finishing a new/draft scenario opens a centered publish-options modal
+  // (visibility toggles + Finish & Save) instead of expanding the block inline.
+  // Reuses applyVis() against the modal's own seg/hint. Resolves true on confirm.
+  const publishModal = () => new Promise(resolve => {
+    document.getElementById('publish-modal')?.remove();
+    const wrap = document.createElement('div');
+    wrap.id = 'publish-modal';
+    wrap.className = 'fixed inset-0 z-[60] flex items-center justify-center p-4';
+    wrap.innerHTML = `
+      <div data-pm-bg class="absolute inset-0 bg-slate-950/70"></div>
+      <div class="relative w-full max-w-md bg-slate-800 border border-slate-700 rounded-2xl p-5 shadow-2xl anim-in space-y-4">
+        <div class="flex items-start gap-3">
+          <span class="w-9 h-9 rounded-full bg-emerald-500/15 text-emerald-400 flex items-center justify-center shrink-0"><i data-lucide="rocket" class="w-5 h-5"></i></span>
+          <div class="min-w-0"><h2 class="text-base font-bold">Finish &amp; save scenario</h2>
+            <p class="text-sm text-slate-400 mt-1">Choose who can see and launch it.</p></div>
+        </div>
+        <div>
+          <p class="font-medium text-sm">Publish to</p>
+          <p class="text-sm text-slate-400" id="vis-hint-modal"></p>
+          <div id="vis-seg-modal" class="grid ${me?.department ? 'grid-cols-3' : 'grid-cols-2'} gap-2 mt-2"></div>
+        </div>
+        <div class="flex justify-end gap-2 pt-1">
+          <button data-pm-cancel class="tap text-sm font-semibold bg-slate-700 hover:bg-slate-600 rounded-xl px-4 py-2.5">← Back to editing</button>
+          <button data-pm-ok class="tap text-sm font-bold bg-emerald-600 hover:bg-emerald-500 rounded-xl px-4 py-2.5 flex items-center gap-1.5"><i data-lucide="rocket" class="w-4 h-4"></i>Finish &amp; Save</button>
+        </div>
+      </div>`;
+    document.body.appendChild(wrap);
+    applyVis(wrap.querySelector('#vis-seg-modal'), wrap.querySelector('#vis-hint-modal'));
+    icons();
+    const done = val => { document.removeEventListener('keydown', onKey); wrap.remove(); resolve(val); };
+    const onKey = e => { if (e.key === 'Escape') done(false); };
+    wrap.querySelector('[data-pm-ok]').onclick = () => done(true);
+    wrap.querySelector('[data-pm-cancel]').onclick = () => done(false);
+    wrap.querySelector('[data-pm-bg]').onclick = () => done(false);
+    document.addEventListener('keydown', onKey);
+    wrap.querySelector('[data-pm-ok]').focus();
+  });
+  const setActions = () => {
     const acts = $('#c-actions');
     if (editingAsReviewer) {
       showPublish(false);
@@ -1916,13 +1958,6 @@ async function renderCreator(id) {
       showPublish(true);
       acts.innerHTML = `<button class="${bigBtn} bg-emerald-600 hover:bg-emerald-500"><i data-lucide="save" class="w-5 h-5"></i>Save changes</button>`;
       acts.firstElementChild.onclick = () => saveScenario();
-    } else if (mode === 'publish') {
-      showPublish(true);
-      acts.innerHTML = `
-        <button id="c-publish" class="${bigBtn} bg-emerald-600 hover:bg-emerald-500"><i data-lucide="rocket" class="w-5 h-5"></i>Finish &amp; Save</button>
-        <button id="c-back" class="tap w-full text-sm text-slate-400 hover:text-white py-2">← Back to editing</button>`;
-      $('#c-publish').onclick = () => saveScenario();
-      $('#c-back').onclick = () => setActions('default');
     } else {
       showPublish(false);
       acts.innerHTML = `
@@ -1931,11 +1966,11 @@ async function renderCreator(id) {
           <button id="c-finish" class="${bigBtn} bg-emerald-600 hover:bg-emerald-500 !text-base"><i data-lucide="check" class="w-5 h-5"></i>Finish Scenario</button>
         </div>`;
       $('#c-draft').onclick = () => saveScenario({ draft: true });
-      $('#c-finish').onclick = () => { if (validateFinish()) setActions('publish'); };
+      $('#c-finish').onclick = async () => { if (validateFinish() && await publishModal()) saveScenario(); };
     }
     icons();
   };
-  setActions('default');
+  setActions();
   // Track C: rule-based objective suggester — analyzes the draft (dispatch +
   // questions) and offers explainable chips the author clicks to accept.
   const applySuggestion = name => {

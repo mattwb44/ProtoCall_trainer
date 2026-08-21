@@ -170,9 +170,17 @@ Non-trivial items get a `verifier` pass before being marked done.
   top ~25px. Bumped the rail to `lg:top-28` (112px), giving a ~7px clearance below
   the header. CSS-only, one class on `#scene-rail` (`public/index.html:1734`).
   Verified in preview at 1280px: rail top 112px, header bottom 105px, no overlap.
-- [ ] **C3. Finish Scenario → center modal.** Clicking **Finish Scenario** opens
-  a centered publish-options modal instead of expanding options at the bottom of
-  the page.
+- [x] **C3. Finish Scenario → center modal.** DONE (2026-08-21). Clicking **Finish
+  Scenario** on a new/draft scenario now opens a centered promise-based
+  `publishModal()` (mirrors `confirmDialog`: dimmed backdrop, Esc/backdrop cancel,
+  Finish&Save focused) hosting the "Publish to" visibility toggles + a Finish &
+  Save confirm — replacing the old inline bottom-expand (`setActions('publish')`
+  removed). `applyVis()` was parametrized `(seg, hint)` so the same control drives
+  both the modal and the inline `#publish-block` (still used for the
+  editing-a-published-scenario "Save changes" flow, unchanged). All in
+  `renderCreator`, `public/index.html` (~1834 applyVis, ~1909 publishModal/
+  setActions). Verified in preview: modal opens, toggles update hint/highlight,
+  Esc cancels, Finish & Save → POST 201 → My Library; 141/141 tests pass.
 - [ ] **C4. Draft detail page: add "Continue Editing."** Opening a draft from the
   Drafts list lands on a detail page with Try Solo / Host Session / Clone but
   **no Continue Editing** (which exists on the draft *card*, `#/create/:id`,
