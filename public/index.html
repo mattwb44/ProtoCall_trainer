@@ -1075,7 +1075,10 @@ const newQuestion = () => ({ prompt: '', kind: 'text', choices: null, instructor
 // seeds draft *structure* — placeholder questions with stages/roles — into the
 // existing form; the author rewrites the prompts. A role-tagged question makes
 // drawQs auto-open its Advanced disclosure, so the full template lands expanded.
-const tplQ = (prompt, extra = {}) => ({ ...newQuestion(), prompt, ...extra });
+// C7: mark which fields the template actually populated, so the creator can
+// highlight them yellow and clear each highlight independently once the author
+// edits that specific field (see drawQs's _tplFilled reads).
+const tplQ = (prompt, extra = {}) => ({ ...newQuestion(), prompt, ...extra, _tplFilled: { prompt: true, stage: !!extra.stage } });
 const SCENARIO_TEMPLATES = {
   blank: {
     label: 'Blank', icon: 'file', desc: 'Blank with one empty question...add as you go.',
@@ -1108,9 +1111,10 @@ const SCENARIO_TEMPLATES = {
     ],
   },
 };
-function templatePicker() {
+// C7: the full picker's inner content, reused both on first render and when
+// re-expanded from the minimized "Choose a different template" bar.
+function tplPickerBodyHtml() {
   return `
-  <div id="c-template" class="bg-slate-800 rounded-2xl p-4 sm:p-6 space-y-3">
     <div>
       <h2 class="font-semibold flex items-center gap-2"><i data-lucide="layout-template" class="w-5 h-5 text-amber-400"></i>** Work in Progress **\nWant to start from a template? Choose from below:</h2>
       <p class="text-sm text-slate-400">Fills out page with selected structure, then make it yours. Pick one to begin — or start blank.</p>
@@ -1121,8 +1125,10 @@ function templatePicker() {
           <i data-lucide="${t.icon}" class="w-5 h-5 text-amber-400 mt-0.5 shrink-0"></i>
           <span><span class="block font-semibold text-sm">${t.label}</span><span class="block text-xs text-slate-400">${t.desc}</span></span>
         </button>`).join('')}
-    </div>
-  </div>`;
+    </div>`;
+}
+function templatePicker() {
+  return `<div id="c-template" class="bg-slate-800 rounded-2xl p-4 sm:p-6 space-y-3">${tplPickerBodyHtml()}</div>`;
 }
 
 // Phase 4: top-down map stamp editor. Five hardcoded flat-SVG base maps + a
@@ -1820,16 +1826,34 @@ async function renderCreator(id) {
   draftBldg = existing ? parseBldg(existing.building_type) : [];
   draftVeh = existing ? parseBldg(existing.vehicle_type) : [];
   $('#c-addq').onclick = () => { draftQs.push(newQuestion()); drawQs(); };
-  // Phase 4 templates: seed the questions block, then retire the picker (a
-  // starting point, chosen once). Only present when creating a new scenario.
-  const tplCard = $('#c-template');
-  if (tplCard) tplCard.querySelectorAll('[data-tpl]').forEach(b => b.onclick = () => {
-    const tpl = SCENARIO_TEMPLATES[b.dataset.tpl];
-    draftQs = tpl.qs();
-    tplCard.remove();
-    drawQs();
-    if (b.dataset.tpl !== 'blank') { toast(`Started from “${tpl.label}”`); $('#c-qs').scrollIntoView({ behavior: 'smooth', block: 'center' }); }
-  });
+  // Phase 4 templates: seed the questions block. C7: after picking, the picker
+  // minimizes to a "Choose a different template" bar instead of disappearing —
+  // page position stays put (no forced scroll to Questions), and re-opening lets
+  // the author switch templates. Only present when creating a new scenario.
+  const bindTplPicker = () => {
+    const card = $('#c-template');
+    if (!card) return;
+    card.querySelectorAll('[data-tpl]').forEach(b => b.onclick = () => {
+      const tpl = SCENARIO_TEMPLATES[b.dataset.tpl];
+      draftQs = tpl.qs();
+      drawQs();
+      card.className = 'bg-slate-800 rounded-2xl p-3';
+      card.innerHTML = `
+        <button id="c-tpl-reopen" type="button" class="tap w-full flex items-center justify-between gap-2 text-left">
+          <span class="text-sm text-slate-400 flex items-center gap-2 min-w-0"><i data-lucide="layout-template" class="w-4 h-4 text-amber-400 shrink-0"></i><span class="truncate">Started from “${esc(tpl.label)}”</span></span>
+          <span class="text-xs font-semibold text-amber-300 hover:text-amber-200 shrink-0">Choose a different template</span>
+        </button>`;
+      icons();
+      $('#c-tpl-reopen').onclick = () => {
+        card.className = 'bg-slate-800 rounded-2xl p-4 sm:p-6 space-y-3';
+        card.innerHTML = tplPickerBodyHtml();
+        icons();
+        bindTplPicker();
+      };
+      if (b.dataset.tpl !== 'blank') toast(`Started from “${tpl.label}”`);
+    });
+  };
+  bindTplPicker();
   // Part 6: Department and Public are independent toggles — a scenario can be
   // both at once. Private simply means neither share is on.
   draftShares = { dept: !!existing?.shared_department, pub: !!existing?.shared_public };
@@ -2085,8 +2109,9 @@ function drawMedia() {
 function stageSelect(q, i) {
   const custom = q.stage && !STAGE_PRESETS.includes(q.stage) && !myStagePresets.includes(q.stage);
   const opt = v => `<option value="${esc(v)}" ${q.stage === v ? 'selected' : ''}>${esc(v)}</option>`;
+  const tplRing = q._tplFilled?.stage ? ' border-amber-400 ring-1 ring-amber-400/50' : ' border-slate-700';
   return `
-    <select data-stage="${i}" class="tap bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs w-44" title="Stage header — a blank stage continues the previous one.">
+    <select data-stage="${i}" class="tap bg-slate-800 border${tplRing} rounded-lg px-2 py-2 text-xs w-44" title="Stage header — a blank stage continues the previous one.">
       <option value="" ${!q.stage ? 'selected' : ''}>— stage (optional) —</option>
       <optgroup label="Standard">${STAGE_PRESETS.map(opt).join('')}</optgroup>
       ${myStagePresets.length ? `<optgroup label="Your stages">${myStagePresets.map(opt).join('')}</optgroup>` : ''}
@@ -2159,7 +2184,7 @@ function drawQs() {
     <div class="flex items-center gap-1 bg-slate-800 rounded-lg p-1 text-xs w-fit flex-wrap">
       ${KINDS.map(([k, label]) => `<button data-kind="${k}" data-i="${i}" class="px-3 py-1.5 rounded-md ${q.kind === k ? 'bg-amber-600 font-semibold' : ''}">${label}</button>`).join('')}
     </div>
-    <textarea data-f="prompt" data-i="${i}" data-grow rows="2" placeholder="Question prompt…" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm resize-none overflow-hidden">${esc(q.prompt)}</textarea>
+    <textarea data-f="prompt" data-i="${i}" data-grow rows="2" placeholder="Question prompt…" class="w-full bg-slate-800 border ${q._tplFilled?.prompt ? 'border-amber-400 ring-1 ring-amber-400/50' : 'border-slate-700'} rounded-lg px-3 py-2 text-sm resize-none overflow-hidden">${esc(q.prompt)}</textarea>
     ${q.kind === 'text'
       ? `<div><label class="text-xs font-semibold text-emerald-400">Instructor Answer</label>
           <textarea data-f="instructor_answer" data-i="${i}" data-grow rows="2" class="mt-1 w-full bg-slate-800 border border-emerald-900 rounded-lg px-3 py-2 text-sm text-emerald-100 resize-none overflow-hidden">${esc(q.instructor_answer)}</textarea></div>`
@@ -2168,7 +2193,18 @@ function drawQs() {
   const qs = $('#c-qs');
   // free-text fields (prompt, instructor answer): live update + auto-grow
   qs.querySelectorAll('[data-f]').forEach(el => {
-    el.oninput = () => { draftQs[el.dataset.i][el.dataset.f] = el.value; if (el.hasAttribute('data-grow')) autoGrow(el); };
+    el.oninput = () => {
+      const q = draftQs[el.dataset.i];
+      q[el.dataset.f] = el.value;
+      if (el.hasAttribute('data-grow')) autoGrow(el);
+      // C7: editing a template-filled field clears just that field's highlight —
+      // no full redraw needed, so focus/cursor position is undisturbed.
+      if (el.dataset.f === 'prompt' && q._tplFilled?.prompt) {
+        q._tplFilled.prompt = false;
+        el.classList.remove('border-amber-400', 'ring-1', 'ring-amber-400/50');
+        el.classList.add('border-slate-700');
+      }
+    };
   });
   qs.querySelectorAll('[data-grow]').forEach(autoGrow);
   // stage: preset dropdown with a custom escape hatch
@@ -2177,6 +2213,12 @@ function drawQs() {
     const cust = qs.querySelector(`[data-stage-custom="${sel.dataset.stage}"]`);
     if (sel.value === '__custom__') { cust.classList.remove('hidden'); q.stage = cust.value.trim(); cust.focus(); }
     else { cust.classList.add('hidden'); q.stage = sel.value; }
+    // C7: changing a template-filled stage clears just that field's highlight.
+    if (q._tplFilled?.stage) {
+      q._tplFilled.stage = false;
+      sel.classList.remove('border-amber-400', 'ring-1', 'ring-amber-400/50');
+      sel.classList.add('border-slate-700');
+    }
   });
   qs.querySelectorAll('[data-stage-custom]').forEach(inp => inp.oninput = () => { draftQs[inp.dataset.stageCustom].stage = inp.value.trim(); });
   // roles: toggle chips in place (no full re-render — keeps the form stable)

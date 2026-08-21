@@ -8,16 +8,13 @@ is now the **UX / polish backlog** at `docs/ai/ux-backlog.md` (grill 2026-08-16)
 
 ## Resume here — Phase C (scenario-creator polish)
 
-**Next item: C7 — Template picker rework.** After a template is chosen, don't
-hide the picker or scroll/yank the page to Questions — minimize it to a "Choose
-a different template" button, keep the autofill, and highlight every
-template-filled field with a yellow border that **clears per-field once the user
-edits that field**. Grounding: `templatePicker()`/`SCENARIO_TEMPLATES` in
-`public/index.html` (heading currently "\*\* Work in Progress \*\*", ~line 773).
-Full item list in `docs/ai/ux-backlog.md` Phase C. Remaining after C7: C8
-(dropdown caret indicators), C9 (MVA→MVC display-only relabel).
+**Next item: C8 — Dropdown caret indicators.** Every choice dropdown gets an
+up/down "^" caret that morphs on open/close. Full item list in
+`docs/ai/ux-backlog.md` Phase C. Remaining after C8: C9 (MVA→MVC display-only
+relabel).
 
-**C2, C3, C4, C5 — DONE, committed** (`8977e8b`, `26c19fe`, `98870e0`, `3dd541b`).
+**C2, C3, C4, C5, C6 — DONE, committed** (`8977e8b`, `26c19fe`, `98870e0`,
+`3dd541b`, `886f954`).
 - **C2 (Scene Reference sticky buffer):** bumped the desktop scene rail
   `lg:top-20`→`lg:top-28` so it clears the sticky header (`public/index.html:1734`).
 - **C3 (Finish Scenario → center modal):** new promise-based `publishModal()` in
@@ -30,15 +27,20 @@ Full item list in `docs/ai/ux-backlog.md` Phase C. Remaining after C7: C8
 - **C5 (Questions required indicator):** "Questions \*" header + helper text;
   `validateFinish()` also blocks Finish (toast) if every question prompt is
   blank, mirroring `buildScenarioBody`'s existing filter.
+- **C6 (Question numbers):** mostly pre-existing (creator/live/host/solo/review/
+  reviewer-queue already numbered); fixed the one gap — host's per-participant
+  roster-expand now numbers against the *global* question order.
 
-**C6 — Question numbers — DONE (uncommitted), mostly pre-existing.** Creator,
-live crew, host matrix, solo, after-action review, and the reviewer queue
-already numbered questions `Q{n}.` before this session. Only gap: the host's
-per-participant roster-expand (`drawRoster`, `public/index.html` ~2562) had no
-number — fixed by numbering against the *global* question order so it
-cross-references the matrix correctly even when a seat skips questions.
-Verified live end-to-end (real host+participant sockets, 2-question scenario,
-partial answer, confirmed Q1/Q2 match matrix); 141/141 pass.
+**C7 — Template picker rework — DONE (uncommitted).** Picking a template
+minimizes the picker in place to a "Choose a different template" bar
+(`bindTplPicker`/`tplPickerBodyHtml`, `public/index.html` ~1826) instead of
+removing it and force-scrolling; re-opening lets the author switch templates.
+Template-filled **prompt** and **stage** fields get an amber ring
+(`q._tplFilled`, stamped by `tplQ`), each clearing independently the moment the
+user edits that specific field. Scoped out: role chips (already amber for
+"selected" — a second amber ring there would be ambiguous). Verified in preview
+at desktop + mobile: no scroll on pick, minimize/reopen/re-pick cycle, rings
+clear independently; 141/141 pass.
 
 Phase-C UI primitives already built in C1 and reusable downstream:
 `confirmDialog()` (styled promise-based modal) and `undoToast()` (bottom-left

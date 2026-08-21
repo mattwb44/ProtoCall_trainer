@@ -219,15 +219,24 @@ Non-trivial items get a `verifier` pass before being marked done.
   participant and answered only Q2, confirmed the host's roster-expand showed
   "Q1. First question?" / "Q2. Second question?" matching the matrix's Q1/Q2;
   141/141 tests pass (client-side only, no server change).
-- [ ] **C7. Template picker rework.** After a template is chosen: **don't hide**
-  the picker and **don't scroll/yank** the page down to Questions. Instead
-  minimize the picker to a **"Choose a different template"** button, keep the
-  autofill, and **highlight every template-filled field with a yellow border** so
-  the user sees what the template populated. Page position stays put.
+- [x] **C7. Template picker rework.** DONE (2026-08-21). Picking a template no
+  longer removes the picker or scrolls/yanks the page to Questions — it
+  minimizes in place to a **"Started from '{label}' · Choose a different
+  template"** bar (`public/index.html` ~1826, `bindTplPicker`/`tplPickerBodyHtml`);
+  clicking it re-expands the full grid to switch templates, re-seeding
+  `draftQs`. Template-filled fields (question **prompt** and, where the template
+  sets it, **stage**) get a yellow/amber ring (`drawQs`'s `q._tplFilled` reads,
+  `tplQ` now stamps `_tplFilled: {prompt, stage}`); each ring **clears
+  independently** the moment the user edits that specific field (prompt oninput,
+  stage onchange), without a full re-render so focus isn't lost. Scope note: did
+  **not** highlight the per-question role chips — they already use amber for
+  "selected", so a second amber ring would be visually ambiguous; roles are a
+  minor field on only one template ("Full multi-role incident"). Verified in
+  preview at desktop + mobile widths: no scroll on pick, minimize/reopen/
+  re-pick cycle works, prompt+stage rings render and clear independently
+  (editing one leaves the other highlighted); 141/141 tests pass.
   - _Decided (2026-08-16):_ each field's yellow border **clears once the user
     edits that specific field** (per-field, signaling "you've taken ownership").
-  - _Grounding:_ `templatePicker()` / `SCENARIO_TEMPLATES` in `public/index.html`
-    (heading currently reads "\*\* Work in Progress \*\*" at line ~773).
 - [ ] **C8. Dropdown caret indicators.** Every choice dropdown gets an up/down
   "^" caret that morphs on open/close.
 - [ ] **C9. Relabel MVA → MVC (display only).** **DECIDED (2026-08-16, scoped in
