@@ -3779,6 +3779,11 @@ async function renderScenarioDetail(id) {
       <i data-lucide="info" class="w-4 h-4 shrink-0 mt-0.5"></i>
       <span>You can try this solo without an account — but your run <b>won't be saved</b>. <a href="#/signup" class="underline font-semibold">Sign up</a> to keep your runs in a library.</span></div>` : ''}
     <div class="space-y-3">
+      ${s.is_draft ? `
+      <div class="flex items-center gap-2 flex-wrap">
+        <a href="#/create/${s.id}" class="tap flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-500 rounded-xl px-5 py-3 font-bold text-sm"><i data-lucide="pencil" class="w-4 h-4"></i>Continue Editing</a>
+        <button id="sd-clone" class="tap flex items-center gap-1.5 bg-slate-700 hover:bg-slate-600 rounded-xl px-4 py-3 text-sm"><i data-lucide="copy-plus" class="w-4 h-4"></i>Clone</button>
+      </div>` : `
       ${tracks.length ? `
       <div><label class="text-xs font-semibold text-slate-400">Play as</label>
         <div id="sd-roles" class="flex items-center gap-1.5 flex-wrap mt-1.5">
@@ -3789,23 +3794,25 @@ async function renderScenarioDetail(id) {
         <button id="sd-solo" class="tap flex items-center gap-1.5 bg-rose-600 hover:bg-rose-500 rounded-xl px-5 py-3 font-bold text-sm"><i data-lucide="user" class="w-4 h-4"></i>Try Solo</button>
         <button data-launch="${s.id}" class="tap flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-500 rounded-xl px-5 py-3 font-bold text-sm"><i data-lucide="radio-tower" class="w-4 h-4"></i>Host Live</button>
         <button id="sd-clone" class="tap flex items-center gap-1.5 bg-slate-700 hover:bg-slate-600 rounded-xl px-4 py-3 text-sm"><i data-lucide="copy-plus" class="w-4 h-4"></i>Clone</button>
-      </div>
+      </div>`}
     </div>
   </main>`;
   icons();
-  bindLaunchButtons();
-  const soloRoles = new Set();
-  app.querySelectorAll('[data-solorole]').forEach(btn => btn.onclick = () => {
-    const t = btn.dataset.solorole;
-    if (soloRoles.has(t)) soloRoles.delete(t); else soloRoles.add(t);
-    const on = soloRoles.has(t);
-    btn.className = 'tap text-sm px-3 py-1.5 rounded-full border ' +
-      (on ? 'bg-amber-600 border-amber-500 font-semibold' : 'bg-slate-900 border-slate-700 text-slate-300 hover:border-slate-500');
-  });
-  $('#sd-solo').onclick = () => {
-    const q = soloRoles.size ? `?roles=${encodeURIComponent([...soloRoles].join(','))}` : '';
-    location.hash = `#/solo/${s.id}${q}`;
-  };
+  if (!s.is_draft) {
+    bindLaunchButtons();
+    const soloRoles = new Set();
+    app.querySelectorAll('[data-solorole]').forEach(btn => btn.onclick = () => {
+      const t = btn.dataset.solorole;
+      if (soloRoles.has(t)) soloRoles.delete(t); else soloRoles.add(t);
+      const on = soloRoles.has(t);
+      btn.className = 'tap text-sm px-3 py-1.5 rounded-full border ' +
+        (on ? 'bg-amber-600 border-amber-500 font-semibold' : 'bg-slate-900 border-slate-700 text-slate-300 hover:border-slate-500');
+    });
+    $('#sd-solo').onclick = () => {
+      const q = soloRoles.size ? `?roles=${encodeURIComponent([...soloRoles].join(','))}` : '';
+      location.hash = `#/solo/${s.id}${q}`;
+    };
+  }
   $('#sd-clone').onclick = async () => {
     if (!me) { sessionStorage.authNext = location.hash; location.hash = '#/login'; return; }
     const btn = $('#sd-clone');

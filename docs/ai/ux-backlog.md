@@ -181,14 +181,18 @@ Non-trivial items get a `verifier` pass before being marked done.
   `renderCreator`, `public/index.html` (~1834 applyVis, ~1909 publishModal/
   setActions). Verified in preview: modal opens, toggles update hint/highlight,
   Esc cancels, Finish & Save → POST 201 → My Library; 141/141 tests pass.
-- [ ] **C4. Draft detail page: add "Continue Editing."** Opening a draft from the
-  Drafts list lands on a detail page with Try Solo / Host Session / Clone but
-  **no Continue Editing** (which exists on the draft *card*, `#/create/:id`,
-  `public/index.html:571`). Add it.
-  - _Flag:_ drafts are unplayable/unshared by design (Phase 2 `1100829`), so
-    showing **Host Session / Try Solo** on a draft is probably wrong — recommend
-    making Continue Editing the primary action and hiding/disabling the play
-    buttons on drafts. Confirm before removing.
+- [x] **C4. Draft detail page: add "Continue Editing."** DONE (2026-08-21).
+  `renderScenarioDetail` (`public/index.html`) now branches on `s.is_draft`: a
+  draft shows **Continue Editing** (`<a href="#/create/{id}">`, primary/emerald)
+  + **Clone** only; **Try Solo / Host Live / "Play as" role picker** are hidden
+  entirely (and their bind logic — `bindLaunchButtons`, solo-role click handlers
+  — is skipped for drafts, not just visually hidden). Non-draft scenarios are
+  unchanged. Safe by construction: `canSee` only lets the owner (or a reviewer)
+  load an unshared draft's detail page at all, so no non-owner ever sees this
+  branch. Verified in preview: created a draft, opened its detail page (saw
+  Continue Editing + Clone, no play controls), followed the link to
+  `#/create/:id` and confirmed the editor loaded the draft's title; 141/141
+  tests pass (client-side only, no server change).
   - _Decided (2026-08-16):_ **hide Host Session / Try Solo on draft detail**;
     Continue Editing is the primary action (drafts are unplayable by design).
 - [ ] **C5. Questions required indicator.** Add the required asterisk to the

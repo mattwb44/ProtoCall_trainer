@@ -8,25 +8,26 @@ is now the **UX / polish backlog** at `docs/ai/ux-backlog.md` (grill 2026-08-16)
 
 ## Resume here — Phase C (scenario-creator polish)
 
-**Next item: C4 — draft detail "Continue Editing" + hide play buttons.** Opening
-a draft from the Drafts list lands on a detail page with Try Solo / Host Session
-/ Clone but no Continue Editing (which exists on the draft *card*, `#/create/:id`,
-`public/index.html:571`). Add Continue Editing as the primary action and **hide
-Host Session / Try Solo on draft detail** (drafts are unplayable by design —
-decided 2026-08-16). Full item list + grounding in `docs/ai/ux-backlog.md` Phase
-C. Remaining after C4: C5 (questions required asterisk), C6 (question numbers),
-C7 (template picker rework + yellow field highlights), C8 (dropdown caret
-indicators), C9 (MVA→MVC display-only relabel).
+**Next item: C5 — Questions required indicator.** Add the required asterisk to
+the Questions section with helper text: "\* Must have at least 1 question to
+submit." (`REQ_MARK` already exists for other fields, `public/index.html:1294`).
+Full item list + grounding in `docs/ai/ux-backlog.md` Phase C. Remaining after
+C5: C6 (question numbers), C7 (template picker rework + yellow field
+highlights), C8 (dropdown caret indicators), C9 (MVA→MVC display-only relabel).
 
-**C2 + C3 — DONE (uncommitted).**
+**C2, C3 — DONE, committed** (`8977e8b`, `26c19fe`).
 - **C2 (Scene Reference sticky buffer):** bumped the desktop scene rail
-  `lg:top-20`→`lg:top-28` so it clears the sticky header (`public/index.html:1734`);
-  verified in preview (rail 112px, header bottom 105px, 7px gap). CSS-only.
+  `lg:top-20`→`lg:top-28` so it clears the sticky header (`public/index.html:1734`).
 - **C3 (Finish Scenario → center modal):** new promise-based `publishModal()` in
   `renderCreator` replaces the inline bottom-expand publish step; `applyVis()`
   parametrized `(seg, hint)` to serve both modal and the inline `#publish-block`
-  (kept for the editing-a-published-scenario "Save changes" path). Verified:
-  toggles/hint/Esc-cancel/Finish→POST 201→My Library; 141/141 pass.
+  (kept for the editing-a-published-scenario "Save changes" path).
+
+**C4 — draft detail "Continue Editing" — DONE (uncommitted).**
+`renderScenarioDetail` branches on `s.is_draft`: Continue Editing + Clone only;
+Try Solo / Host Live / role picker hidden and their bind logic skipped. Verified
+in preview end-to-end (draft → detail → Continue Editing → editor loads title);
+141/141 pass.
 
 Phase-C UI primitives already built in C1 and reusable downstream:
 `confirmDialog()` (styled promise-based modal) and `undoToast()` (bottom-left
