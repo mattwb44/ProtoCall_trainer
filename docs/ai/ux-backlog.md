@@ -205,8 +205,20 @@ Non-trivial items get a `verifier` pass before being marked done.
   `public/index.html` ~1720 (markup) and ~1914 (`validateFinish`). Verified in
   preview: asterisk/helper render, Finish blocked+toasted with a blank prompt,
   proceeds to the C3 publish modal once a real prompt is typed; 141/141 pass.
-- [ ] **C6. Question numbers.** Number the questions (creator, live, and solo)
-  for readability.
+- [x] **C6. Question numbers.** DONE (2026-08-21) — mostly pre-existing.
+  Creator (`drawQs`), live crew (`qCard`), host matrix (`drawMatrix`), solo
+  (`renderSolo`), after-action review, and the reviewer queue **all already**
+  rendered `Q{n}.` before this session. The one gap found: the host's
+  per-participant roster expand (`drawRoster`, `public/index.html` ~2562) listed
+  each seat's questions with only a check/circle icon, no number — impossible to
+  cross-reference against the numbered matrix above it. Fixed by numbering
+  against the *global* question order (`hostState.questions.indexOf(q)+1`, not
+  the participant's role-filtered subset index), so "Q3" in the roster always
+  matches "Q3" in the matrix even when a seat skips earlier questions. Verified
+  live end-to-end: created a 2-question scenario, hosted a session, joined as a
+  participant and answered only Q2, confirmed the host's roster-expand showed
+  "Q1. First question?" / "Q2. Second question?" matching the matrix's Q1/Q2;
+  141/141 tests pass (client-side only, no server change).
 - [ ] **C7. Template picker rework.** After a template is chosen: **don't hide**
   the picker and **don't scroll/yank** the page down to Questions. Instead
   minimize the picker to a **"Choose a different template"** button, keep the

@@ -2561,9 +2561,13 @@ function drawRoster() {
       : hostState.questions;
     const detail = visible.map(q => {
       const ok = answeredIds.has(q.id);
+      // C6: number against the *global* question order (hostState.questions), not
+      // this participant's filtered subset — so "Q3" here matches "Q3" in the matrix
+      // above even when a seat skips earlier questions.
+      const n = hostState.questions.indexOf(q) + 1;
       return `<div class="flex items-start gap-2 text-xs">
         <i data-lucide="${ok ? 'check-circle-2' : 'circle'}" class="w-3.5 h-3.5 shrink-0 mt-0.5 ${ok ? 'text-emerald-400' : 'text-slate-600'}"></i>
-        <span class="${ok ? 'text-slate-300' : 'text-slate-500'}">${esc(q.prompt)}</span></div>`;
+        <span class="${ok ? 'text-slate-300' : 'text-slate-500'}"><span class="font-bold text-slate-400">Q${n}.</span> ${esc(q.prompt)}</span></div>`;
     }).join('') || '<p class="text-xs text-slate-500 italic">No questions for this seat.</p>';
     return `<div class="bg-slate-800 rounded-2xl p-3">
       <div class="flex items-center gap-3">

@@ -8,12 +8,16 @@ is now the **UX / polish backlog** at `docs/ai/ux-backlog.md` (grill 2026-08-16)
 
 ## Resume here — Phase C (scenario-creator polish)
 
-**Next item: C6 — Question numbers.** Number the questions (creator, live, and
-solo) for readability. Full item list + grounding in `docs/ai/ux-backlog.md`
-Phase C. Remaining after C6: C7 (template picker rework + yellow field
-highlights), C8 (dropdown caret indicators), C9 (MVA→MVC display-only relabel).
+**Next item: C7 — Template picker rework.** After a template is chosen, don't
+hide the picker or scroll/yank the page to Questions — minimize it to a "Choose
+a different template" button, keep the autofill, and highlight every
+template-filled field with a yellow border that **clears per-field once the user
+edits that field**. Grounding: `templatePicker()`/`SCENARIO_TEMPLATES` in
+`public/index.html` (heading currently "\*\* Work in Progress \*\*", ~line 773).
+Full item list in `docs/ai/ux-backlog.md` Phase C. Remaining after C7: C8
+(dropdown caret indicators), C9 (MVA→MVC display-only relabel).
 
-**C2, C3, C4 — DONE, committed** (`8977e8b`, `26c19fe`, `98870e0`).
+**C2, C3, C4, C5 — DONE, committed** (`8977e8b`, `26c19fe`, `98870e0`, `3dd541b`).
 - **C2 (Scene Reference sticky buffer):** bumped the desktop scene rail
   `lg:top-20`→`lg:top-28` so it clears the sticky header (`public/index.html:1734`).
 - **C3 (Finish Scenario → center modal):** new promise-based `publishModal()` in
@@ -23,13 +27,18 @@ highlights), C8 (dropdown caret indicators), C9 (MVA→MVC display-only relabel)
 - **C4 (draft detail "Continue Editing"):** `renderScenarioDetail` branches on
   `s.is_draft`: Continue Editing + Clone only; Try Solo / Host Live / role picker
   hidden and their bind logic skipped.
+- **C5 (Questions required indicator):** "Questions \*" header + helper text;
+  `validateFinish()` also blocks Finish (toast) if every question prompt is
+  blank, mirroring `buildScenarioBody`'s existing filter.
 
-**C5 — Questions required indicator — DONE (uncommitted).** "Questions \*"
-header + helper text (`REQ_MARK`, matches Scene Details pattern);
-`validateFinish()` now also blocks Finish (toast "Add at least one question")
-if every question prompt is blank, mirroring `buildScenarioBody`'s existing
-`prompt.trim()` filter. `public/index.html` ~1720, ~1914. Verified in preview
-(blocked-then-unblocked round trip); 141/141 pass.
+**C6 — Question numbers — DONE (uncommitted), mostly pre-existing.** Creator,
+live crew, host matrix, solo, after-action review, and the reviewer queue
+already numbered questions `Q{n}.` before this session. Only gap: the host's
+per-participant roster-expand (`drawRoster`, `public/index.html` ~2562) had no
+number — fixed by numbering against the *global* question order so it
+cross-references the matrix correctly even when a seat skips questions.
+Verified live end-to-end (real host+participant sockets, 2-question scenario,
+partial answer, confirmed Q1/Q2 match matrix); 141/141 pass.
 
 Phase-C UI primitives already built in C1 and reusable downstream:
 `confirmDialog()` (styled promise-based modal) and `undoToast()` (bottom-left
