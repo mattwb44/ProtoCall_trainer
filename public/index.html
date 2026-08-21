@@ -1718,7 +1718,10 @@ async function renderCreator(id) {
         </div>
       </section>
       <section class="bg-slate-800 rounded-2xl p-4 sm:p-6 space-y-3">
-        <h2 class="font-semibold">Questions</h2>
+        <div class="flex items-baseline justify-between gap-3">
+          <h2 class="font-semibold">Questions ${REQ_MARK}</h2>
+          <p class="text-xs text-slate-500">${REQ_MARK} Must have at least 1 question to submit.</p>
+        </div>
         <div id="c-qs" class="space-y-3"></div>
         <button id="c-addq" class="tap w-full flex items-center justify-center gap-1.5 text-sm bg-rose-600 hover:bg-rose-500 px-4 py-3 rounded-xl font-semibold"><i data-lucide="plus" class="w-4 h-4"></i>Add Question</button>
       </section>
@@ -1909,6 +1912,7 @@ async function renderCreator(id) {
     if (!$('#c-title').value.trim()) return toast('Title is required', 'bg-amber-500'), false;
     if (!$('#c-cat').value || !$('#c-sub').value) return toast('Pick a category and subcategory', 'bg-amber-500'), false;
     if (!$('#c-obj1').value) return toast('Pick a primary learning objective — try “Suggest objectives from the scene”', 'bg-amber-500'), false;
+    if (!draftQs.some(q => q.prompt.trim())) return toast('Add at least one question', 'bg-amber-500'), false;
     return true;
   };
   // C3: finishing a new/draft scenario opens a centered publish-options modal

@@ -195,10 +195,16 @@ Non-trivial items get a `verifier` pass before being marked done.
   tests pass (client-side only, no server change).
   - _Decided (2026-08-16):_ **hide Host Session / Try Solo on draft detail**;
     Continue Editing is the primary action (drafts are unplayable by design).
-- [ ] **C5. Questions required indicator.** Add the required asterisk to the
-  Questions section with helper text: **"\* Must have at least 1 question to
-  submit."** (`REQ_MARK` already exists for other fields,
-  `public/index.html:1294`.)
+- [x] **C5. Questions required indicator.** DONE (2026-08-21). Questions section
+  header now reads "Questions \*" with a helper line "\* Must have at least 1
+  question to submit." (reusing `REQ_MARK`, matching the Scene Details header
+  pattern). Also added matching enforcement in `validateFinish()` — Finish
+  Scenario now toasts "Add at least one question" and blocks the publish modal
+  if every question's prompt is blank (mirrors `buildScenarioBody`'s existing
+  `q.prompt.trim()` filter, so the check reflects what actually gets saved).
+  `public/index.html` ~1720 (markup) and ~1914 (`validateFinish`). Verified in
+  preview: asterisk/helper render, Finish blocked+toasted with a blank prompt,
+  proceeds to the C3 publish modal once a real prompt is typed; 141/141 pass.
 - [ ] **C6. Question numbers.** Number the questions (creator, live, and solo)
   for readability.
 - [ ] **C7. Template picker rework.** After a template is chosen: **don't hide**

@@ -8,26 +8,28 @@ is now the **UX / polish backlog** at `docs/ai/ux-backlog.md` (grill 2026-08-16)
 
 ## Resume here — Phase C (scenario-creator polish)
 
-**Next item: C5 — Questions required indicator.** Add the required asterisk to
-the Questions section with helper text: "\* Must have at least 1 question to
-submit." (`REQ_MARK` already exists for other fields, `public/index.html:1294`).
-Full item list + grounding in `docs/ai/ux-backlog.md` Phase C. Remaining after
-C5: C6 (question numbers), C7 (template picker rework + yellow field
+**Next item: C6 — Question numbers.** Number the questions (creator, live, and
+solo) for readability. Full item list + grounding in `docs/ai/ux-backlog.md`
+Phase C. Remaining after C6: C7 (template picker rework + yellow field
 highlights), C8 (dropdown caret indicators), C9 (MVA→MVC display-only relabel).
 
-**C2, C3 — DONE, committed** (`8977e8b`, `26c19fe`).
+**C2, C3, C4 — DONE, committed** (`8977e8b`, `26c19fe`, `98870e0`).
 - **C2 (Scene Reference sticky buffer):** bumped the desktop scene rail
   `lg:top-20`→`lg:top-28` so it clears the sticky header (`public/index.html:1734`).
 - **C3 (Finish Scenario → center modal):** new promise-based `publishModal()` in
   `renderCreator` replaces the inline bottom-expand publish step; `applyVis()`
   parametrized `(seg, hint)` to serve both modal and the inline `#publish-block`
   (kept for the editing-a-published-scenario "Save changes" path).
+- **C4 (draft detail "Continue Editing"):** `renderScenarioDetail` branches on
+  `s.is_draft`: Continue Editing + Clone only; Try Solo / Host Live / role picker
+  hidden and their bind logic skipped.
 
-**C4 — draft detail "Continue Editing" — DONE (uncommitted).**
-`renderScenarioDetail` branches on `s.is_draft`: Continue Editing + Clone only;
-Try Solo / Host Live / role picker hidden and their bind logic skipped. Verified
-in preview end-to-end (draft → detail → Continue Editing → editor loads title);
-141/141 pass.
+**C5 — Questions required indicator — DONE (uncommitted).** "Questions \*"
+header + helper text (`REQ_MARK`, matches Scene Details pattern);
+`validateFinish()` now also blocks Finish (toast "Add at least one question")
+if every question prompt is blank, mirroring `buildScenarioBody`'s existing
+`prompt.trim()` filter. `public/index.html` ~1720, ~1914. Verified in preview
+(blocked-then-unblocked round trip); 141/141 pass.
 
 Phase-C UI primitives already built in C1 and reusable downstream:
 `confirmDialog()` (styled promise-based modal) and `undoToast()` (bottom-left
