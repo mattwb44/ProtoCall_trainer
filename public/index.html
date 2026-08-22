@@ -3970,13 +3970,33 @@ async function renderCoverage() {
 
 /* ═══ v7: Academies — curated ordered collections ═══ */
 async function renderAcademies() {
+  // D2: Academies is still a work-in-progress feature, so it's gated to the site
+  // admin (the single env-bootstrapped operator) who builds and previews them.
+  // Everyone else — standard users, dept admins, guests — sees a coming-soon
+  // placeholder instead of the half-built list. UI-only gate: the server still
+  // supports the full academy API (see POST /api/academies).
+  if (me?.role !== 'site_admin') {
+    app.innerHTML = `
+    <main class="max-w-2xl mx-auto p-4 sm:p-6 anim-in">
+      <div class="bg-slate-800 rounded-2xl p-6 sm:p-8 space-y-4 text-center">
+        <div class="w-14 h-14 mx-auto rounded-2xl bg-indigo-500/15 flex items-center justify-center"><i data-lucide="graduation-cap" class="w-7 h-7 text-indigo-300"></i></div>
+        <div class="space-y-1">
+          <h1 class="text-2xl font-bold">Academies — coming soon</h1>
+          <p class="text-[11px] font-bold tracking-wider text-indigo-300">WORK IN PROGRESS</p>
+        </div>
+        <p class="text-sm text-slate-300 leading-relaxed">An Academy is a curated, ordered path through ProtoCall scenarios: a guided track your department (or the whole site) can assign so members train in a deliberate sequence instead of picking scenarios at random.</p>
+        <p class="text-sm text-slate-300 leading-relaxed">Think structured onboarding — promote-to-driver tracks, paramedic curricula, and department-specific skill ladders, all in one place. We're still building it; check back soon.</p>
+      </div>
+    </main>`;
+    icons();
+    return;
+  }
   const list = await fetch('/api/academies').then(r => r.json());
-  const canCreate = me && (me.role === 'site_admin' || (me.role === 'dept_admin' && me.department?.verified_at));
   app.innerHTML = `
   <main class="max-w-2xl mx-auto p-4 sm:p-6 space-y-4 anim-in">
     <div class="flex items-center justify-between">
       <h1 class="text-2xl font-bold">Academies</h1>
-      ${canCreate ? `<button id="ac-new" class="tap flex items-center gap-1.5 text-sm bg-rose-600 hover:bg-rose-500 px-4 py-2.5 rounded-xl font-medium"><i data-lucide="plus" class="w-4 h-4"></i>New Academy</button>` : ''}
+      <button id="ac-new" class="tap flex items-center gap-1.5 text-sm bg-rose-600 hover:bg-rose-500 px-4 py-2.5 rounded-xl font-medium"><i data-lucide="plus" class="w-4 h-4"></i>New Academy</button>
     </div>
     <p class="text-sm text-slate-400">Curated scenario collections — work through them in order.</p>
     ${list.map(a => `

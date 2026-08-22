@@ -5,12 +5,20 @@ ops-hardening execution plan (`docs/execution-plan.md`) is complete; active work
 is now the **UX / polish backlog** at `docs/ai/ux-backlog.md` (grill 2026-08-16)._
 
 `npm test` = 142 passing. **Phase C (C1–C9) committed AND pushed** to
-`origin/main` (latest `f82407f` = C8+C9). Now in **Phase D**: **D1 v1 (media
-markup editor) is implemented and verified but UNCOMMITTED** — details below.
+`origin/main` (latest `f82407f`). **Phase D in progress:** **D1 v1 committed
+locally (`d932881`, not pushed); D2 done and UNCOMMITTED.** Nothing since
+`f82407f` is pushed/deployed yet.
 
 ## Resume here — Phase D
 
-**D1 v1 — Media View/Edit markup editor — DONE (uncommitted), v2 deferred.**
+**D2 — Academies gate + WIP placeholder — DONE (uncommitted).** `renderAcademies`
+early-returns a coming-soon placeholder (graduation-cap, "Academies — coming
+soon", WORK IN PROGRESS, decided two-paragraph blurb) for anyone whose
+`me?.role !== 'site_admin'`; only the site admin sees the functional list + New
+Academy. **UI-only gate** (owner-chosen) — server academy API untouched, so
+`academies.test.js` stays green. Verified both roles, desktop + mobile; 142/142.
+
+**D1 v1 — Media View/Edit markup editor — committed locally (`d932881`), v2 deferred.**
 Full-size viewer + drawer on every media row. Plan file:
 `~/.claude/plans/refactored-marinating-lamport.md`. What landed:
 - **Client** (`public/index.html`): `openMarkupEditor(item, onSave)` (modeled on

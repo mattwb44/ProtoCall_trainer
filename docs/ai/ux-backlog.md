@@ -325,14 +325,16 @@ Non-trivial items get a `verifier` pass before being marked done.
   wanting to draw live; if revived, use the pushed-snapshot approach (host draws
   → "Show crew" pushes the updated image over the existing session socket), never
   mutating the source scenario.
-- [ ] **D2. Academies gate + WIP placeholder.** **DECIDED.** Restrict
-  `+New Academy` to `site_admin` only (removes verified dept-admins; since
-  `site_admin` is env-bootstrapped to a single operator, this = just the owner).
-  Non-admins see a **work-in-progress placeholder** page with a short blurb on
-  what Academies will become.
-  - _Grounding:_ `canCreate = site_admin || (dept_admin && verified)` at
-    `public/index.html:3010` — drop the dept-admin arm and add the placeholder
-    for the non-create case.
+- [x] **D2. Academies gate + WIP placeholder.** DONE (uncommitted). `renderAcademies`
+  now early-returns a **coming-soon placeholder** (graduation-cap icon, "Academies
+  — coming soon", WORK IN PROGRESS tag, the two-paragraph blurb verbatim) for
+  everyone whose `me?.role !== 'site_admin'` — standard users, dept admins, guests.
+  Only the site admin (the single env-bootstrapped operator) reaches the functional
+  list + New Academy button. **UI-only gate** (owner-chosen): the server academy API
+  is untouched, so `academies.test.js` and the dept-academy path stay intact; a
+  dept-admin could still hit `POST /api/academies` directly but has no UI path.
+  Verified in preview: standard user → placeholder (desktop + mobile); promoted to
+  site_admin → functional page with New Academy returns. 142/142 pass.
   - _Placeholder copy (draft for owner approval):_ **"Academies — coming soon.**
     An Academy is a curated, ordered path through ProtoCall scenarios: a guided
     track your department (or the whole site) can assign so members train in a
