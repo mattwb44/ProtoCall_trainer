@@ -1558,6 +1558,284 @@ function openMapEditor(onInsert) {
   };
 }
 
+// D1: solid-only palette for the markup editor. A single grid, no opacity /
+// spectrum / sliders — deliberately distinct from Apple Photos' markup chrome.
+const MARKUP_COLORS = ['#ef4444', '#f97316', '#f59e0b', '#eab308', '#22c55e', '#14b8a6',
+  '#3b82f6', '#6366f1', '#a855f7', '#ec4899', '#ffffff', '#0f172a'];
+
+// D1 (v1) — media View/Edit markup editor. Opens `item` (a draftMedia entry) as a
+// full-size, drawable canvas. Markups are stored as an EDITABLE OVERLAY: the base
+// image is frozen once (item.baseUrl), strokes live as objects, and Save flattens
+// them onto a fresh composite PNG (`url`) while keeping the overlay so a later
+// reopen reloads the individual strokes (erasable/removable) — the D1a
+// reversibility guarantee. Mirrors openMapEditor's overlay + Back-trap + upload
+// pattern; export composites with Canvas 2D (drawImage + stroke) rather than
+// rasterizing an SVG-with-<image>, which browsers block/taint. onSave receives
+// { kind, url, baseUrl?, overlay? }.
+function openMarkupEditor(item, onSave) {
+  const NS = 'http://www.w3.org/2000/svg';
+  const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+  const baseUrl = item.baseUrl || item.url;      // frozen, un-annotated source
+  let objects = (item.overlay?.objects || []).map(o => ({ ...o, pts: o.pts.map(p => [...p]) }));
+  let tool = 'pen';
+  let recents = [];
+  try { recents = JSON.parse(localStorage.pcMarkupRecentColors || '[]'); } catch { recents = []; }
+  let color = recents[0] || '#ef4444';
+  let W = 0, H = 0, penW = 6, ready = false, dirty = false, uploading = false;
+  let nextId = objects.reduce((m, o) => Math.max(m, o.id || 0), 0) + 1;
+  let drawing = null, liveEl = null;
+
+  const ov = document.createElement('div');
+  ov.className = 'fixed inset-0 z-50 bg-slate-950/95 overflow-auto';
+  ov.innerHTML = `
+    <div class="min-h-full flex items-start justify-center p-3 sm:p-6">
+      <div class="w-full max-w-3xl bg-slate-900 border border-slate-700 rounded-2xl overflow-hidden">
+        <div class="p-4 sm:p-6 space-y-1 border-b border-slate-800">
+          <h2 class="font-semibold text-lg flex items-center gap-2"><i data-lucide="pencil" class="w-5 h-5 text-indigo-400"></i>View / Edit media</h2>
+          <p class="text-sm text-slate-400">Draw on the scene to highlight what matters. Markups are saved as an editable layer — reopen any time to change or remove them.</p>
+        </div>
+        <div class="p-4 sm:p-6 space-y-4">
+          <div class="flex items-center gap-2 flex-wrap">
+            <button data-tool="pen" type="button" class="tap px-3 py-2 rounded-lg text-sm font-semibold border flex items-center gap-1.5"><i data-lucide="pen-line" class="w-4 h-4"></i>Pen</button>
+            <button data-tool="eraser" type="button" class="tap px-3 py-2 rounded-lg text-sm font-semibold border flex items-center gap-1.5"><i data-lucide="eraser" class="w-4 h-4"></i>Eraser</button>
+            <div class="relative">
+              <button id="mk-color-btn" type="button" class="tap px-3 py-2 rounded-lg text-sm font-semibold border border-slate-700 bg-slate-800 hover:border-slate-500 flex items-center gap-2"><span id="mk-color-dot" class="w-4 h-4 rounded-full border border-slate-500 shrink-0"></span>Color</button>
+              <div id="mk-color-pop" class="hidden absolute z-10 mt-1 left-0 bg-slate-900 border border-slate-700 rounded-xl p-2.5 shadow-xl w-max"></div>
+            </div>
+            <button id="mk-clear" type="button" class="tap ml-auto text-xs font-semibold text-slate-400 hover:text-rose-400">Clear all</button>
+          </div>
+          <div class="relative bg-slate-950 rounded-xl border border-slate-700 overflow-hidden">
+            <svg id="mk-svg" viewBox="0 0 100 100" class="w-full h-auto block" style="touch-action:none;max-height:60vh"></svg>
+            <div id="mk-loading" class="absolute inset-0 flex items-center justify-center text-slate-500 text-sm">Loading image…</div>
+          </div>
+          <p class="text-xs text-slate-500">Pen draws in the selected color. Eraser removes a whole stroke at a tap.</p>
+        </div>
+        <div class="p-4 sm:p-6 border-t border-slate-800 flex items-center justify-end gap-3">
+          <button id="mk-cancel" type="button" class="tap px-4 py-2.5 rounded-xl font-semibold text-slate-300 hover:text-white">Cancel</button>
+          <button id="mk-save" type="button" class="tap px-5 py-2.5 rounded-xl font-bold bg-amber-500 hover:bg-amber-400 text-slate-950">Save</button>
+        </div>
+      </div>
+    </div>`;
+  document.body.appendChild(ov);
+  const svg = ov.querySelector('#mk-svg');
+
+  // Back-trap + leave-guard, mirroring openMapEditor's A6 handling: a browser/app
+  // Back would otherwise swap the hash route and re-render #app under the overlay.
+  let editorClosed = false;
+  history.pushState({ pcMarkupEditor: 1 }, '');
+  function removeOverlay() {
+    if (editorClosed) return;
+    editorClosed = true;
+    window.removeEventListener('popstate', onBack);
+    ov.remove();
+  }
+  function closeEditor() {
+    if (editorClosed) return;
+    removeOverlay();
+    history.back();
+  }
+  function requestClose() { if (dirty) showLeaveGuard(); else closeEditor(); }
+  function onBack() {
+    if (editorClosed) return;
+    if (!dirty) { removeOverlay(); return; }
+    history.pushState({ pcMarkupEditor: 1 }, '');
+    showLeaveGuard();
+  }
+  window.addEventListener('popstate', onBack);
+  function showLeaveGuard() {
+    if (ov.querySelector('#mk-leave-guard')) return;
+    const g = document.createElement('div');
+    g.id = 'mk-leave-guard';
+    g.className = 'absolute inset-0 z-20 flex items-center justify-center bg-slate-950/80 p-4';
+    g.innerHTML = `
+      <div class="w-full max-w-sm bg-slate-900 border border-slate-700 rounded-2xl p-5 space-y-4 anim-in">
+        <div>
+          <h3 class="font-bold text-lg flex items-center gap-2"><i data-lucide="triangle-alert" class="w-5 h-5 text-amber-400"></i>Leave the markup editor?</h3>
+          <p class="text-sm text-slate-400 mt-1">Your changes haven't been saved to the scenario yet.</p>
+        </div>
+        <div class="flex flex-col gap-2">
+          <button id="mkg-save" class="tap w-full bg-amber-500 hover:bg-amber-400 text-slate-950 rounded-xl py-2.5 font-bold">Save &amp; leave</button>
+          <button id="mkg-discard" class="tap w-full bg-slate-800 hover:bg-slate-700 rounded-xl py-2.5 font-semibold text-rose-300">Leave without saving</button>
+          <button id="mkg-stay" class="tap w-full text-slate-400 hover:text-white rounded-xl py-2">Keep editing</button>
+        </div>
+      </div>`;
+    ov.appendChild(g);
+    icons();
+    g.querySelector('#mkg-stay').onclick = () => g.remove();
+    g.querySelector('#mkg-discard').onclick = () => closeEditor();
+    g.querySelector('#mkg-save').onclick = () => { g.remove(); doSave(); };
+  }
+
+  function pt(clientX, clientY) {
+    const r = svg.getBoundingClientRect();
+    return [clamp((clientX - r.left) / r.width * W, 0, W), clamp((clientY - r.top) / r.height * H, 0, H)];
+  }
+  const pathD = pts => pts.map((p, i) => `${i ? 'L' : 'M'}${p[0].toFixed(1)} ${p[1].toFixed(1)}`).join(' ');
+  function strokeSvg(o, pe) {
+    if (o.pts.length === 1) return `<circle data-obj="${o.id}" cx="${o.pts[0][0]}" cy="${o.pts[0][1]}" r="${o.width / 2}" fill="${o.color}" style="pointer-events:${pe}"/>`;
+    return `<path data-obj="${o.id}" d="${pathD(o.pts)}" fill="none" stroke="${o.color}" stroke-width="${o.width}" stroke-linecap="round" stroke-linejoin="round" style="pointer-events:${pe}"/>`;
+  }
+  function paint() {
+    const pe = tool === 'eraser' ? 'stroke' : 'none';  // strokes catch taps only when erasing
+    svg.innerHTML = `<image href="${esc(baseUrl)}" x="0" y="0" width="${W}" height="${H}" preserveAspectRatio="none" style="pointer-events:none"/>`
+      + objects.map(o => strokeSvg(o, pe)).join('');
+    if (tool === 'eraser') svg.querySelectorAll('[data-obj]').forEach(el => el.addEventListener('pointerdown', eraseHit));
+  }
+  function eraseHit(e) {
+    e.stopPropagation();
+    const id = Number(e.currentTarget.dataset.obj);
+    objects = objects.filter(o => o.id !== id);
+    dirty = true;
+    paint();
+  }
+
+  svg.addEventListener('pointerdown', e => {
+    if (!ready || tool !== 'pen') return;
+    const [x, y] = pt(e.clientX, e.clientY);
+    drawing = { id: nextId++, type: 'stroke', tool: 'pen', color, width: penW, pts: [[x, y]] };
+    liveEl = document.createElementNS(NS, 'path');
+    liveEl.setAttribute('fill', 'none');
+    liveEl.setAttribute('stroke', color);
+    liveEl.setAttribute('stroke-width', penW);
+    liveEl.setAttribute('stroke-linecap', 'round');
+    liveEl.setAttribute('stroke-linejoin', 'round');
+    liveEl.style.pointerEvents = 'none';
+    svg.appendChild(liveEl);
+    svg.setPointerCapture(e.pointerId);
+  });
+  svg.addEventListener('pointermove', e => {
+    if (!drawing) return;
+    const [x, y] = pt(e.clientX, e.clientY);
+    drawing.pts.push([x, y]);
+    liveEl.setAttribute('d', pathD(drawing.pts));
+  });
+  function endStroke() {
+    if (!drawing) return;
+    objects.push(drawing);
+    recordRecent(drawing.color);
+    dirty = true;
+    drawing = null; liveEl = null;
+    paint();
+  }
+  svg.addEventListener('pointerup', endStroke);
+  svg.addEventListener('pointercancel', endStroke);
+
+  function setTool(t) {
+    tool = t;
+    ov.querySelectorAll('[data-tool]').forEach(b => {
+      const on = b.dataset.tool === t;
+      b.classList.toggle('bg-amber-500', on);
+      b.classList.toggle('text-slate-950', on);
+      b.classList.toggle('border-amber-500', on);
+      b.classList.toggle('border-slate-700', !on);
+      b.classList.toggle('bg-slate-800', !on);
+      b.classList.toggle('text-slate-200', !on);
+    });
+    paint();
+  }
+  ov.querySelectorAll('[data-tool]').forEach(b => b.onclick = () => setTool(b.dataset.tool));
+
+  const colorDot = ov.querySelector('#mk-color-dot');
+  const pop = ov.querySelector('#mk-color-pop');
+  const updateColorDot = () => { colorDot.style.background = color; };
+  const swatch = c => `<button data-color="${c}" type="button" class="tap w-7 h-7 rounded-md border ${c === color ? 'border-amber-400 ring-2 ring-amber-400/50' : 'border-slate-600'}" style="background:${c}"></button>`;
+  function buildPop() {
+    pop.innerHTML = `<div class="grid grid-cols-6 gap-1.5">${MARKUP_COLORS.map(swatch).join('')}</div>`
+      + (recents.length ? `<p class="text-[10px] font-bold text-slate-400 mt-2 mb-1 tracking-wide">RECENTLY USED</p><div class="flex flex-wrap gap-1.5">${recents.map(swatch).join('')}</div>` : '');
+    pop.querySelectorAll('[data-color]').forEach(b => b.onclick = () => {
+      color = b.dataset.color;
+      updateColorDot();
+      setTool('pen');
+      pop.classList.add('hidden');
+    });
+  }
+  ov.querySelector('#mk-color-btn').onclick = () => {
+    if (pop.classList.contains('hidden')) { buildPop(); pop.classList.remove('hidden'); }
+    else pop.classList.add('hidden');
+  };
+  function recordRecent(c) {
+    recents = [c, ...recents.filter(x => x !== c)].slice(0, 8);
+    try { localStorage.pcMarkupRecentColors = JSON.stringify(recents); } catch {}
+  }
+
+  ov.querySelector('#mk-clear').onclick = () => {
+    if (!objects.length) return;
+    objects = []; dirty = true;
+    paint();
+    toast('Markups cleared');
+  };
+  ov.querySelector('#mk-cancel').onclick = () => requestClose();
+  ov.onclick = e => { if (e.target === ov) requestClose(); };
+
+  async function doSave() {
+    if (uploading) return;
+    const btn = ov.querySelector('#mk-save');
+    // No strokes → revert to the clean base (drops any prior overlay). If the item
+    // was never annotated, this is just the original image unchanged.
+    if (!objects.length) {
+      onSave({ kind: item.kind, url: baseUrl });
+      toast('Markup cleared');
+      closeEditor();
+      return;
+    }
+    uploading = true;
+    const label = btn.textContent;
+    btn.textContent = 'Saving…'; btn.disabled = true;
+    try {
+      const c = document.createElement('canvas');
+      c.width = W; c.height = H;
+      const ctx = c.getContext('2d');
+      ctx.drawImage(baseImg, 0, 0, W, H);       // same-origin /media image → canvas stays untainted
+      for (const o of objects) {
+        if (o.pts.length === 1) {
+          ctx.beginPath(); ctx.fillStyle = o.color;
+          ctx.arc(o.pts[0][0], o.pts[0][1], o.width / 2, 0, Math.PI * 2); ctx.fill();
+          continue;
+        }
+        ctx.strokeStyle = o.color; ctx.lineWidth = o.width;
+        ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+        ctx.beginPath();
+        o.pts.forEach(([x, y], i) => i ? ctx.lineTo(x, y) : ctx.moveTo(x, y));
+        ctx.stroke();
+      }
+      const png = await new Promise(r => c.toBlob(r, 'image/png'));
+      const form = new FormData();
+      form.append('file', png, 'markup.png');
+      const res = await fetch('/api/media', { method: 'POST', body: form });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Upload failed');
+      const { url: newUrl } = await res.json();
+      onSave({ kind: item.kind, url: newUrl, baseUrl, overlay: { v: 1, w: W, h: H, objects } });
+      toast('Markup saved');
+      closeEditor();
+    } catch (err) {
+      toast(err.message || 'Upload failed', 'bg-rose-600');
+    } finally {
+      uploading = false;
+      btn.textContent = label; btn.disabled = false;
+    }
+  }
+  ov.querySelector('#mk-save').onclick = () => doSave();
+
+  // Load the base image to learn its natural size (the drawing coordinate space)
+  // and to reuse as the untainted canvas source at export time.
+  const baseImg = new Image();
+  baseImg.onload = () => {
+    W = baseImg.naturalWidth || 1600;
+    H = baseImg.naturalHeight || 1200;
+    penW = Math.max(4, Math.round(Math.min(W, H) / 100));
+    svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+    ov.querySelector('#mk-loading').classList.add('hidden');
+    ready = true;
+    paint();
+  };
+  baseImg.onerror = () => { ov.querySelector('#mk-loading').textContent = 'Could not load image.'; };
+  baseImg.src = baseUrl;
+
+  setTool('pen');
+  updateColorDot();
+  icons();
+}
+
 // Track B — dismissible creation tutorial. Off once dismissed (localStorage).
 function creationTutorial() {
   if (localStorage.pcCreateTutorialDismissed) return '';
@@ -1638,7 +1916,14 @@ async function renderCreator(id) {
       }
       return qq;
     });
-    draftMedia = existing.media.map(m => ({ kind: m.kind, url: m.url }));
+    // D1: rehydrate the editable overlay (base_url + overlay JSON string) so
+    // reopening the markup editor reloads the individual strokes. A malformed
+    // overlay is dropped, leaving the composite `url` as a plain image.
+    draftMedia = existing.media.map(m => {
+      let overlay = null;
+      if (m.overlay) { try { overlay = JSON.parse(m.overlay); } catch { overlay = null; } }
+      return { kind: m.kind, url: m.url, ...(m.base_url ? { baseUrl: m.base_url } : {}), ...(overlay ? { overlay } : {}) };
+    });
   }
   // Objectives are scoped to the scenario's category; load the initial set here
   // and repopulate the dropdowns whenever the category changes.
@@ -2112,9 +2397,17 @@ function drawMedia() {
       <div class="relative sel-wrap"><select data-mkind="${i}" class="tap bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm">
         ${['photo', 'ekg', 'map'].map(k => `<option value="${k}" ${m.kind === k ? 'selected' : ''}>${k === 'ekg' ? 'EKG strip' : k}</option>`).join('')}
       </select>${selCaret}</div>
-      <button data-mdel="${i}" class="tap ml-auto text-slate-400 hover:text-rose-400 px-3"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
+      <button data-medit="${i}" class="tap ml-auto text-slate-400 hover:text-indigo-300 px-3" title="View / edit markup"><i data-lucide="pencil" class="w-4 h-4"></i></button>
+      <button data-mdel="${i}" class="tap text-slate-400 hover:text-rose-400 px-3" title="Remove media"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
     </div>`).join('');
   $('#c-media').querySelectorAll('[data-mkind]').forEach(el => el.onchange = () => draftMedia[el.dataset.mkind].kind = el.value);
+  // D1: View/Edit opens the markup editor (also the full-size viewer). The editor
+  // lives outside #app, so markDirty() is called explicitly in the callback (same
+  // reason as the media-delete undo path below).
+  $('#c-media').querySelectorAll('[data-medit]').forEach(el => el.onclick = () => {
+    const i = +el.dataset.medit;
+    openMarkupEditor(draftMedia[i], updated => { draftMedia[i] = updated; drawMedia(); drawSceneRef(); markDirty(); });
+  });
   // C1: media removal is cheap and client-side until save, so it's recovered by an
   // Undo toast rather than a blocking confirm. Undo re-inserts at the same index.
   // markDirty() is called explicitly on both paths because the undo button lives
@@ -2334,7 +2627,14 @@ function buildScenarioBody(draft) {
         choices: choice ? (q.choices || []).filter(c => c.trim()) : null,
       };
     }),
-    media: draftMedia,
+    // D1: the editable markup overlay lives on draftMedia as an object; the server
+    // stores it as a JSON string (base_url + overlay columns), so serialize here.
+    // baseUrl/overlay are absent on un-annotated media and simply omitted.
+    media: draftMedia.map(m => ({
+      kind: m.kind, url: m.url,
+      ...(m.baseUrl ? { baseUrl: m.baseUrl } : {}),
+      ...(m.overlay ? { overlay: JSON.stringify(m.overlay) } : {}),
+    })),
   };
   return { body, includedQs };
 }

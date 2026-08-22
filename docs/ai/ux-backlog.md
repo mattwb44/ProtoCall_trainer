@@ -264,7 +264,26 @@ Non-trivial items get a `verifier` pass before being marked done.
 
 ## Phase D — Larger features
 
-- [ ] **D1. Media View/Edit markup editor.** Each uploaded media item gets a
+- [~] **D1. Media View/Edit markup editor.** **v1 core DONE (uncommitted); v2
+  deferred.** v1 shipped: View/Edit (pencil) button left of trash on every media
+  row (`drawMedia`, `public/index.html`), opening `openMarkupEditor(item, onSave)`
+  — a full-size viewer + drawer modeled on `openMapEditor` (body overlay, Back-trap,
+  leave-guard). Tools: **pen**, **object-level eraser** (tap a stroke to remove —
+  the only semantics compatible with the editable-overlay reload), **solid-color
+  grid** (single Grid, no opacity/spectrum — distinct from Apple) + **Recently
+  used** row (`localStorage.pcMarkupRecentColors`, records on apply). Storage per
+  D1a: `scenario_media` gained nullable `base_url` + `overlay` columns
+  (`server/db.js`); `url` stays the flattened composite (Canvas-2D `drawImage` +
+  stroke, uploaded via existing `POST /api/media`) so every read site stays a plain
+  `<img>`. Overlay serialized as a JSON string at the `buildScenarioBody` boundary,
+  parsed back on load; server caps it at 256 KB (`replaceMedia`). Reopen reloads
+  strokes over the frozen base (individually erasable); erasing all + Save reverts
+  to the clean base. Verified end-to-end in the preview (draw→save→composite,
+  reopen→reload, erase-all→revert, full server round-trip, mobile, object-erase);
+  server round-trip test in `test/media-pdf.test.js`; **142/142 pass.**
+  **v2 (deferred, separate pass):** marker, **Add Text** tool, **Undo/Redo**,
+  richer recent-colors. See the original spec below for the full v2 intent.
+- [ ] **D1 (original full spec, retained for v2).** Each uploaded media item gets a
   **View/Edit** button to the *left* of the trash button (today only the first
   uploaded media shows under Scene Reference, with no way to view its actual
   size). View/Edit opens a markup editor with: **pen**, **marker**, **eraser**,

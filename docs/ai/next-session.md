@@ -1,17 +1,49 @@
 # Next session
 
-_Updated 2026-08-21. Read `current-focus.md` and `decisions.md` first. The
+_Updated 2026-08-22. Read `current-focus.md` and `decisions.md` first. The
 ops-hardening execution plan (`docs/execution-plan.md`) is complete; active work
 is now the **UX / polish backlog** at `docs/ai/ux-backlog.md` (grill 2026-08-16)._
 
-`npm test` = 141 passing. C1–C7 committed on `main` (latest `251b5db`); C8 and
-C9 below are implemented but uncommitted. **Phase C is now feature-complete**
-— next is either committing C8+C9 or picking a Phase D item from
-`docs/ai/ux-backlog.md`.
+`npm test` = 142 passing. **Phase C (C1–C9) committed AND pushed** to
+`origin/main` (latest `f82407f` = C8+C9). Now in **Phase D**: **D1 v1 (media
+markup editor) is implemented and verified but UNCOMMITTED** — details below.
 
-## Resume here — Phase C (scenario-creator polish) — COMPLETE, pending commit
+## Resume here — Phase D
 
-**C9 — Relabel MVA → MVC (display only) — DONE (uncommitted).** New
+**D1 v1 — Media View/Edit markup editor — DONE (uncommitted), v2 deferred.**
+Full-size viewer + drawer on every media row. Plan file:
+`~/.claude/plans/refactored-marinating-lamport.md`. What landed:
+- **Client** (`public/index.html`): `openMarkupEditor(item, onSave)` (modeled on
+  `openMapEditor` — body overlay, Back-trap, leave-guard); pencil View/Edit button
+  left of trash in `drawMedia`; tools = pen, object-level eraser (tap a stroke),
+  solid-color grid + Recently used (`localStorage.pcMarkupRecentColors`). Overlay
+  is serialized to a JSON string in `buildScenarioBody` and parsed back in the
+  `renderCreator` load path. Export composites via **Canvas 2D** (`drawImage` +
+  stroke), NOT SVG-with-`<image>` (browsers taint/block that), then uploads through
+  the existing `POST /api/media`.
+- **Server**: `scenario_media` gained nullable `base_url` + `overlay` columns
+  (`server/db.js` `addColumn`); `mediaFor` selects them; `replaceMedia` persists
+  them and **caps `overlay` at 256 KB** (`MAX_OVERLAY_BYTES`). `url` stays the
+  flattened composite so all read sites remain plain `<img>` (no read-site changes).
+- **Test**: `test/media-pdf.test.js` — overlay round-trip, plain-media-stays-null,
+  over-cap-dropped. **142/142.**
+- **Verified in preview** end-to-end: draw (2 colors) → save → composite + Scene
+  Reference update; reopen → strokes reload over the frozen base; erase-all → save
+  → reverts to clean base; full save-draft → server → reload → reopen persists;
+  object-erase; mobile 375px; console clean.
+
+**Next options:** (a) commit D1 v1 (suggested msg was reported), (b) **D1 v2** —
+marker, Add Text tool, Undo/Redo, richer recent-colors (all additive on the v1
+overlay pipeline), (c) **D2** — Academies gate + WIP placeholder (small, decided;
+`public/index.html` `canCreate` ~line 3010), then **Phase E** (E1 credit byline,
+E2 clone→original review link). D3 stays parked. Known minor: re-editing orphans
+the prior composite in `/media` (no GC today — acceptable at this scale).
+
+---
+
+## Phase C — COMPLETE, committed & pushed (`f82407f`)
+
+**C9 — Relabel MVA → MVC (display only) — DONE.** New
 `catLabel(c)` helper (next to `CAT_META`, `public/index.html`) maps the
 stored `'Motor Vehicle Accidents'` value to `'MVC'` for display; `CAT_META`'s
 tab-strip label changed `'MVAs'` → `'MVC'` too. Applied at every raw-category
@@ -26,7 +58,7 @@ Verified in the preview: Community tab strip + filter accordion read "MVC";
 picking "MVC" in the creator round-trips the real `Motor Vehicle Accidents`
 value (Vehicle Type detail section still appears correctly). 141/141 pass.
 
-**C8 — Dropdown caret indicators — DONE (uncommitted).** Every native
+**C8 — Dropdown caret indicators — DONE (committed `f82407f`).** Every native
 `<select>` in the creator (category, subcategory, primary/secondary
 objective, difficulty, and the per-question media-kind/stage/objective
 selects) is now wrapped in `.sel-wrap` with a custom chevron (`selCaret`,

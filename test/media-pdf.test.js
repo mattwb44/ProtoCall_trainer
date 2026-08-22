@@ -78,6 +78,49 @@ test('scenario media: saved ordered, appears in detail and live room state, clon
   assert.equal(clonedDetail.media.length, 2);
 });
 
+test('D1 markup overlay: base_url + overlay persist and round-trip; plain media stays null; over-cap overlay dropped', async () => {
+  const { cookie } = await signup(base, { email: 'markup@dept.test' });
+  const base1 = await upload(cookie, PNG, 'image/png').then(r => r.json());   // the un-annotated base
+  const comp = await upload(cookie, PNG, 'image/png').then(r => r.json());    // the flattened composite
+  const plain = await upload(cookie, PNG, 'image/png').then(r => r.json());   // an un-annotated item
+
+  const overlay = JSON.stringify({ v: 1, w: 100, h: 100, objects: [
+    { id: 1, type: 'stroke', tool: 'pen', color: '#ef4444', width: 6, pts: [[10, 10], [40, 40]] },
+  ] });
+  const overCap = 'x'.repeat(256 * 1024 + 1);   // beyond MAX_OVERLAY_BYTES → must be dropped
+
+  const { id } = await fetch(`${base}/api/scenarios`, {
+    method: 'POST', headers: authed(cookie),
+    body: JSON.stringify({
+      title: 'Markup Scene', visibility: 'private', category: 'Fireground', subcategory: 'Residential',
+      objective_primary: 'Scene Size-Up',
+      questions: [{ prompt: 'Hazards?', instructor_answer: 'Overhead lines' }],
+      media: [
+        { kind: 'photo', url: comp.url, baseUrl: base1.url, overlay },
+        { kind: 'photo', url: plain.url },
+        { kind: 'photo', url: comp.url, baseUrl: base1.url, overlay: overCap },
+      ],
+    }),
+  }).then(r => r.json());
+
+  const detail = await fetch(`${base}/api/scenarios/${id}`, { headers: { cookie } }).then(r => r.json());
+  const [annotated, plainItem, capped] = detail.media;
+
+  // annotated item round-trips both fields; overlay parses back to the same objects
+  assert.equal(annotated.base_url, base1.url);
+  assert.equal(annotated.url, comp.url);
+  assert.deepEqual(JSON.parse(annotated.overlay).objects[0].pts, [[10, 10], [40, 40]]);
+
+  // plain item carries no overlay data
+  assert.equal(plainItem.base_url, null);
+  assert.equal(plainItem.overlay, null);
+
+  // over-cap overlay is dropped, but the composite url is still stored
+  assert.equal(capped.url, comp.url);
+  assert.equal(capped.base_url, base1.url);
+  assert.equal(capped.overlay, null);
+});
+
 test('editing: fields update; answered questions soft-delete; history intact; non-author 404s', async () => {
   const { cookie } = await signup(base, { email: 'editor@dept.test' });
   const { cookie: other } = await signup(base, { email: 'noteditor@dept.test' });

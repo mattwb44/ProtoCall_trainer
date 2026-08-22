@@ -559,14 +559,22 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
   const canLaunch = (s, user) => !s.deleted_at && !s.is_draft && canSee(s, user);
 
   const mediaFor = id => db.prepare(
-    'SELECT id, kind, url, sort_order FROM scenario_media WHERE scenario_id=? ORDER BY sort_order').all(id);
+    'SELECT id, kind, url, base_url, overlay, sort_order FROM scenario_media WHERE scenario_id=? ORDER BY sort_order').all(id);
 
+  // D1: an annotated media item carries an editable overlay (base image + JSON
+  // stroke/text layer) alongside the flattened composite `url`. Cap the overlay
+  // so a malformed/huge payload can't bloat the row; over-cap or non-string
+  // overlays are dropped (stored NULL) rather than rejecting the whole save.
+  const MAX_OVERLAY_BYTES = 256 * 1024;
   const replaceMedia = (scenarioId, list) => {
     db.prepare('DELETE FROM scenario_media WHERE scenario_id=?').run(scenarioId);
-    const ins = db.prepare('INSERT INTO scenario_media (id, scenario_id, kind, url, sort_order) VALUES (?,?,?,?,?)');
+    const ins = db.prepare('INSERT INTO scenario_media (id, scenario_id, kind, url, base_url, overlay, sort_order) VALUES (?,?,?,?,?,?,?)');
     (list ?? []).forEach((m, i) => {
-      if (m?.url && ['photo', 'ekg', 'map'].includes(m.kind ?? 'photo'))
-        ins.run(uuid(), scenarioId, m.kind ?? 'photo', m.url, i);
+      if (m?.url && ['photo', 'ekg', 'map'].includes(m.kind ?? 'photo')) {
+        const baseUrl = typeof m.baseUrl === 'string' && m.baseUrl ? m.baseUrl : null;
+        const overlay = typeof m.overlay === 'string' && m.overlay.length <= MAX_OVERLAY_BYTES ? m.overlay : null;
+        ins.run(uuid(), scenarioId, m.kind ?? 'photo', m.url, baseUrl, overlay, i);
+      }
     });
   };
 

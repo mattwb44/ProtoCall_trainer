@@ -6,9 +6,10 @@ captured in `docs/ai/ux-backlog.md` — 25 items in phases A–D + future stubs.
 **Progress as of 2026-08-21:** Phase A (live-session correctness) and Phase B
 (library/filter UX) are DONE & committed on `main`; a shell/access rework
 (guest scenario creation, collapsible sidebar, left filter drawer) also landed.
-**Phase C (scenario-creator polish) is feature-complete: C1–C9 all done**
-(C8/C9 uncommitted). Next: commit C8+C9, then pick a Phase D item. See
-`docs/ai/next-session.md` for the resume point. Forks decided; see
+**Phase C (scenario-creator polish) COMPLETE — committed & pushed** (`f82407f`).
+**Now in Phase D: D1 v1 (media markup editor) implemented & verified, UNCOMMITTED;
+D1 v2 + D2 deferred.** See `docs/ai/next-session.md` for the resume point and the
+D1 plan at `~/.claude/plans/refactored-marinating-lamport.md`. Forks decided; see
 `decisions.md`.
 
 ---

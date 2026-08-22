@@ -297,6 +297,14 @@ function migrate(db) {
   // via COALESCE(updated_at, created_at) so a brand-new row is covered meanwhile.
   addColumn('scenarios', 'updated_at', 'updated_at TEXT');
   db.exec('UPDATE scenarios SET updated_at=created_at WHERE updated_at IS NULL');
+  // D1 (media markup editor): annotations are stored as an *editable overlay* so
+  // they can be reopened and individually erased/moved — never irreversibly
+  // flattened. `base_url` is the un-annotated source image (frozen on first edit),
+  // `overlay` is the JSON stroke/text layer. `url` stays the flattened composite
+  // shown everywhere, so every read site remains a plain <img src=url>. Both
+  // nullable ⇒ existing rows and un-annotated media keep them NULL (back-compat).
+  addColumn('scenario_media', 'base_url', 'base_url TEXT');
+  addColumn('scenario_media', 'overlay', 'overlay TEXT');
   if (!hasFlag(db, 'roles_as_sets_backfill')) {
     db.exec(`UPDATE questions SET roles=json_array(role_track) WHERE role_track<>'' AND roles='[]'`);
     db.exec(`UPDATE participants SET roles=json_array(role_track) WHERE role_track<>'' AND roles='[]'`);
