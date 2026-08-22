@@ -237,19 +237,28 @@ Non-trivial items get a `verifier` pass before being marked done.
   (editing one leaves the other highlighted); 141/141 tests pass.
   - _Decided (2026-08-16):_ each field's yellow border **clears once the user
     edits that specific field** (per-field, signaling "you've taken ownership").
-- [ ] **C8. Dropdown caret indicators.** Every choice dropdown gets an up/down
-  "^" caret that morphs on open/close.
-- [ ] **C9. Relabel MVA → MVC (display only).** **DECIDED (2026-08-16, scoped in
-  review): display-map, no data migration.** Add a single label function so
-  wherever the app would show the stored `Motor Vehicle Accidents` value it
-  renders **"MVC"** instead — category strip, filter, cards, badges, copy. Users
-  see MVC everywhere; the **stored value and internal code identifiers stay
-  untouched** (no DB migration, no risk).
-  - _Grounding:_ the raw stored value is shown to users at e.g.
-    `public/index.html:344`/`:366`, so routing display through one map catches
-    every site. Leave the `Motor Vehicle Accidents` category value, the `SUBCATS`
-    key, `cat-k-mva` CSS, and `icon: 'mva'` as-is (`public/index.html:63`, `:424`,
-    `:658`) — users never see them.
+- [x] **C8. Dropdown caret indicators.** DONE (uncommitted). Native `<select>`
+  dropdowns in the creator (category, subcategory, primary/secondary objective,
+  difficulty, per-question media kind/stage/objective) now show a custom
+  chevron caret that flips 180° on open/close via `.sel-wrap:focus-within`
+  (`:has(select:open)` layered on for browsers with native support). Verified
+  desktop + mobile in the preview; 141/141 pass.
+- [x] **C9. Relabel MVA → MVC (display only).** DONE (uncommitted). New
+  `catLabel(c)` helper (next to `CAT_META`, `public/index.html`) maps the
+  stored `'Motor Vehicle Accidents'` value to `'MVC'`; `CAT_META`'s tab-strip
+  label also changed `'MVAs'` → `'MVC'`. Applied at every raw-category display
+  site: scenario cards (grid + list), scenario detail, reviewer queue, live
+  session header, session detail, "Next in <category>", the curriculum
+  coverage table header, and the creator's Category `<select>` (which now
+  carries an explicit `value="Motor Vehicle Accidents"` separate from its
+  `MVC` label text, so the option's implicit value — previously the display
+  text itself — doesn't silently become the stored category). Left untouched
+  as designed: the `Motor Vehicle Accidents` category value, `SUBCATS` key,
+  `cat-k-mva` CSS class, and `icon: 'mva'` — no DB migration, no risk.
+  Verified in the preview: Community tab strip + filter accordion + coverage
+  header all read "MVC"; picking "MVC" in the creator round-trips the real
+  `Motor Vehicle Accidents` value into `DETAIL_FIELD_BY_CAT` (Vehicle Type
+  section correctly appears). 141/141 pass.
 
 ---
 

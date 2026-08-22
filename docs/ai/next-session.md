@@ -4,17 +4,43 @@ _Updated 2026-08-21. Read `current-focus.md` and `decisions.md` first. The
 ops-hardening execution plan (`docs/execution-plan.md`) is complete; active work
 is now the **UX / polish backlog** at `docs/ai/ux-backlog.md` (grill 2026-08-16)._
 
-`npm test` = 141 passing, all committed on `main`, working tree clean.
+`npm test` = 141 passing. C1–C7 committed on `main` (latest `251b5db`); C8 and
+C9 below are implemented but uncommitted. **Phase C is now feature-complete**
+— next is either committing C8+C9 or picking a Phase D item from
+`docs/ai/ux-backlog.md`.
 
-## Resume here — Phase C (scenario-creator polish)
+## Resume here — Phase C (scenario-creator polish) — COMPLETE, pending commit
 
-**Next item: C8 — Dropdown caret indicators.** Every choice dropdown gets an
-up/down "^" caret that morphs on open/close. Full item list in
-`docs/ai/ux-backlog.md` Phase C. Remaining after C8: C9 (MVA→MVC display-only
-relabel).
+**C9 — Relabel MVA → MVC (display only) — DONE (uncommitted).** New
+`catLabel(c)` helper (next to `CAT_META`, `public/index.html`) maps the
+stored `'Motor Vehicle Accidents'` value to `'MVC'` for display; `CAT_META`'s
+tab-strip label changed `'MVAs'` → `'MVC'` too. Applied at every raw-category
+display site: scenario cards (grid + list), scenario detail, reviewer queue,
+live session header, session detail, "Next in <category>", the coverage
+table header, and the creator's Category `<select>` — which now has an
+explicit `value="Motor Vehicle Accidents"` on the option, separate from its
+`MVC` label text (previously the value was implicit = the label text, so
+just relabeling would have silently changed what gets saved). Stored value,
+`SUBCATS` key, `cat-k-mva` CSS, `icon:'mva'` all untouched — no migration.
+Verified in the preview: Community tab strip + filter accordion read "MVC";
+picking "MVC" in the creator round-trips the real `Motor Vehicle Accidents`
+value (Vehicle Type detail section still appears correctly). 141/141 pass.
 
-**C2, C3, C4, C5, C6 — DONE, committed** (`8977e8b`, `26c19fe`, `98870e0`,
-`3dd541b`, `886f954`).
+**C8 — Dropdown caret indicators — DONE (uncommitted).** Every native
+`<select>` in the creator (category, subcategory, primary/secondary
+objective, difficulty, and the per-question media-kind/stage/objective
+selects) is now wrapped in `.sel-wrap` with a custom chevron (`selCaret`,
+`public/index.html` next to `ftChev`) that flips 180° on open/close via
+`.sel-wrap:focus-within .sel-caret` (plus `:has(select:open)` for browsers
+with native support — CSS lives right after `.ft-plain`, ~line 91). Native
+select doesn't have a universal JS "open" event, so `:focus-within` is the
+open/close proxy; verified it flips on focus and resets on blur. Scoped to
+the scenario creator (Phase C), not the app-wide `lib-sort`/`ac-add`/settings
+selects outside it. Verified in the preview at desktop + mobile; 141/141
+pass.
+
+**C2, C3, C4, C5, C6, C7 — DONE, committed** (`8977e8b`, `26c19fe`, `98870e0`,
+`3dd541b`, `886f954`, `251b5db`).
 - **C2 (Scene Reference sticky buffer):** bumped the desktop scene rail
   `lg:top-20`→`lg:top-28` so it clears the sticky header (`public/index.html:1734`).
 - **C3 (Finish Scenario → center modal):** new promise-based `publishModal()` in
@@ -31,7 +57,7 @@ relabel).
   reviewer-queue already numbered); fixed the one gap — host's per-participant
   roster-expand now numbers against the *global* question order.
 
-**C7 — Template picker rework — DONE (uncommitted).** Picking a template
+**C7 (Template picker rework, `251b5db`):** picking a template
 minimizes the picker in place to a "Choose a different template" bar
 (`bindTplPicker`/`tplPickerBodyHtml`, `public/index.html` ~1826) instead of
 removing it and force-scrolling; re-opening lets the author switch templates.
