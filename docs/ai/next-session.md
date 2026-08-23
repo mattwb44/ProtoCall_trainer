@@ -5,20 +5,81 @@ ops-hardening execution plan (`docs/execution-plan.md`) is complete; active work
 is now the **UX / polish backlog** at `docs/ai/ux-backlog.md` (grill 2026-08-16)._
 
 `npm test` = 142 passing. **Phase C (C1–C9) committed AND pushed** to
-`origin/main` (latest `f82407f`). **Phase D in progress:** **D1 v1 committed
-locally (`d932881`, not pushed); D2 done and UNCOMMITTED.** Nothing since
-`f82407f` is pushed/deployed yet.
+`origin/main` (latest `f82407f`). **Phase D in progress:** **D1 v1 (`d932881`)
+and D2 (`929d136`) both committed locally — 2 commits ahead of `origin/main`,
+NEITHER pushed.** **D1 v2 (marker + text + undo/redo + inline recents) is
+implemented and verified but UNCOMMITTED in the working tree** (`public/index.html`
++ `test/media-pdf.test.js`). Nothing since `f82407f` is pushed/deployed yet. First
+action next session is likely: commit D1 v2, then push all local commits to deploy,
+or start Phase E.
 
 ## Resume here — Phase D
 
-**D2 — Academies gate + WIP placeholder — DONE (uncommitted).** `renderAcademies`
+**D1 v2 — marker + Add Text + Undo/Redo + richer recents — DONE, UNCOMMITTED.**
+All additive on the v1 overlay pipeline in `openMarkupEditor` (`public/index.html`):
+- **Marker** tool — translucent highlighter stroke (`tool:'marker'`, `stroke-opacity`
+  0.4, width = penW×3); canvas export uses `globalAlpha=0.4`.
+- **Add Text** — `type:'text'` objects `{id,type:'text',color,size,x,y,text}`. Text
+  tool: tap empty scene → `openTextEntry` modal (Enter=commit, Esc=cancel); tap an
+  existing label (text tool) → edit/remove; eraser removes it too. SVG `<text>` +
+  canvas `fillText`, both alphabetic baseline so composite matches the on-screen
+  preview. Placed at tap point + `size*0.35` vertical nudge.
+- **Undo/Redo** — deep-clone snapshot stack (`pushUndo` before every mutation:
+  stroke commit, erase, clear, text add/edit/remove), cap 60. Toolbar buttons +
+  ⌘/Ctrl+Z / ⇧⌘Z / Ctrl+Y (listener skipped while the text input is focused).
+- **Richer recents** — inline swatch strip (`#mk-recents`, 6 most-recent) beside the
+  Color button; storage bumped 8→12 (`localStorage.pcMarkupRecentColors`). `pickColor`
+  helper drops eraser→pen on color pick.
+- **Test:** `test/media-pdf.test.js` overlay round-trip extended with a marker stroke
+  + a text object; asserts both persist. Server unchanged (overlay is opaque JSON,
+  still capped at `MAX_OVERLAY_BYTES`). **142/142.**
+- **Verified in preview** (editor driven via `openMarkupEditor` on a data-URL base):
+  pen/marker widths+opacity, undo/redo counts, text add/edit/erase, recents strip,
+  and full Save → composited PNG uploaded (`/media/…png`) with the editable overlay
+  (all 4 object types) returned to `onSave`. Console clean.
+- **Two bugs found in owner testing (2026-08-22) and FIXED (also uncommitted):**
+  (1) placing text kicked the user out of the editor / showed a spurious "leave the
+  editor?" guard — opening the entry modal (a direct child of `ov`) on `pointerdown`
+  made the browser re-target the trailing `click` to `ov`, which the backdrop-close
+  read as leave. Fix: text placement + edit now fire on `click`, not `pointerdown`
+  (new-text on an svg `click` listener; edit-existing rebinds `[data-obj-text]` to
+  `click`). (2) reopening an overlay containing a text label threw (`o.pts.map` on a
+  pts-less text object) → "can't go back into the editor." Fix: the reopen map only
+  deep-copies `pts` when present. Both reproduced + confirmed fixed in preview
+  (faithful pointerdown→pointerup→click simulation; save→reopen round-trip with a
+  text object restores cleanly).
+- **Owner-requested follow-ups (2026-08-23) — ALL BUILT + verified, uncommitted:**
+  - **Brush/text Size** — one S/M/L toolbar control (`sizeLevel` 0.6/1/1.6) scales pen
+    & marker stroke width and the size of newly placed text. Stroke `width` / text
+    `size` stored per-object (self-describing; export unchanged).
+  - **Move tool** (`data-tool="select"`, move icon) — click a label to select it (dashed
+    highlight via an appended `#mk-selrect` using `getBBox`); drag to reposition;
+    contextual `#mk-selbar` gives Edit (reopens the entry), per-label **S/M/L** resize,
+    **rotate ±15°** buttons (map-editor style), and Delete. Rotation stored as `rot`
+    (deg) on the text object; rendered `transform="rotate(rot x y)"` and exported via
+    canvas `translate/rotate` about the anchor (alphabetic baseline preserved).
+  - Interaction hardening: text placement + move-deselect run on `click` (not
+    pointerdown) and `ov`'s backdrop click-to-close was **removed** — both were
+    footguns that re-targeted a mid-gesture click to `ov` and closed the editor. A
+    capture-phase `pointerdown` resets a one-shot `suppressClick` so a drag's trailing
+    click never deselects.
+  - Verified in preview (1280×900 viewport — note: the headless viewport can collapse
+    to 0×0 after a reload, making `pt()` divide-by-zero and coords read `NaN`; set a
+    viewport before coordinate-based simulation): size scaling (3× S→L), place/select/
+    drag/rotate/resize/edit/delete/deselect, save→composite upload, and reopen of an
+    overlay with a rotated+resized label restoring `rotate(-20 …)` / size 34. 142/142,
+    console clean.
+
+### v1 baseline + D2 (already committed)
+
+**D2 — Academies gate + WIP placeholder — DONE (committed `929d136`, not pushed).** `renderAcademies`
 early-returns a coming-soon placeholder (graduation-cap, "Academies — coming
 soon", WORK IN PROGRESS, decided two-paragraph blurb) for anyone whose
 `me?.role !== 'site_admin'`; only the site admin sees the functional list + New
 Academy. **UI-only gate** (owner-chosen) — server academy API untouched, so
 `academies.test.js` stays green. Verified both roles, desktop + mobile; 142/142.
 
-**D1 v1 — Media View/Edit markup editor — committed locally (`d932881`), v2 deferred.**
+**D1 v1 — Media View/Edit markup editor — committed locally (`d932881`); v2 now built on top (uncommitted, see above).**
 Full-size viewer + drawer on every media row. Plan file:
 `~/.claude/plans/refactored-marinating-lamport.md`. What landed:
 - **Client** (`public/index.html`): `openMarkupEditor(item, onSave)` (modeled on
@@ -40,12 +101,11 @@ Full-size viewer + drawer on every media row. Plan file:
   → reverts to clean base; full save-draft → server → reload → reopen persists;
   object-erase; mobile 375px; console clean.
 
-**Next options:** (a) commit D1 v1 (suggested msg was reported), (b) **D1 v2** —
-marker, Add Text tool, Undo/Redo, richer recent-colors (all additive on the v1
-overlay pipeline), (c) **D2** — Academies gate + WIP placeholder (small, decided;
-`public/index.html` `canCreate` ~line 3010), then **Phase E** (E1 credit byline,
-E2 clone→original review link). D3 stays parked. Known minor: re-editing orphans
-the prior composite in `/media` (no GC today — acceptable at this scale).
+**Next options:** (a) **commit D1 v2** (working-tree `public/index.html` +
+`test/media-pdf.test.js`), then **push** all 3 local commits to deploy on Railway;
+(b) **Phase E** (E1 credit byline surviving cloning + card chip, E2 clone→original
+review link). D1 v2 is done; D3 stays parked. Known minor: re-editing orphans the
+prior composite in `/media` (no GC today — acceptable at this scale).
 
 ---
 

@@ -86,6 +86,8 @@ test('D1 markup overlay: base_url + overlay persist and round-trip; plain media 
 
   const overlay = JSON.stringify({ v: 1, w: 100, h: 100, objects: [
     { id: 1, type: 'stroke', tool: 'pen', color: '#ef4444', width: 6, pts: [[10, 10], [40, 40]] },
+    { id: 2, type: 'stroke', tool: 'marker', color: '#eab308', width: 18, pts: [[20, 60], [80, 60]] },
+    { id: 3, type: 'text', color: '#ffffff', size: 32, x: 15, y: 80, text: 'Overhead lines' },
   ] });
   const overCap = 'x'.repeat(256 * 1024 + 1);   // beyond MAX_OVERLAY_BYTES → must be dropped
 
@@ -109,7 +111,11 @@ test('D1 markup overlay: base_url + overlay persist and round-trip; plain media 
   // annotated item round-trips both fields; overlay parses back to the same objects
   assert.equal(annotated.base_url, base1.url);
   assert.equal(annotated.url, comp.url);
-  assert.deepEqual(JSON.parse(annotated.overlay).objects[0].pts, [[10, 10], [40, 40]]);
+  const objs = JSON.parse(annotated.overlay).objects;
+  assert.deepEqual(objs[0].pts, [[10, 10], [40, 40]]);
+  assert.equal(objs[1].tool, 'marker');                 // v2 marker stroke round-trips
+  assert.equal(objs[2].type, 'text');                   // v2 text object round-trips
+  assert.equal(objs[2].text, 'Overhead lines');
 
   // plain item carries no overlay data
   assert.equal(plainItem.base_url, null);

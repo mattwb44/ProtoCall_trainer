@@ -1576,14 +1576,32 @@ function openMarkupEditor(item, onSave) {
   const NS = 'http://www.w3.org/2000/svg';
   const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
   const baseUrl = item.baseUrl || item.url;      // frozen, un-annotated source
-  let objects = (item.overlay?.objects || []).map(o => ({ ...o, pts: o.pts.map(p => [...p]) }));
+  // Text objects have no pts, so only deep-copy pts when present (else reopening an
+  // overlay that contains a label throws on o.pts.map and the editor won't open).
+  let objects = (item.overlay?.objects || []).map(o => o.pts ? { ...o, pts: o.pts.map(p => [...p]) } : { ...o });
   let tool = 'pen';
   let recents = [];
   try { recents = JSON.parse(localStorage.pcMarkupRecentColors || '[]'); } catch { recents = []; }
   let color = recents[0] || '#ef4444';
-  let W = 0, H = 0, penW = 6, ready = false, dirty = false, uploading = false;
+  let W = 0, H = 0, penW = 6, markerW = 18, textSize = 32, ready = false, dirty = false, uploading = false;
   let nextId = objects.reduce((m, o) => Math.max(m, o.id || 0), 0) + 1;
   let drawing = null, liveEl = null;
+  let sizeLevel = 1;         // S=0.6 / M=1 / L=1.6 multiplier for pen, marker & new text
+  let selId = null;          // id of the label selected in the Move tool
+  let dragging = null;       // in-flight text drag: { id, sx, sy, ox, oy, moved }
+  let suppressClick = false; // swallow the click a drag emits so it doesn't deselect
+  // v2 undo/redo: snapshot the whole object list before each mutation. Deep-clone
+  // so pts/text edits don't alias a snapshot; text objects have no pts to copy.
+  const undoStack = [], redoStack = [];
+  const cloneObjs = a => a.map(o => o.pts ? { ...o, pts: o.pts.map(p => [...p]) } : { ...o });
+  function pushUndo() { undoStack.push(cloneObjs(objects)); if (undoStack.length > 60) undoStack.shift(); redoStack.length = 0; }
+  function undo() { if (!undoStack.length) return; redoStack.push(cloneObjs(objects)); objects = undoStack.pop(); dirty = true; paint(); renderSelbar(); }
+  function redo() { if (!redoStack.length) return; undoStack.push(cloneObjs(objects)); objects = redoStack.pop(); dirty = true; paint(); renderSelbar(); }
+  function updateUndoBtns() {
+    const u = ov.querySelector('#mk-undo'), r = ov.querySelector('#mk-redo');
+    if (u) { u.disabled = !undoStack.length; u.classList.toggle('opacity-40', !undoStack.length); }
+    if (r) { r.disabled = !redoStack.length; r.classList.toggle('opacity-40', !redoStack.length); }
+  }
 
   const ov = document.createElement('div');
   ov.className = 'fixed inset-0 z-50 bg-slate-950/95 overflow-auto';
@@ -1597,18 +1615,32 @@ function openMarkupEditor(item, onSave) {
         <div class="p-4 sm:p-6 space-y-4">
           <div class="flex items-center gap-2 flex-wrap">
             <button data-tool="pen" type="button" class="tap px-3 py-2 rounded-lg text-sm font-semibold border flex items-center gap-1.5"><i data-lucide="pen-line" class="w-4 h-4"></i>Pen</button>
+            <button data-tool="marker" type="button" class="tap px-3 py-2 rounded-lg text-sm font-semibold border flex items-center gap-1.5"><i data-lucide="highlighter" class="w-4 h-4"></i>Marker</button>
+            <button data-tool="text" type="button" class="tap px-3 py-2 rounded-lg text-sm font-semibold border flex items-center gap-1.5"><i data-lucide="type" class="w-4 h-4"></i>Text</button>
+            <button data-tool="select" type="button" class="tap px-3 py-2 rounded-lg text-sm font-semibold border flex items-center gap-1.5"><i data-lucide="move" class="w-4 h-4"></i>Move</button>
             <button data-tool="eraser" type="button" class="tap px-3 py-2 rounded-lg text-sm font-semibold border flex items-center gap-1.5"><i data-lucide="eraser" class="w-4 h-4"></i>Eraser</button>
             <div class="relative">
               <button id="mk-color-btn" type="button" class="tap px-3 py-2 rounded-lg text-sm font-semibold border border-slate-700 bg-slate-800 hover:border-slate-500 flex items-center gap-2"><span id="mk-color-dot" class="w-4 h-4 rounded-full border border-slate-500 shrink-0"></span>Color</button>
               <div id="mk-color-pop" class="hidden absolute z-10 mt-1 left-0 bg-slate-900 border border-slate-700 rounded-xl p-2.5 shadow-xl w-max"></div>
             </div>
-            <button id="mk-clear" type="button" class="tap ml-auto text-xs font-semibold text-slate-400 hover:text-rose-400">Clear all</button>
+            <div id="mk-size" class="flex items-center rounded-lg border border-slate-700 overflow-hidden text-sm font-semibold" title="Brush / text size">
+              <button data-size="0.6" type="button" class="tap px-2.5 py-2 text-slate-200">S</button>
+              <button data-size="1" type="button" class="tap px-2.5 py-2 text-slate-200 border-l border-slate-700">M</button>
+              <button data-size="1.6" type="button" class="tap px-2.5 py-2 text-slate-200 border-l border-slate-700">L</button>
+            </div>
+            <div id="mk-recents" class="flex items-center gap-1"></div>
+            <div class="ml-auto flex items-center gap-2">
+              <button id="mk-undo" type="button" title="Undo (⌘Z)" class="tap p-2 rounded-lg border border-slate-700 bg-slate-800 hover:border-slate-500 text-slate-200"><i data-lucide="undo-2" class="w-4 h-4"></i></button>
+              <button id="mk-redo" type="button" title="Redo (⇧⌘Z)" class="tap p-2 rounded-lg border border-slate-700 bg-slate-800 hover:border-slate-500 text-slate-200"><i data-lucide="redo-2" class="w-4 h-4"></i></button>
+              <button id="mk-clear" type="button" class="tap text-xs font-semibold text-slate-400 hover:text-rose-400">Clear all</button>
+            </div>
           </div>
+          <div id="mk-selbar" class="hidden flex items-center gap-2 flex-wrap bg-slate-800/60 border border-slate-700 rounded-xl px-3 py-2"></div>
           <div class="relative bg-slate-950 rounded-xl border border-slate-700 overflow-hidden">
             <svg id="mk-svg" viewBox="0 0 100 100" class="w-full h-auto block" style="touch-action:none;max-height:60vh"></svg>
             <div id="mk-loading" class="absolute inset-0 flex items-center justify-center text-slate-500 text-sm">Loading image…</div>
           </div>
-          <p class="text-xs text-slate-500">Pen draws in the selected color. Eraser removes a whole stroke at a tap.</p>
+          <p class="text-xs text-slate-500">Pen and Marker draw in the selected color and size. Text taps to place a label. Move selects a label to drag, resize, rotate or edit it. Eraser removes a whole stroke or label at a tap.</p>
         </div>
         <div class="p-4 sm:p-6 border-t border-slate-800 flex items-center justify-end gap-3">
           <button id="mk-cancel" type="button" class="tap px-4 py-2.5 rounded-xl font-semibold text-slate-300 hover:text-white">Cancel</button>
@@ -1627,8 +1659,18 @@ function openMarkupEditor(item, onSave) {
     if (editorClosed) return;
     editorClosed = true;
     window.removeEventListener('popstate', onBack);
+    document.removeEventListener('keydown', onKey);
     ov.remove();
   }
+  // Undo/redo keyboard shortcuts, active only while the editor is open. Skip while
+  // the Add-text input is focused so ⌘Z there edits the text, not the drawing.
+  function onKey(e) {
+    if (editorClosed || ov.querySelector('#mk-text-entry')) return;
+    const meta = e.metaKey || e.ctrlKey;
+    if (meta && e.key.toLowerCase() === 'z') { e.preventDefault(); e.shiftKey ? redo() : undo(); }
+    else if (meta && e.key.toLowerCase() === 'y') { e.preventDefault(); redo(); }
+  }
+  document.addEventListener('keydown', onKey);
   function closeEditor() {
     if (editorClosed) return;
     removeOverlay();
@@ -1671,39 +1713,114 @@ function openMarkupEditor(item, onSave) {
     return [clamp((clientX - r.left) / r.width * W, 0, W), clamp((clientY - r.top) / r.height * H, 0, H)];
   }
   const pathD = pts => pts.map((p, i) => `${i ? 'L' : 'M'}${p[0].toFixed(1)} ${p[1].toFixed(1)}`).join(' ');
-  function strokeSvg(o, pe) {
-    if (o.pts.length === 1) return `<circle data-obj="${o.id}" cx="${o.pts[0][0]}" cy="${o.pts[0][1]}" r="${o.width / 2}" fill="${o.color}" style="pointer-events:${pe}"/>`;
-    return `<path data-obj="${o.id}" d="${pathD(o.pts)}" fill="none" stroke="${o.color}" stroke-width="${o.width}" stroke-linecap="round" stroke-linejoin="round" style="pointer-events:${pe}"/>`;
+  // Marker strokes render at reduced opacity so the scene shows through, like a
+  // highlighter; pen and text stay fully opaque.
+  function objSvg(o) {
+    if (o.type === 'text') {
+      const pe = (tool === 'eraser' || tool === 'text' || tool === 'select') ? 'auto' : 'none';  // tappable to erase, re-edit or move
+      const tr = o.rot ? ` transform="rotate(${o.rot} ${o.x} ${o.y})"` : '';   // rotate about the anchor
+      return `<text data-obj="${o.id}" data-obj-text="1" x="${o.x}" y="${o.y}"${tr} fill="${o.color}" font-size="${o.size}" font-weight="700" font-family="ui-sans-serif,system-ui,sans-serif" style="pointer-events:${pe};white-space:pre">${esc(o.text)}</text>`;
+    }
+    const pe = tool === 'eraser' ? 'stroke' : 'none';  // strokes catch taps only when erasing
+    const op = o.tool === 'marker' ? ' stroke-opacity="0.4"' : '';
+    if (o.pts.length === 1) {
+      const fo = o.tool === 'marker' ? ' fill-opacity="0.4"' : '';
+      return `<circle data-obj="${o.id}" cx="${o.pts[0][0]}" cy="${o.pts[0][1]}" r="${o.width / 2}" fill="${o.color}"${fo} style="pointer-events:${pe}"/>`;
+    }
+    return `<path data-obj="${o.id}" d="${pathD(o.pts)}" fill="none" stroke="${o.color}" stroke-width="${o.width}"${op} stroke-linecap="round" stroke-linejoin="round" style="pointer-events:${pe}"/>`;
   }
   function paint() {
-    const pe = tool === 'eraser' ? 'stroke' : 'none';  // strokes catch taps only when erasing
     svg.innerHTML = `<image href="${esc(baseUrl)}" x="0" y="0" width="${W}" height="${H}" preserveAspectRatio="none" style="pointer-events:none"/>`
-      + objects.map(o => strokeSvg(o, pe)).join('');
+      + objects.map(objSvg).join('');
     if (tool === 'eraser') svg.querySelectorAll('[data-obj]').forEach(el => el.addEventListener('pointerdown', eraseHit));
+    else if (tool === 'text') svg.querySelectorAll('[data-obj-text]').forEach(el => el.addEventListener('click', editHit));
+    else if (tool === 'select') svg.querySelectorAll('[data-obj-text]').forEach(el => el.addEventListener('pointerdown', selectDown));
+    drawSelection();
+    updateUndoBtns();
+  }
+  // Dashed outline around the label selected in the Move tool. Appended (not part of
+  // objSvg) so it can be refreshed without a full repaint during a tap-select.
+  function drawSelection() {
+    svg.querySelector('#mk-selrect')?.remove();
+    if (tool !== 'select' || selId == null) return;
+    const o = objects.find(x => x.id === selId);
+    if (!o || o.type !== 'text') return;
+    const el = svg.querySelector(`[data-obj="${selId}"]`);
+    if (!el) return;
+    let b; try { b = el.getBBox(); } catch { return; }   // local bbox, ignores the rotate transform
+    const pad = Math.max(2, o.size * 0.12);
+    const rect = document.createElementNS(NS, 'rect');
+    rect.id = 'mk-selrect';
+    rect.setAttribute('x', b.x - pad); rect.setAttribute('y', b.y - pad);
+    rect.setAttribute('width', b.width + pad * 2); rect.setAttribute('height', b.height + pad * 2);
+    rect.setAttribute('fill', 'none'); rect.setAttribute('stroke', '#fbbf24');
+    rect.setAttribute('stroke-width', Math.max(1, o.size * 0.06));
+    rect.setAttribute('stroke-dasharray', `${o.size * 0.3} ${o.size * 0.2}`);
+    if (o.rot) rect.setAttribute('transform', `rotate(${o.rot} ${o.x} ${o.y})`);
+    rect.style.pointerEvents = 'none';
+    svg.appendChild(rect);
   }
   function eraseHit(e) {
     e.stopPropagation();
     const id = Number(e.currentTarget.dataset.obj);
+    pushUndo();
     objects = objects.filter(o => o.id !== id);
     dirty = true;
     paint();
   }
+  function editHit(e) {
+    e.stopPropagation();
+    const id = Number(e.currentTarget.dataset.obj);
+    const o = objects.find(x => x.id === id);
+    if (o) openTextEntry(o.x, o.y, o);
+  }
+  // Move tool: pointerdown on a label selects it and arms a drag. We only overlay the
+  // highlight (no full repaint) so the pressed element stays connected — otherwise the
+  // trailing click would re-target and immediately deselect.
+  function selectDown(e) {
+    e.stopPropagation();
+    const id = Number(e.currentTarget.dataset.obj);
+    const o = objects.find(x => x.id === id);
+    if (!o) return;
+    selId = id;
+    const [x, y] = pt(e.clientX, e.clientY);
+    dragging = { id, sx: x, sy: y, ox: o.x, oy: o.y, moved: false };
+    try { svg.setPointerCapture(e.pointerId); } catch {}
+    drawSelection();
+    renderSelbar();
+  }
 
   svg.addEventListener('pointerdown', e => {
-    if (!ready || tool !== 'pen') return;
+    if (!ready) return;
+    if (tool !== 'pen' && tool !== 'marker') return;
     const [x, y] = pt(e.clientX, e.clientY);
-    drawing = { id: nextId++, type: 'stroke', tool: 'pen', color, width: penW, pts: [[x, y]] };
+    const isMarker = tool === 'marker';
+    const w = Math.max(1, Math.round((isMarker ? markerW : penW) * sizeLevel));
+    drawing = { id: nextId++, type: 'stroke', tool, color, width: w, pts: [[x, y]] };
     liveEl = document.createElementNS(NS, 'path');
     liveEl.setAttribute('fill', 'none');
     liveEl.setAttribute('stroke', color);
-    liveEl.setAttribute('stroke-width', penW);
+    liveEl.setAttribute('stroke-width', w);
     liveEl.setAttribute('stroke-linecap', 'round');
     liveEl.setAttribute('stroke-linejoin', 'round');
+    if (isMarker) liveEl.setAttribute('stroke-opacity', '0.4');
     liveEl.style.pointerEvents = 'none';
     svg.appendChild(liveEl);
     svg.setPointerCapture(e.pointerId);
   });
   svg.addEventListener('pointermove', e => {
+    if (dragging) {                                     // Move tool: translate the label
+      const o = objects.find(z => z.id === dragging.id);
+      if (!o) { dragging = null; return; }
+      const [x, y] = pt(e.clientX, e.clientY);
+      if (!dragging.moved && (Math.abs(x - dragging.sx) > 1 || Math.abs(y - dragging.sy) > 1)) { pushUndo(); dragging.moved = true; }
+      if (dragging.moved) {
+        o.x = clamp(dragging.ox + (x - dragging.sx), 0, W);
+        o.y = clamp(dragging.oy + (y - dragging.sy), 0, H);
+        dirty = true; paint();                          // repaint keeps the highlight on the label
+      }
+      return;
+    }
     if (!drawing) return;
     const [x, y] = pt(e.clientX, e.clientY);
     drawing.pts.push([x, y]);
@@ -1711,17 +1828,42 @@ function openMarkupEditor(item, onSave) {
   });
   function endStroke() {
     if (!drawing) return;
+    pushUndo();
     objects.push(drawing);
     recordRecent(drawing.color);
     dirty = true;
     drawing = null; liveEl = null;
     paint();
   }
-  svg.addEventListener('pointerup', endStroke);
-  svg.addEventListener('pointercancel', endStroke);
+  function onPointerUp() {
+    if (dragging) { if (dragging.moved) suppressClick = true; dragging = null; return; }
+    endStroke();
+  }
+  // Clear any stale click-suppression at the very start of a new gesture (capture
+  // phase, before the tool handlers), so it only ever swallows the one click a drag
+  // emits and never a later, unrelated tap.
+  svg.addEventListener('pointerdown', () => { suppressClick = false; }, true);
+  svg.addEventListener('pointerup', onPointerUp);
+  svg.addEventListener('pointercancel', onPointerUp);
+  // Text placement and Move-tool deselect fire on click, not pointerdown. Opening the
+  // entry modal (a direct child of `ov`) or repainting mid-pointer-gesture would make
+  // the browser re-target the trailing click; using click means the target is already
+  // settled. A drag emits a click too, which we swallow so it doesn't deselect.
+  svg.addEventListener('click', e => {
+    if (!ready) return;
+    if (suppressClick) { suppressClick = false; return; }
+    if (tool === 'text') {
+      const [x, y] = pt(e.clientX, e.clientY);
+      openTextEntry(x, y, null);
+    } else if (tool === 'select') {
+      const hit = e.target.getAttribute && e.target.getAttribute('data-obj');
+      if (!hit) { selId = null; drawSelection(); renderSelbar(); }   // tapped empty → deselect
+    }
+  });
 
   function setTool(t) {
     tool = t;
+    if (t !== 'select') selId = null;
     ov.querySelectorAll('[data-tool]').forEach(b => {
       const on = b.dataset.tool === t;
       b.classList.toggle('bg-amber-500', on);
@@ -1732,8 +1874,69 @@ function openMarkupEditor(item, onSave) {
       b.classList.toggle('text-slate-200', !on);
     });
     paint();
+    renderSelbar();
   }
   ov.querySelectorAll('[data-tool]').forEach(b => b.onclick = () => setTool(b.dataset.tool));
+
+  // Brush / text size: one S/M/L level scales pen & marker stroke width and the size
+  // of newly placed text (existing labels are resized from the Move selection bar).
+  function setSize(level) {
+    sizeLevel = level;
+    ov.querySelectorAll('#mk-size [data-size]').forEach(b => {
+      const on = parseFloat(b.dataset.size) === level;
+      b.classList.toggle('bg-amber-500', on);
+      b.classList.toggle('text-slate-950', on);
+      b.classList.toggle('text-slate-200', !on);
+    });
+  }
+  ov.querySelectorAll('#mk-size [data-size]').forEach(b => b.onclick = () => setSize(parseFloat(b.dataset.size)));
+
+  // The Move selection bar — shown only while a label is selected. Edit reopens the
+  // text entry; S/M/L sets that label's size; the rotate buttons step ±15° (matching
+  // the map editor); Delete removes it.
+  function renderSelbar() {
+    const bar = ov.querySelector('#mk-selbar');
+    const o = (tool === 'select' && selId != null) ? objects.find(x => x.id === selId && x.type === 'text') : null;
+    if (!o) { bar.classList.add('hidden'); bar.innerHTML = ''; return; }
+    bar.classList.remove('hidden');
+    bar.innerHTML = `
+      <span class="text-xs text-slate-400">Label</span>
+      <button data-sel="edit" type="button" class="tap px-2.5 py-1.5 rounded-lg border border-slate-700 bg-slate-800 hover:border-slate-500 text-sm font-semibold flex items-center gap-1"><i data-lucide="pencil" class="w-3.5 h-3.5"></i>Edit</button>
+      <div class="flex items-center rounded-lg border border-slate-700 overflow-hidden text-xs font-semibold">
+        <button data-selsize="0.6" type="button" class="tap px-2 py-1.5 text-slate-200">S</button>
+        <button data-selsize="1" type="button" class="tap px-2 py-1.5 text-slate-200 border-l border-slate-700">M</button>
+        <button data-selsize="1.6" type="button" class="tap px-2 py-1.5 text-slate-200 border-l border-slate-700">L</button>
+      </div>
+      <button data-sel="rotL" type="button" title="Rotate left 15°" class="tap p-1.5 rounded-lg border border-slate-700 bg-slate-800 hover:border-slate-500 text-slate-200"><i data-lucide="rotate-ccw" class="w-4 h-4"></i></button>
+      <button data-sel="rotR" type="button" title="Rotate right 15°" class="tap p-1.5 rounded-lg border border-slate-700 bg-slate-800 hover:border-slate-500 text-slate-200"><i data-lucide="rotate-cw" class="w-4 h-4"></i></button>
+      <button data-sel="del" type="button" class="tap ml-auto px-2.5 py-1.5 rounded-lg text-sm font-semibold text-rose-400 hover:text-rose-300 flex items-center gap-1"><i data-lucide="trash-2" class="w-3.5 h-3.5"></i>Delete</button>`;
+    icons();
+    bar.querySelector('[data-sel="edit"]').onclick = () => openTextEntry(o.x, o.y, o);
+    bar.querySelector('[data-sel="rotL"]').onclick = () => rotateSel(-15);
+    bar.querySelector('[data-sel="rotR"]').onclick = () => rotateSel(15);
+    bar.querySelector('[data-sel="del"]').onclick = () => { pushUndo(); objects = objects.filter(x => x.id !== o.id); selId = null; dirty = true; paint(); renderSelbar(); };
+    bar.querySelectorAll('[data-selsize]').forEach(b => {
+      const active = Math.max(8, Math.round(textSize * parseFloat(b.dataset.selsize))) === o.size;
+      b.classList.toggle('bg-amber-500', active);
+      b.classList.toggle('text-slate-950', active);
+      b.classList.toggle('text-slate-200', !active);
+      b.onclick = () => resizeSel(parseFloat(b.dataset.selsize));
+    });
+  }
+  function rotateSel(deg) {
+    const o = objects.find(x => x.id === selId);
+    if (!o) return;
+    pushUndo();
+    o.rot = (((o.rot || 0) + deg) % 360 + 360) % 360;
+    dirty = true; paint(); renderSelbar();
+  }
+  function resizeSel(mult) {
+    const o = objects.find(x => x.id === selId);
+    if (!o) return;
+    pushUndo();
+    o.size = Math.max(8, Math.round(textSize * mult));
+    dirty = true; paint(); renderSelbar();
+  }
 
   const colorDot = ov.querySelector('#mk-color-dot');
   const pop = ov.querySelector('#mk-color-pop');
@@ -1743,9 +1946,7 @@ function openMarkupEditor(item, onSave) {
     pop.innerHTML = `<div class="grid grid-cols-6 gap-1.5">${MARKUP_COLORS.map(swatch).join('')}</div>`
       + (recents.length ? `<p class="text-[10px] font-bold text-slate-400 mt-2 mb-1 tracking-wide">RECENTLY USED</p><div class="flex flex-wrap gap-1.5">${recents.map(swatch).join('')}</div>` : '');
     pop.querySelectorAll('[data-color]').forEach(b => b.onclick = () => {
-      color = b.dataset.color;
-      updateColorDot();
-      setTool('pen');
+      pickColor(b.dataset.color);
       pop.classList.add('hidden');
     });
   }
@@ -1753,19 +1954,87 @@ function openMarkupEditor(item, onSave) {
     if (pop.classList.contains('hidden')) { buildPop(); pop.classList.remove('hidden'); }
     else pop.classList.add('hidden');
   };
+  // Selecting a color keeps a drawing tool active — if the user was erasing, drop
+  // them back onto the pen so the next tap draws rather than erases.
+  function pickColor(c) {
+    color = c;
+    updateColorDot();
+    if (tool === 'eraser') setTool('pen');
+    renderRecents();
+  }
+  // v2 richer recents: a quick inline swatch strip (most-recent first) beside the
+  // Color button, so common colors are one tap away without opening the popover.
+  const recentsBox = ov.querySelector('#mk-recents');
+  function renderRecents() {
+    recentsBox.innerHTML = recents.slice(0, 6).map(c =>
+      `<button data-recent="${c}" type="button" title="${c}" class="tap w-6 h-6 rounded-md border ${c === color ? 'border-amber-400 ring-2 ring-amber-400/40' : 'border-slate-600'}" style="background:${c}"></button>`).join('');
+    recentsBox.querySelectorAll('[data-recent]').forEach(b => b.onclick = () => pickColor(b.dataset.recent));
+  }
   function recordRecent(c) {
-    recents = [c, ...recents.filter(x => x !== c)].slice(0, 8);
+    recents = [c, ...recents.filter(x => x !== c)].slice(0, 12);
     try { localStorage.pcMarkupRecentColors = JSON.stringify(recents); } catch {}
+    renderRecents();
   }
 
   ov.querySelector('#mk-clear').onclick = () => {
     if (!objects.length) return;
+    pushUndo();
     objects = []; dirty = true;
     paint();
     toast('Markups cleared');
   };
+  ov.querySelector('#mk-undo').onclick = undo;
+  ov.querySelector('#mk-redo').onclick = redo;
   ov.querySelector('#mk-cancel').onclick = () => requestClose();
-  ov.onclick = e => { if (e.target === ov) requestClose(); };
+  // No backdrop click-to-close: the flex wrapper fills `ov` so it almost never fired,
+  // and a modal/repaint mid-gesture can re-target a click to `ov` and close the editor
+  // unexpectedly. Cancel and the Back gesture close it. (See the text/move click notes.)
+
+  // Add Text (v2): tapping the scene in Text mode opens this small entry box; tapping
+  // an existing label reopens it to edit or remove. Text is placed with an alphabetic
+  // baseline (matching the SVG default and canvas export) at the tapped point.
+  function openTextEntry(x, y, existing) {
+    if (ov.querySelector('#mk-text-entry')) return;
+    const g = document.createElement('div');
+    g.id = 'mk-text-entry';
+    g.className = 'absolute inset-0 z-30 flex items-center justify-center bg-slate-950/80 p-4';
+    g.innerHTML = `
+      <div class="w-full max-w-sm bg-slate-900 border border-slate-700 rounded-2xl p-5 space-y-4 anim-in">
+        <h3 class="font-bold text-lg flex items-center gap-2"><i data-lucide="type" class="w-5 h-5 text-indigo-400"></i>${existing ? 'Edit text' : 'Add text'}</h3>
+        <input id="mk-text-input" type="text" maxlength="120" class="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2.5 text-white focus:border-indigo-500 focus:outline-none" placeholder="Type a label…" />
+        <div class="flex items-center justify-end gap-3">
+          ${existing ? '<button id="mk-text-del" type="button" class="tap mr-auto text-sm font-semibold text-rose-400 hover:text-rose-300">Remove</button>' : ''}
+          <button id="mk-text-cancel" type="button" class="tap px-4 py-2 rounded-xl font-semibold text-slate-300 hover:text-white">Cancel</button>
+          <button id="mk-text-ok" type="button" class="tap px-4 py-2 rounded-xl font-bold bg-amber-500 hover:bg-amber-400 text-slate-950">${existing ? 'Update' : 'Add'}</button>
+        </div>
+      </div>`;
+    ov.appendChild(g);
+    icons();
+    const input = g.querySelector('#mk-text-input');
+    if (existing) input.value = existing.text;
+    setTimeout(() => input.focus(), 0);
+    const close = () => g.remove();
+    const commit = () => {
+      const val = input.value.trim();
+      if (existing) {
+        if (val && val !== existing.text) { pushUndo(); existing.text = val; dirty = true; }
+      } else if (val) {
+        pushUndo();
+        const sz = Math.max(8, Math.round(textSize * sizeLevel));
+        objects.push({ id: nextId++, type: 'text', color, size: sz, x, y: y + sz * 0.35, text: val });
+        recordRecent(color); dirty = true;
+      }
+      close(); paint();
+    };
+    g.querySelector('#mk-text-ok').onclick = commit;
+    g.querySelector('#mk-text-cancel').onclick = close;
+    const del = g.querySelector('#mk-text-del');
+    if (del) del.onclick = () => { pushUndo(); objects = objects.filter(o => o !== existing); dirty = true; close(); paint(); };
+    input.onkeydown = e => {
+      if (e.key === 'Enter') { e.preventDefault(); commit(); }
+      else if (e.key === 'Escape') { e.preventDefault(); close(); }
+    };
+  }
 
   async function doSave() {
     if (uploading) return;
@@ -1787,9 +2056,22 @@ function openMarkupEditor(item, onSave) {
       const ctx = c.getContext('2d');
       ctx.drawImage(baseImg, 0, 0, W, H);       // same-origin /media image → canvas stays untainted
       for (const o of objects) {
+        if (o.type === 'text') {
+          ctx.save();
+          ctx.globalAlpha = 1;
+          ctx.fillStyle = o.color;
+          ctx.font = `700 ${o.size}px ui-sans-serif, system-ui, sans-serif`;
+          ctx.textBaseline = 'alphabetic';   // matches the SVG <text> default baseline
+          if (o.rot) { ctx.translate(o.x, o.y); ctx.rotate(o.rot * Math.PI / 180); ctx.fillText(o.text, 0, 0); }
+          else ctx.fillText(o.text, o.x, o.y);
+          ctx.restore();
+          continue;
+        }
+        ctx.globalAlpha = o.tool === 'marker' ? 0.4 : 1;   // marker = translucent highlighter
         if (o.pts.length === 1) {
           ctx.beginPath(); ctx.fillStyle = o.color;
           ctx.arc(o.pts[0][0], o.pts[0][1], o.width / 2, 0, Math.PI * 2); ctx.fill();
+          ctx.globalAlpha = 1;
           continue;
         }
         ctx.strokeStyle = o.color; ctx.lineWidth = o.width;
@@ -1797,6 +2079,7 @@ function openMarkupEditor(item, onSave) {
         ctx.beginPath();
         o.pts.forEach(([x, y], i) => i ? ctx.lineTo(x, y) : ctx.moveTo(x, y));
         ctx.stroke();
+        ctx.globalAlpha = 1;
       }
       const png = await new Promise(r => c.toBlob(r, 'image/png'));
       const form = new FormData();
@@ -1823,6 +2106,8 @@ function openMarkupEditor(item, onSave) {
     W = baseImg.naturalWidth || 1600;
     H = baseImg.naturalHeight || 1200;
     penW = Math.max(4, Math.round(Math.min(W, H) / 100));
+    markerW = penW * 3;                              // highlighter-thick relative to pen
+    textSize = Math.max(18, Math.round(Math.min(W, H) / 22));
     svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
     ov.querySelector('#mk-loading').classList.add('hidden');
     ready = true;
@@ -1832,7 +2117,11 @@ function openMarkupEditor(item, onSave) {
   baseImg.src = baseUrl;
 
   setTool('pen');
+  setSize(1);
   updateColorDot();
+  renderRecents();
+  renderSelbar();
+  updateUndoBtns();
   icons();
 }
 

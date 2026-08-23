@@ -7,11 +7,14 @@ captured in `docs/ai/ux-backlog.md` — 25 items in phases A–D + future stubs.
 (library/filter UX) are DONE & committed on `main`; a shell/access rework
 (guest scenario creation, collapsible sidebar, left filter drawer) also landed.
 **Phase C (scenario-creator polish) COMPLETE — committed & pushed** (`f82407f`).
-**Now in Phase D: D1 v1 (media markup editor) committed locally (`d932881`); D2
-(Academies gate) done & uncommitted. Neither pushed/deployed yet.** Remaining:
-D1 v2 (marker/text/undo-redo), then Phase E (E1 credit byline, E2 clone→original
-link); D3 parked. See `docs/ai/next-session.md` for the resume point. Forks
-decided; see `decisions.md`.
+**Now in Phase D: D1 v1 (media markup editor, `d932881`) and D2 (Academies gate,
+`929d136`) both committed locally — 2 commits ahead of `origin/main`, neither
+pushed/deployed yet. D1 v2 (marker + Add Text + undo/redo + inline recents +
+brush/text Size + a Move tool that drags/rotates/resizes/edits labels) is
+implemented, tested, and verified but still UNCOMMITTED in the working tree.**
+Remaining: commit D1 v2 + push to deploy, then Phase E (E1 credit byline, E2
+clone→original link); D3 parked. See `docs/ai/next-session.md` for the resume
+point. Forks decided; see `decisions.md`.
 
 ---
 
