@@ -6,12 +6,11 @@ is now the **UX / polish backlog** at `docs/ai/ux-backlog.md` (grill 2026-08-16)
 
 `npm test` = 142 passing. **Phase C (C1–C9) committed AND pushed** to
 `origin/main` (latest `f82407f`). **Phase D in progress:** **D1 v1 (`d932881`)
-and D2 (`929d136`) both committed locally — 2 commits ahead of `origin/main`,
-NEITHER pushed.** **D1 v2 (marker + text + undo/redo + inline recents) is
-implemented and verified but UNCOMMITTED in the working tree** (`public/index.html`
-+ `test/media-pdf.test.js`). Nothing since `f82407f` is pushed/deployed yet. First
-action next session is likely: commit D1 v2, then push all local commits to deploy,
-or start Phase E.
+and D2 (`929d136`) committed locally.** **D1 v2 (marker + text + undo/redo + inline
+recents + brush/text Size + Move tool: drag/rotate/resize/edit labels) is committed
+(`68cb885`).** So **3 commits ahead of `origin/main`, NONE pushed.** Nothing since
+`f82407f` is pushed/deployed yet. First action next session is likely: push the 3
+local commits to deploy, or start Phase E.
 
 ## Resume here — Phase D
 
