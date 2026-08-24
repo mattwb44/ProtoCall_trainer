@@ -1829,6 +1829,20 @@ function openMarkupEditor(item, onSave) {
   // outside the top-right. All live in a <g> rotated about the label anchor so they
   // track the label's rotation; none are baked into the export.
   const ACCENT = '#38bdf8';   // sky-400 — reads over orange flame + gray smoke
+  // Raw (unpadded) local bbox for a text object, ignoring its rotate transform.
+  // Shared by drawHandles (for layout) and handleDown (for corner-anchored scaling).
+  function textLocalBBox(o) {
+    const el = svg.querySelector(`[data-obj="${o.id}"]`);
+    let b = null;
+    if (el) { try { b = el.getBBox(); } catch { b = null; } }
+    if (!b || b.width < 1 || b.height < 1) {
+      // Empty / just-created label being typed: a min box at the anchor so the
+      // text box is visible right where the cursor is (not blank until the first key).
+      const asc = o.size * 0.8;
+      b = { x: o.x, y: o.y - asc, width: Math.max(o.size * 1.8, b ? b.width : 0), height: o.size };
+    }
+    return b;
+  }
   function drawHandles() {
     svg.querySelector('#mk-handles')?.remove();
     if (tool !== 'text' || selId == null) return;
@@ -1836,15 +1850,9 @@ function openMarkupEditor(item, onSave) {
     if (!o || o.type !== 'text') return;
     const el = svg.querySelector(`[data-obj="${selId}"]`);
     if (!el) return;
-    let b; try { b = el.getBBox(); } catch { b = null; }   // local bbox, ignores the rotate transform
-    if (!b || b.width < 1 || b.height < 1) {
-      // Empty / just-created label being typed: show a min frame at the anchor so the
-      // text box is visible right where the cursor is (not blank until the first key).
-      const asc = o.size * 0.8;
-      b = { x: o.x, y: o.y - asc, width: Math.max(o.size * 1.8, b ? b.width : 0), height: o.size };
-    }
+    const b = textLocalBBox(o);
     const u = uPerPx();
-    const pad = 6 * u, hR = 8 * u, stroke = 1.5 * u, stem = 22 * u, chipR = 10 * u;
+    const pad = 6 * u, hR = 6 * u, stroke = 1.5 * u, stem = 22 * u, chipR = 9 * u;
     const x0 = b.x - pad, y0 = b.y - pad, x1 = b.x + b.width + pad, y1 = b.y + b.height + pad;
     const cx = (x0 + x1) / 2, rotY = y0 - stem;
     const g = document.createElementNS(NS, 'g');
@@ -1872,10 +1880,11 @@ function openMarkupEditor(item, onSave) {
     g.appendChild(ic);
     [[x0, y0], [x1, y0], [x0, y1], [x1, y1]].forEach(([hx, hy], i) => {
       const nwse = (i === 0 || i === 3) ? 'nwse-resize' : 'nesw-resize';
-      add('circle', { cx: hx, cy: hy, r: hR, fill: '#0b1220', stroke: ACCENT, 'stroke-width': stroke }, nwse, 'scale');
+      add('circle', { cx: hx, cy: hy, r: hR, fill: '#0b1220', stroke: ACCENT, 'stroke-width': stroke, 'data-corner': i }, nwse, 'scale');
     });
-    // × delete chip outside the top-right corner.
-    const dx = x1 + chipR * 0.9, dy = y0 - chipR * 0.9;
+    // × delete chip outside the top-right corner, pushed far enough along the
+    // diagonal to clear the top-right scale handle (their radii would otherwise overlap).
+    const dx = x1 + chipR * 1.6, dy = y0 - chipR * 1.6;
     add('circle', { cx: dx, cy: dy, r: chipR, fill: '#e11d48', stroke: '#0b1220', 'stroke-width': u }, 'pointer', 'delete');
     const cross = chipR * 0.45;
     add('line', { x1: dx - cross, y1: dy - cross, x2: dx + cross, y2: dy + cross, stroke: '#fff', 'stroke-width': 1.8 * u });
@@ -1894,6 +1903,21 @@ function openMarkupEditor(item, onSave) {
     const ang = Math.atan2(py - o.y, px - o.x) * 180 / Math.PI;
     const dist = Math.hypot(px - o.x, py - o.y) || 1;
     handleDrag = { id: o.id, kind, startSize: o.size, startRot: o.rot || 0, startAng: ang, startDist: dist, moved: false };
+    if (kind === 'scale') {
+      // Anchor the resize on the corner opposite the one grabbed: capture that
+      // corner's (fixed) local position plus the grabbed↔opposite diagonal, so
+      // pointermove can size off the pointer's distance to the opposite corner
+      // (not to o.x/o.y — the anchor sits near one corner, so anchor-to-pointer
+      // distance is unstable when that's the corner being dragged) and hold the
+      // opposite corner fixed on screen while the grabbed corner follows the pointer.
+      const b = textLocalBBox(o);
+      const corners = [[b.x, b.y], [b.x + b.width, b.y], [b.x, b.y + b.height], [b.x + b.width, b.y + b.height]];
+      const i = Number(e.currentTarget.dataset.corner);
+      const grabbed = corners[i], opp = corners[3 - i];   // 0<->3 (TL/BR), 1<->2 (TR/BL)
+      handleDrag.opp = opp;
+      handleDrag.startDiag = Math.hypot(grabbed[0] - opp[0], grabbed[1] - opp[1]) || 1;
+      handleDrag.ox = o.x; handleDrag.oy = o.y;
+    }
     try { svg.setPointerCapture(e.pointerId); } catch {}
   }
   // Label move under the Text tool: pointerdown selects + arms a drag; a stationary
@@ -1988,8 +2012,21 @@ function openMarkupEditor(item, onSave) {
         const ang = Math.atan2(py - o.y, px - o.x) * 180 / Math.PI;
         o.rot = (((handleDrag.startRot + (ang - handleDrag.startAng)) % 360) + 360) % 360;
       } else {
-        const dist = Math.hypot(px - o.x, py - o.y) || 1;
-        o.size = Math.max(8, Math.round(handleDrag.startSize * dist / handleDrag.startDist));
+        const opp = handleDrag.opp;
+        const diag = Math.hypot(px - opp[0], py - opp[1]) || 1;
+        const newSize = Math.max(8, Math.round(handleDrag.startSize * diag / handleDrag.startDiag));
+        // Text metrics scale ~linearly with font size, so the opposite corner's
+        // offset from the anchor scales by the same factor k; solving for the new
+        // anchor that keeps that (rotated) offset landing on the same screen point
+        // is what makes the grabbed corner move while the opposite one stays put.
+        const k = newSize / handleDrag.startSize;
+        const rad = handleDrag.startRot * Math.PI / 180;
+        const vx = opp[0] - handleDrag.ox, vy = opp[1] - handleDrag.oy;
+        const rx = vx * Math.cos(rad) - vy * Math.sin(rad);
+        const ry = vx * Math.sin(rad) + vy * Math.cos(rad);
+        o.x = clamp(handleDrag.ox + (1 - k) * rx, 0, W);
+        o.y = clamp(handleDrag.oy + (1 - k) * ry, 0, H);
+        o.size = newSize;
       }
       dirty = true; paint();
       return;
@@ -2148,14 +2185,19 @@ function openMarkupEditor(item, onSave) {
   // with a per-palette See all / Show less toggle. Recents are shared, shown at the end.
   const PREVIEW_N = 6;
   const palExpanded = { standard: false, fire: false, smoke: false };
+  // Stacked, overlapping dots in the hidden colors' own hues — a wordless hint that
+  // more swatches are sitting behind "See all" before anyone reads the label.
+  const stackDots = hexes => `<span class="inline-flex items-center -space-x-1.5">${hexes.map(h =>
+    `<span class="w-2.5 h-2.5 rounded-full border border-slate-900" style="background:${h}"></span>`).join('')}</span>`;
   function paletteSection(key) {
     const p = MARKUP_PALETTES[key], expanded = palExpanded[key];
     const shown = expanded ? p.colors : p.colors.slice(0, PREVIEW_N);
     const more = p.colors.length > PREVIEW_N;
+    const hint = more && !expanded ? stackDots(p.colors.slice(PREVIEW_N, PREVIEW_N + 3).map(c => c[0])) : '';
     return `<div class="mb-2">
       <div class="flex items-center justify-between mb-1">
         <span class="text-[10px] font-bold text-slate-400 tracking-wide">${p.label.toUpperCase()}</span>
-        ${more ? `<button data-seeall="${key}" type="button" class="tap text-[10px] font-semibold text-sky-400 hover:text-sky-300">${expanded ? 'Show less' : 'See all'}</button>` : ''}
+        ${more ? `<button data-seeall="${key}" type="button" class="tap flex items-center gap-1.5 text-[10px] font-semibold text-sky-400 hover:text-sky-300">${hint}${expanded ? 'Show less' : 'See all'}</button>` : ''}
       </div>
       <div class="flex flex-wrap gap-1.5">${shown.map(([hex, name]) => swatch(hex, name)).join('')}</div>
     </div>`;
