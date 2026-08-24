@@ -86,6 +86,9 @@
   html[data-theme=light] .ft-subs{border-color:#d3dae4}
   html[data-theme=light] .ft-chev{color:#71809a}
   @keyframes ftIn{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:none}}
+  /* Swatch grid revealed by a palette accordion (markup color picker) — same ftIn
+     entrance as .ft-subs, but a wrapped row of squares instead of a vertical option list. */
+  .ft-swatches{display:flex;flex-wrap:wrap;gap:.4rem;margin:.4rem 0 .15rem;animation:ftIn .18s ease}
   /* Non-category accordions (Difficulty, Objective) reuse the same .ft- rows but
      have no category color, so they take the brand rose as their highlight. */
   .ft-plain{--hl:#f43f5e;--tint:rgba(244,63,94,.12)}
@@ -2181,108 +2184,27 @@ function openMarkupEditor(item, onSave) {
   for (const k in MARKUP_PALETTES) for (const [hex, name] of MARKUP_PALETTES[k].colors) COLOR_NAME[hex.toLowerCase()] = name;
   const nameOf = c => COLOR_NAME[String(c).toLowerCase()] || c;
   const swatch = (c, title) => `<button data-color="${c}" type="button" title="${title || c}" class="tap w-7 h-7 rounded-md border ${c === color ? 'border-amber-400 ring-2 ring-amber-400/50' : 'border-slate-600'}" style="background:${c}"></button>`;
-  // Palettes are stacked (Standard, then Fire, then Smoke), each showing a few swatches
-  // with a per-palette See all / Show less toggle. Recents are shared, shown at the end.
-  const PREVIEW_N = 6;
-  const STACK_N = 3;        // extra swatches piled into a tight overlapping stack before "See all"
-  const SWATCH_PX = 48;     // swatch buttons carry .tap, which forces a 48px min touch target —
-                             // that's their real rendered size, not the 28px (w-7) utility class
-  const STACK_STEP = 9;     // px offset between stacked swatches — tight overlap, not a fan
+  // Palettes are stacked (Standard, then Fire, then Smoke) as accordions using the same
+  // .ft-cat/.ft-cat-head/.ft-chev pattern as the Filters drawer on Community/My Library, for
+  // one consistent expand/collapse language site-wide. Collapsed shows nothing; expanding a
+  // header reveals every color in that palette (no partial preview) with the same fade/slide
+  // entrance (ftIn) the Filters accordions use. Recents are shared, shown at the end.
   const palExpanded = { standard: false, fire: false, smoke: false };
-  // A tight deck of overlapping swatches hinting "more colors piled here" — the first hidden
-  // color sits on top (full size, on top of the z-order), later ones peek out behind it.
-  function stackedGroup(entries) {
-    const w = SWATCH_PX + (entries.length - 1) * STACK_STEP;
-    const items = entries.map(([hex, name], i) =>
-      `<span class="absolute" style="left:${i * STACK_STEP}px;top:${i * STACK_STEP}px;z-index:${entries.length - i}">${swatch(hex, name)}</span>`).join('');
-    return `<span class="relative inline-block" data-stack style="width:${w}px;height:${w}px">${items}</span>`;
-  }
   function paletteSection(key) {
     const p = MARKUP_PALETTES[key], expanded = palExpanded[key];
-    const more = p.colors.length > PREVIEW_N;
-    let rowHTML;
-    if (expanded || !more) {
-      rowHTML = p.colors.map(([hex, name]) => swatch(hex, name)).join('');
-    } else {
-      const visible = p.colors.slice(0, PREVIEW_N).map(([hex, name]) => swatch(hex, name)).join('');
-      const stacked = p.colors.slice(PREVIEW_N, PREVIEW_N + STACK_N);
-      rowHTML = visible + (stacked.length ? stackedGroup(stacked) : '');
-    }
-    const toggle = more ? `<button data-seeall="${key}" type="button" class="tap text-[10px] font-semibold text-sky-400 hover:text-sky-300 whitespace-nowrap">${expanded ? 'Show less' : 'See all'}</button>` : '';
-    return `<div class="mb-2" data-pal="${key}">
-      <div class="mb-1"><span class="text-[10px] font-bold text-slate-400 tracking-wide">${p.label.toUpperCase()}</span></div>
-      <div class="flex flex-wrap items-center gap-1.5" data-row="${key}">${rowHTML}${toggle}</div>
+    const swatches = expanded ? `<div class="ft-swatches">${p.colors.map(([hex, name]) => swatch(hex, name)).join('')}</div>` : '';
+    return `<div class="ft-cat ft-plain ${expanded ? 'open' : ''}">
+      <button type="button" class="ft-cat-head" data-seeall="${key}" aria-expanded="${expanded ? 'true' : 'false'}">
+        <span>${p.label.toUpperCase()}</span>${ftChev}
+      </button>
+      ${swatches}
     </div>`;
   }
   function buildPop() {
     pop.innerHTML = ['standard', 'fire', 'smoke'].map(paletteSection).join('')
       + (recents.length ? `<p class="text-[10px] font-bold text-slate-400 mt-1 mb-1 tracking-wide">RECENTLY USED</p><div class="flex flex-wrap gap-1.5">${recents.map(c => swatch(c, nameOf(c))).join('')}</div>` : '');
-    pop.querySelectorAll('[data-seeall]').forEach(b => b.onclick = () => togglePalette(b.dataset.seeall));
+    pop.querySelectorAll('[data-seeall]').forEach(b => b.onclick = () => { palExpanded[b.dataset.seeall] = !palExpanded[b.dataset.seeall]; buildPop(); placeColorPop(); });
     pop.querySelectorAll('[data-color]').forEach(b => b.onclick = () => { pickColor(b.dataset.color); closeColorPop(); });
-  }
-  // FLIP-animate a palette's expand/collapse: swatches that persist across the toggle slide
-  // from their old screen position to their new one; swatches newly entering pop in (scaled
-  // up, faded in) from the stack's position; swatches leaving shrink back down into the
-  // stack and fade out. Everything is keyed by hex, scoped to this one palette's row, so the
-  // other two sections (and Recently Used) just re-render instantly underneath/around it.
-  function togglePalette(key) {
-    const willExpand = !palExpanded[key];
-    const row = pop.querySelector(`[data-row="${key}"]`);
-    if (!row) { palExpanded[key] = willExpand; buildPop(); placeColorPop(); return; }
-    const before = new Map();
-    row.querySelectorAll('[data-color]').forEach(el => before.set(el.dataset.color, el.getBoundingClientRect()));
-    const stackEl = row.querySelector('[data-stack]');
-    const originRect = (stackEl || row.querySelector('[data-seeall]') || row).getBoundingClientRect();
-
-    palExpanded[key] = willExpand;
-    buildPop();
-    placeColorPop();
-
-    const newRow = pop.querySelector(`[data-row="${key}"]`);
-    if (!newRow) return;
-    const DUR = 240, EASE = 'cubic-bezier(.2,.8,.2,1)';
-    const entering = [];
-    newRow.querySelectorAll('[data-color]').forEach(el => {
-      const hex = el.dataset.color;
-      const b = before.get(hex);
-      const after = el.getBoundingClientRect();
-      const from = b || originRect;
-      const dx = from.left - after.left, dy = from.top - after.top;
-      const fromScale = b ? 1 : 0.4;
-      el.style.transition = 'none';
-      el.style.transform = `translate(${dx}px,${dy}px) scale(${fromScale})`;
-      el.style.opacity = b ? '1' : '0';
-      before.delete(hex);
-      if (!b) entering.push(el);
-    });
-    // Whatever's left in `before` had no match in the new render — it's leaving. Animate a
-    // fixed-position clone from its old spot back down into the stack, then discard it.
-    const exiting = [...before.entries()].map(([hex, rect]) => {
-      const clone = document.createElement('span');
-      clone.className = 'w-7 h-7 rounded-md border border-slate-600 fixed z-[60] pointer-events-none';
-      clone.style.background = hex;
-      clone.style.left = rect.left + 'px'; clone.style.top = rect.top + 'px';
-      clone.style.transition = 'none';
-      document.body.appendChild(clone);
-      return clone;
-    });
-    void pop.offsetHeight;   // force reflow so the "from" transforms above actually apply before we animate
-    requestAnimationFrame(() => {
-      newRow.querySelectorAll('[data-color]').forEach(el => {
-        el.style.transition = `transform ${DUR}ms ${EASE}, opacity ${DUR}ms ${EASE}`;
-        el.style.transform = ''; el.style.opacity = '';
-      });
-      exiting.forEach(clone => {
-        clone.style.transition = `transform ${DUR}ms ${EASE}, opacity ${DUR}ms ${EASE}`;
-        const dx = originRect.left - clone.getBoundingClientRect().left, dy = originRect.top - clone.getBoundingClientRect().top;
-        clone.style.transform = `translate(${dx}px,${dy}px) scale(0.4)`;
-        clone.style.opacity = '0';
-      });
-      setTimeout(() => {
-        newRow.querySelectorAll('[data-color]').forEach(el => { el.style.transition = ''; });
-        exiting.forEach(clone => clone.remove());
-      }, DUR + 20);
-    });
   }
   // Fixed positioning clamped to the viewport, so the popover is always fully on-screen
   // (it used to be clipped by the card's overflow / fly off the left edge when narrow).
