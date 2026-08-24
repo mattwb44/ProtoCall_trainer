@@ -1612,8 +1612,9 @@ function openMarkupEditor(item, onSave) {
   // overlay that contains a label throws on o.pts.map and the editor won't open).
   let objects = (item.overlay?.objects || []).map(o => o.pts ? { ...o, pts: o.pts.map(p => [...p]) } : { ...o });
   let tool = 'pen';
+  const RECENTS_N = 5;   // keep only the last 5 — otherwise this list never stops growing
   let recents = [];
-  try { recents = JSON.parse(localStorage.pcMarkupRecentColors || '[]'); } catch { recents = []; }
+  try { recents = JSON.parse(localStorage.pcMarkupRecentColors || '[]').slice(0, RECENTS_N); } catch { recents = []; }
   let color = recents[0] || MARKUP_COLORS[0];
   let W = 0, H = 0, penBase = 6, hlBase = 18, eraserBase = 24, textSize = 32, ready = false, dirty = false, uploading = false;
   let nextId = objects.reduce((m, o) => Math.max(m, o.id || 0), 0) + 1;
@@ -2261,12 +2262,12 @@ function openMarkupEditor(item, onSave) {
   // Color button, so common colors are one tap away without opening the popover.
   const recentsBox = ov.querySelector('#mk-recents');
   function renderRecents() {
-    recentsBox.innerHTML = recents.slice(0, 6).map(c =>
+    recentsBox.innerHTML = recents.slice(0, RECENTS_N).map(c =>
       `<button data-recent="${c}" type="button" title="${c}" class="tap w-6 h-6 rounded-md border ${c === color ? 'border-amber-400 ring-2 ring-amber-400/40' : 'border-slate-600'}" style="background:${c}"></button>`).join('');
     recentsBox.querySelectorAll('[data-recent]').forEach(b => b.onclick = () => pickColor(b.dataset.recent));
   }
   function recordRecent(c) {
-    recents = [c, ...recents.filter(x => x !== c)].slice(0, 12);
+    recents = [c, ...recents.filter(x => x !== c)].slice(0, RECENTS_N);
     try { localStorage.pcMarkupRecentColors = JSON.stringify(recents); } catch {}
     renderRecents();
   }
