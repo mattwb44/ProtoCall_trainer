@@ -12,6 +12,57 @@ recents + brush/text Size + Move tool: drag/rotate/resize/edit labels) is commit
 `f82407f` is pushed/deployed yet. First action next session is likely: push the 3
 local commits to deploy, or start Phase E.
 
+## Resume here — D1 v3 (markup editor rework) — SPEC READY, NOT BUILT
+
+Owner grill 2026-08-23 reworked the editor UX. **All decided; build next.** Fire &
+Smoke tools are spec'd separately as **plan-only** in `docs/prd-fire-smoke-tools.md`.
+
+Build-now items (each additive on the D1 v2 overlay pipeline):
+1. **Text boxes = standard on-canvas handles.** Remove the DOM options bar (it caused
+   the flash + image jump) and the separate **Move tool**. Fold selection into the
+   **Text tool**: tap empty = new label; tap a label = select + show handles drawn
+   **inside the SVG** — thin accent frame, **4 round corner handles (uniform scale
+   only)**, a **rotate handle on a stem** above top-center, and a **round "×" delete
+   chip** outside the top-right corner. Handles render at **constant on-screen size**
+   (independent of photo resolution), ≥~28px touch targets, desktop cursors
+   (move/resize/rotate), hover states; none baked into the export. Accent color =
+   builder's judgment (must read over orange flame + gray smoke).
+2. **Edit vs move:** first tap selects; on a selected label a **stationary tap = edit**,
+   a **drag = move**; **double-click also edits (desktop)**.
+3. **Freehand eraser.** Replace whole-stroke erase with **radius erase**: dragging
+   removes pen/highlighter points within the eraser radius and **splits a stroke into
+   sub-strokes** where cut (keeps the vector/editable model). **Ignores text** (delete
+   labels via their ×). Base photo untouched.
+4. **Morphing size control.** Remove the right-side S/M/L. Selecting Pen/Highlighter/
+   Eraser **morphs the button** into 3 inline **size dots** (animated, overlay, no
+   reflow); dots preview the actual size and are **filled in the current ink color**
+   (eraser = neutral rings); pick one → collapses, size shown on the tool. **Size is
+   per-tool** (each remembers its own). Text is NOT here (sizes via corner handle).
+5. **Rename Marker → Highlighter** everywhere. UI relabel **plus** change the stored
+   value `tool:'marker'` → `tool:'highlighter'`: **one-shot idempotent boot migration**
+   rewriting existing `scenario_media.overlay` JSON, **plus** keep read/render/export
+   **back-compat that still honors legacy `marker`** (belt-and-suspenders; no opacity
+   regression).
+6. **Fix: drawing over a label selects its text.** Native selection firing on the SVG
+   `<text>`. Fix via `user-select:none` on the overlay + text inert while a drawing
+   tool is active (falls out of #1).
+7. **Three color palettes** in the popover via a **Standard | Fire | Smoke segmented
+   switcher**. Swap Standard to the owner's hexes; present each palette **in the given
+   order** (fire/smoke order is semantic). **Recents shared across palettes.** Tooltips:
+   **plain color names** for Standard & Fire; **semantic names** for Smoke (White smoke,
+   Light gray, Gray, Yellow-brown, Brown/tan, Black smoke, Black-fire smoke). Palettes
+   available to all tools; future Fire/Smoke tools default to their tab.
+
+Owner palette hexes:
+- **Standard:** Red `#D64545`, Orange `#E97826`, Yellow `#E8B931`, Lime `#91B93E`,
+  Green `#3F9A63`, Teal `#2F9C9A`, Cyan `#3AA9C7`, Blue `#3E78C8`, Indigo `#5862C6`,
+  Purple `#8456B8`, Pink `#C9578B`, Brown `#8B6649`.
+- **Fire (incipient→severe):** `#FFF3C4`, `#FFD54A`, `#FF9D1C`, `#F4511E`, `#D62828`.
+- **Smoke (white→black-fire):** `#F2F3F1`, `#B9BEC1`, `#777D82`, `#B68A2A`, `#9A6A43`,
+  `#242424`, `#090909`.
+
+Not in D1 v3: the **Fire & Smoke tools** — plan-only, see `docs/prd-fire-smoke-tools.md`.
+
 ## Resume here — Phase D
 
 **D1 v2 — marker + Add Text + Undo/Redo + richer recents — DONE, UNCOMMITTED.**
