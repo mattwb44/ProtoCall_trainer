@@ -1027,6 +1027,12 @@ const SUBCATS = {
   'Motor Vehicle Accidents': ['Extrication','Rollover','Hazardous Materials'],
 };
 let draftQs = [], draftShares = { dept: false, pub: false }, draftMedia = [], draftBldg = [], draftVeh = [], editingId = null, editingAsReviewer = false;
+// D1: per-photo memory of which markup-editor color palettes (Standard/Fire/Smoke) were
+// left expanded, keyed by the photo's index in draftMedia. Scoped to one scenario-creation
+// session — reset alongside draftMedia in renderCreator — so photo 1 and photo 2 each keep
+// their own expand/collapse state without bleeding into each other or surviving into the
+// next scenario draft.
+let mkPaletteMemory = {};
 // PR 5 — autosave. `creatorMounted` gates the delegated dirty-listeners and the
 // unload warning to only apply while the creator view is on screen. `autosaveEligible`
 // is decided once per load: a brand-new scenario or an existing draft — never a
@@ -1604,7 +1610,7 @@ const MARKUP_COLORS = MARKUP_PALETTES.standard.colors.map(c => c[0]);   // defau
 // pattern; export composites with Canvas 2D (drawImage + stroke) rather than
 // rasterizing an SVG-with-<image>, which browsers block/taint. onSave receives
 // { kind, url, baseUrl?, overlay? }.
-function openMarkupEditor(item, onSave) {
+function openMarkupEditor(item, onSave, photoKey) {
   const NS = 'http://www.w3.org/2000/svg';
   const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
   const baseUrl = item.baseUrl || item.url;      // frozen, un-annotated source
@@ -2190,7 +2196,12 @@ function openMarkupEditor(item, onSave) {
   // one consistent expand/collapse language site-wide. Collapsed shows nothing; expanding a
   // header reveals every color in that palette (no partial preview) with the same fade/slide
   // entrance (ftIn) the Filters accordions use. Recents are shared, shown at the end.
-  const palExpanded = { standard: false, fire: false, smoke: false };
+  // Expand state is remembered per photo (mkPaletteMemory, keyed by photoKey) for the rest
+  // of this scenario-creation session — a photo's first-ever open defaults to Standard
+  // expanded; later opens of that same photo restore whatever it was last left at, and
+  // other photos each keep their own independent state. Mutating this object in place (see
+  // the click handler in buildPop below) is what makes it "stick" in mkPaletteMemory.
+  const palExpanded = mkPaletteMemory[photoKey] ??= { standard: true, fire: false, smoke: false };
   function paletteSection(key) {
     const p = MARKUP_PALETTES[key], expanded = palExpanded[key];
     const swatches = expanded ? `<div class="ft-swatches">${p.colors.map(([hex, name]) => swatch(hex, name)).join('')}</div>` : '';
@@ -2517,6 +2528,7 @@ async function renderCreator(id) {
   editingRev = null;
   draftQs = [newQuestion()];
   draftMedia = [];
+  mkPaletteMemory = {};
   myStagePresets = await fetch('/api/me/stage-presets').then(r => r.json()).catch(() => []);
   let existing = null;
   if (editingId) {
@@ -3023,7 +3035,7 @@ function drawMedia() {
   // reason as the media-delete undo path below).
   $('#c-media').querySelectorAll('[data-medit]').forEach(el => el.onclick = () => {
     const i = +el.dataset.medit;
-    openMarkupEditor(draftMedia[i], updated => { draftMedia[i] = updated; drawMedia(); drawSceneRef(); markDirty(); });
+    openMarkupEditor(draftMedia[i], updated => { draftMedia[i] = updated; drawMedia(); drawSceneRef(); markDirty(); }, i);
   });
   // C1: media removal is cheap and client-side until save, so it's recovered by an
   // Undo toast rather than a blocking confirm. Undo re-inserts at the same index.
