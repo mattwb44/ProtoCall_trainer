@@ -7,14 +7,15 @@ captured in `docs/ai/ux-backlog.md` — 25 items in phases A–D + future stubs.
 (library/filter UX) are DONE & committed on `main`; a shell/access rework
 (guest scenario creation, collapsible sidebar, left filter drawer) also landed.
 **Phase C (scenario-creator polish) COMPLETE — committed & pushed** (`f82407f`).
-**Now in Phase D: D1 v1 (media markup editor, `d932881`) and D2 (Academies gate,
-`929d136`) both committed locally — 2 commits ahead of `origin/main`, neither
-pushed/deployed yet. D1 v2 (marker + Add Text + undo/redo + inline recents +
-brush/text Size + a Move tool that drags/rotates/resizes/edits labels) is
-implemented, tested, and verified but still UNCOMMITTED in the working tree.**
-Remaining: commit D1 v2 + push to deploy, then Phase E (E1 credit byline, E2
-clone→original link); D3 parked. See `docs/ai/next-session.md` for the resume
-point. Forks decided; see `decisions.md`.
+**Now in Phase D:** D1 v1 (`d932881`), D2 (`929d136`), D1 v2 (`68cb885`) + two
+docs commits are all committed — **5 commits ahead of `origin/main`, none pushed.**
+**D1 v3 (markup editor rework — on-canvas text handles, edit/move gesture split,
+freehand radius eraser, morphing per-tool size dots, Marker→Highlighter rename +
+boot migration, drawing-over-label fix, three color palettes) is BUILT + verified
+(143/143) but UNCOMMITTED in the working tree.** Remaining: commit D1 v3 + push to
+deploy, then Phase E (E1 credit byline, E2 clone→original link) or the Fire & Smoke
+tools (plan-only, `docs/prd-fire-smoke-tools.md`); D3 parked. See
+`docs/ai/next-session.md` for the resume point. Forks decided; see `decisions.md`.
 
 ---
 

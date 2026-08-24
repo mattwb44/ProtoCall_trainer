@@ -1,65 +1,74 @@
 # Next session
 
-_Updated 2026-08-22. Read `current-focus.md` and `decisions.md` first. The
+_Updated 2026-08-24. Read `current-focus.md` and `decisions.md` first. The
 ops-hardening execution plan (`docs/execution-plan.md`) is complete; active work
 is now the **UX / polish backlog** at `docs/ai/ux-backlog.md` (grill 2026-08-16)._
 
-`npm test` = 142 passing. **Phase C (C1–C9) committed AND pushed** to
-`origin/main` (latest `f82407f`). **Phase D in progress:** **D1 v1 (`d932881`)
-and D2 (`929d136`) committed locally.** **D1 v2 (marker + text + undo/redo + inline
-recents + brush/text Size + Move tool: drag/rotate/resize/edit labels) is committed
-(`68cb885`).** So **3 commits ahead of `origin/main`, NONE pushed.** Nothing since
-`f82407f` is pushed/deployed yet. First action next session is likely: push the 3
-local commits to deploy, or start Phase E.
+`npm test` = **143 passing**. **Phase C (C1–C9) committed AND pushed** to
+`origin/main` (latest `f82407f`). **Phase D:** D1 v1 (`d932881`), D2 (`929d136`),
+D1 v2 (`68cb885`), plus two docs commits (`363d392`, `983541f`) are committed —
+**5 commits ahead of `origin/main`, NONE pushed.** **D1 v3 (markup editor rework)
+is now BUILT + verified but UNCOMMITTED** in the working tree.
 
-## Resume here — D1 v3 (markup editor rework) — SPEC READY, NOT BUILT
+## Resume here — commit + push
 
-Owner grill 2026-08-23 reworked the editor UX. **All decided; build next.** Fire &
-Smoke tools are spec'd separately as **plan-only** in `docs/prd-fire-smoke-tools.md`.
+**First action:** commit D1 v3 (working tree = `public/index.html`, `server/db.js`,
+`test/media-pdf.test.js`), then **push all 6 local commits** to deploy on Railway.
+Then options: **Phase E** (E1 credit byline surviving cloning + card chip, E2
+clone→original review link), or build the **Fire & Smoke tools** (plan-only,
+`docs/prd-fire-smoke-tools.md`; they default to their palette tab, now in place).
 
-Build-now items (each additive on the D1 v2 overlay pipeline):
-1. **Text boxes = standard on-canvas handles.** Remove the DOM options bar (it caused
-   the flash + image jump) and the separate **Move tool**. Fold selection into the
-   **Text tool**: tap empty = new label; tap a label = select + show handles drawn
-   **inside the SVG** — thin accent frame, **4 round corner handles (uniform scale
-   only)**, a **rotate handle on a stem** above top-center, and a **round "×" delete
-   chip** outside the top-right corner. Handles render at **constant on-screen size**
-   (independent of photo resolution), ≥~28px touch targets, desktop cursors
-   (move/resize/rotate), hover states; none baked into the export. Accent color =
-   builder's judgment (must read over orange flame + gray smoke).
-2. **Edit vs move:** first tap selects; on a selected label a **stationary tap = edit**,
-   a **drag = move**; **double-click also edits (desktop)**.
-3. **Freehand eraser.** Replace whole-stroke erase with **radius erase**: dragging
-   removes pen/highlighter points within the eraser radius and **splits a stroke into
-   sub-strokes** where cut (keeps the vector/editable model). **Ignores text** (delete
-   labels via their ×). Base photo untouched.
-4. **Morphing size control.** Remove the right-side S/M/L. Selecting Pen/Highlighter/
-   Eraser **morphs the button** into 3 inline **size dots** (animated, overlay, no
-   reflow); dots preview the actual size and are **filled in the current ink color**
-   (eraser = neutral rings); pick one → collapses, size shown on the tool. **Size is
-   per-tool** (each remembers its own). Text is NOT here (sizes via corner handle).
-5. **Rename Marker → Highlighter** everywhere. UI relabel **plus** change the stored
-   value `tool:'marker'` → `tool:'highlighter'`: **one-shot idempotent boot migration**
-   rewriting existing `scenario_media.overlay` JSON, **plus** keep read/render/export
-   **back-compat that still honors legacy `marker`** (belt-and-suspenders; no opacity
-   regression).
-6. **Fix: drawing over a label selects its text.** Native selection firing on the SVG
-   `<text>`. Fix via `user-select:none` on the overlay + text inert while a drawing
-   tool is active (falls out of #1).
-7. **Three color palettes** in the popover via a **Standard | Fire | Smoke segmented
-   switcher**. Swap Standard to the owner's hexes; present each palette **in the given
-   order** (fire/smoke order is semantic). **Recents shared across palettes.** Tooltips:
-   **plain color names** for Standard & Fire; **semantic names** for Smoke (White smoke,
-   Light gray, Gray, Yellow-brown, Brown/tan, Black smoke, Black-fire smoke). Palettes
-   available to all tools; future Fire/Smoke tools default to their tab.
+## D1 v3 (markup editor rework) — DONE, UNCOMMITTED (2026-08-24)
 
-Owner palette hexes:
-- **Standard:** Red `#D64545`, Orange `#E97826`, Yellow `#E8B931`, Lime `#91B93E`,
-  Green `#3F9A63`, Teal `#2F9C9A`, Cyan `#3AA9C7`, Blue `#3E78C8`, Indigo `#5862C6`,
-  Purple `#8456B8`, Pink `#C9578B`, Brown `#8B6649`.
-- **Fire (incipient→severe):** `#FFF3C4`, `#FFD54A`, `#FF9D1C`, `#F4511E`, `#D62828`.
-- **Smoke (white→black-fire):** `#F2F3F1`, `#B9BEC1`, `#777D82`, `#B68A2A`, `#9A6A43`,
-  `#242424`, `#090909`.
+All 7 owner-decided items (grill 2026-08-23) built additively on the D1 v2 overlay
+pipeline in `openMarkupEditor` (`public/index.html`) + one server migration. Verified
+end-to-end in the browser preview (editor driven via `openMarkupEditor` on a data-URL
+base; desktop + 375px mobile; console clean; 143/143).
+
+1. **On-canvas text handles.** Removed the DOM options bar **and** the separate **Move
+   tool** — selection is folded into the **Text tool** (tap empty = new label; tap a
+   label = select). Handles are drawn **inside the SVG** in a `<g>` rotated about the
+   label anchor: dashed **accent frame** (`ACCENT = '#38bdf8'` sky — reads over orange
+   flame + gray smoke), **4 round corner handles** (uniform scale), a **rotate handle
+   on a stem** above top-center, a red **× delete chip** outside the top-right. All
+   sized in user units via `uPerPx()` so they stay **constant on-screen** regardless of
+   photo resolution; none baked into the export (`#mk-handles` is stripped before the
+   canvas composite).
+2. **Edit vs move:** `labelDown` selects + arms a drag; `onPointerUp` → stationary
+   release on an **already-selected** label = **edit** (`openTextEntry`), a drag =
+   **move**; **`dblclick` also edits** (`labelDbl`).
+3. **Freehand radius eraser** (`eraseAt`): removes stroke points within
+   `eraserBase * SIZE_MULTS[toolSize.eraser]` and **splits a stroke into sub-strokes**
+   where cut (new ids, keeps the vector model). **Ignores text.** One undo snapshot per
+   drag (`erasedThisDrag` gate, lazy on first hit).
+4. **Morphing per-tool size** (`renderSizePop`/`updateSizeDots`): S/M/L bar gone.
+   Selecting Pen/Highlighter/Eraser opens an **overlaid 3-dot popover** (`[data-sizepop]`,
+   absolute → no reflow); dots preview the real size, **filled in the current ink** (eraser
+   = neutral rings), recolor live on color change. Pick → collapses; level shown as a
+   **`[data-sizedot]`** on the tool button. **Per-tool** (`toolSize` map). Text is NOT
+   here (sizes via the corner handles).
+5. **Marker → Highlighter.** UI relabel + `data-tool="highlighter"` + new strokes store
+   `tool:'highlighter'`. **Client back-compat**: `isHi(o)` treats `'marker'||'highlighter'`
+   as translucent in render **and** canvas export (no opacity regression). **Server boot
+   migration** (`server/db.js`, flag `markup_marker_to_highlighter`): parses each
+   `scenario_media.overlay` JSON and rewrites `tool:'marker'`→`'highlighter'` once
+   (defensive parse; a label whose text is literally "marker" is left alone). Covered by
+   a new test.
+6. **Drawing over a label no longer selects its text:** `user-select:none` on the SVG +
+   labels are `pointer-events:none` unless the Text tool is active (`objSvg` `pe`).
+7. **Three palettes** (`MARKUP_PALETTES`): **Standard | Fire | Smoke** switcher in the
+   color popover (`buildPop`), owner hexes, presented in the given order, **recents
+   shared** across palettes. Tooltips: plain names for Standard & Fire; semantic names
+   for Smoke. Palette state persists per editor session (`palette` var).
+
+**Test:** `test/media-pdf.test.js` — new "D1 v3 boot migration" test seeds a legacy
+`marker` overlay, clears the one-shot flag, reopens the DB, and asserts the rewrite
+(idempotent; ignores a label named "marker"). The existing overlay round-trip still
+asserts `tool:'marker'` persists on the **write** path (server stores overlay verbatim;
+migration only touches pre-existing rows at boot). **143/143.**
+
+Known minor (unchanged from v2): re-editing orphans the prior composite in `/media`
+(no GC — acceptable at this scale).
 
 Not in D1 v3: the **Fire & Smoke tools** — plan-only, see `docs/prd-fire-smoke-tools.md`.
 

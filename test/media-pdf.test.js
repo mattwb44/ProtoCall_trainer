@@ -5,6 +5,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { io as ioc } from 'socket.io-client';
 import { buildServer } from '../server/index.js';
+import { createDb } from '../server/db.js';
 import { signup, authed, emit, approvePublic } from './helpers.js';
 
 let ctx, base, mediaDir;
@@ -125,6 +126,40 @@ test('D1 markup overlay: base_url + overlay persist and round-trip; plain media 
   assert.equal(capped.url, comp.url);
   assert.equal(capped.base_url, base1.url);
   assert.equal(capped.overlay, null);
+});
+
+test('D1 v3 boot migration rewrites tool:marker → highlighter in stored overlays (idempotent, ignores text)', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pc-mk-'));
+  const file = path.join(dir, 'm.db');
+  try {
+    let db = createDb(file);
+    db.prepare("INSERT INTO scenarios (id,title,category,subcategory) VALUES ('s1','T','EMS','Cardiac')").run();
+    // A legacy overlay: a marker stroke, a pen stroke, and a label whose text is
+    // literally "marker" (so the LIKE prefilter matches but the value must be left
+    // alone — only tool fields are rewritten).
+    const legacy = JSON.stringify({ v: 1, w: 100, h: 100, objects: [
+      { id: 1, type: 'stroke', tool: 'pen', color: '#111', width: 6, pts: [[1, 1], [2, 2]] },
+      { id: 2, type: 'stroke', tool: 'marker', color: '#eab308', width: 18, pts: [[3, 3], [4, 4]] },
+      { id: 3, type: 'text', color: '#fff', size: 32, x: 5, y: 6, text: 'marker' },
+    ] });
+    db.prepare("INSERT INTO scenario_media (id,scenario_id,kind,url,overlay) VALUES ('m1','s1','photo','/media/x.png',?)").run(legacy);
+    db.prepare("DELETE FROM app_meta WHERE key='markup_marker_to_highlighter'").run();   // arm the one-shot again
+    db.close();
+
+    db = createDb(file);                        // migrate() re-runs the rename
+    let objs = JSON.parse(db.prepare("SELECT overlay FROM scenario_media WHERE id='m1'").get().overlay).objects;
+    assert.equal(objs[0].tool, 'pen');          // untouched
+    assert.equal(objs[1].tool, 'highlighter');  // rewritten
+    assert.equal(objs[2].text, 'marker');       // label text is NOT a tool → left alone
+    db.close();
+
+    db = createDb(file);                        // idempotent: flag set, second open is a no-op
+    objs = JSON.parse(db.prepare("SELECT overlay FROM scenario_media WHERE id='m1'").get().overlay).objects;
+    assert.equal(objs[1].tool, 'highlighter');
+    db.close();
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test('editing: fields update; answered questions soft-delete; history intact; non-author 404s', async () => {

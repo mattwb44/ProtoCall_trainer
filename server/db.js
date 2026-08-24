@@ -305,6 +305,29 @@ function migrate(db) {
   // nullable ⇒ existing rows and un-annotated media keep them NULL (back-compat).
   addColumn('scenario_media', 'base_url', 'base_url TEXT');
   addColumn('scenario_media', 'overlay', 'overlay TEXT');
+
+  // D1 v3 (Marker → Highlighter rename): overlays used to store highlighter strokes
+  // as tool:'marker'; the editor now writes tool:'highlighter'. Rewrite existing
+  // overlay JSON once so stored data matches the new value. One-shot + flag-guarded;
+  // the client's render/export honor legacy 'marker' regardless, so this is purely
+  // belt-and-suspenders. Parse defensively — a malformed overlay is left untouched.
+  if (!hasFlag(db, 'markup_marker_to_highlighter')) {
+    const rows = db.prepare(`SELECT id, overlay FROM scenario_media
+                               WHERE overlay IS NOT NULL AND overlay LIKE '%"marker"%'`).all();
+    const upd = db.prepare('UPDATE scenario_media SET overlay=? WHERE id=?');
+    const tx = db.transaction(rs => {
+      for (const r of rs) {
+        let ov;
+        try { ov = JSON.parse(r.overlay); } catch { continue; }
+        if (!ov || !Array.isArray(ov.objects)) continue;
+        let touched = false;
+        for (const o of ov.objects) if (o && o.tool === 'marker') { o.tool = 'highlighter'; touched = true; }
+        if (touched) upd.run(JSON.stringify(ov), r.id);
+      }
+    });
+    tx(rows);
+    setFlag(db, 'markup_marker_to_highlighter');
+  }
   if (!hasFlag(db, 'roles_as_sets_backfill')) {
     db.exec(`UPDATE questions SET roles=json_array(role_track) WHERE role_track<>'' AND roles='[]'`);
     db.exec(`UPDATE participants SET roles=json_array(role_track) WHERE role_track<>'' AND roles='[]'`);
