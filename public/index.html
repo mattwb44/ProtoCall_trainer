@@ -1623,6 +1623,10 @@ function openMarkupEditor(item, onSave) {
   let dragging = null;       // in-flight label move: { id, sx, sy, ox, oy, moved }
   let handleDrag = null;     // in-flight corner-scale / rotate: { id, kind, ... }
   let erasing = false;       // in-flight radius-erase drag
+  let editingId = null;      // id of the label whose text is being typed inline
+  let textInput = null;      // the overlaid transparent <input> during inline edit
+  let editOrig = '';         // label text at edit start (for Esc revert)
+  let editIsNew = false;     // whether the inline edit created the label
   let suppressClick = false; // swallow the click a drag emits so it doesn't deselect
   // v2 undo/redo: snapshot the whole object list before each mutation. Deep-clone
   // so pts/text edits don't alias a snapshot; text objects have no pts to copy.
@@ -1649,21 +1653,21 @@ function openMarkupEditor(item, onSave) {
         <div class="p-4 sm:p-6 space-y-4">
           <div class="flex items-center gap-2 flex-wrap">
             <div class="relative">
-              <button data-tool="pen" type="button" class="tap px-3 py-2 rounded-lg text-sm font-semibold border flex items-center gap-1.5"><i data-lucide="pen-line" class="w-4 h-4"></i>Pen<span data-sizedot class="ml-0.5 rounded-full bg-current shrink-0"></span></button>
+              <button data-tool="pen" type="button" class="tap px-3 py-2 rounded-lg text-sm font-semibold border flex items-center gap-1.5"><i data-lucide="pen-line" class="w-4 h-4"></i>Pen<span class="ml-1 inline-flex items-center justify-center shrink-0" style="width:10px;height:10px"><i data-sizedot class="rounded-full bg-current block"></i></span></button>
               <div data-sizepop="pen" class="hidden absolute z-20 mt-1 left-0 bg-slate-900 border border-slate-700 rounded-xl p-2 shadow-xl flex items-center gap-2.5"></div>
             </div>
             <div class="relative">
-              <button data-tool="highlighter" type="button" class="tap px-3 py-2 rounded-lg text-sm font-semibold border flex items-center gap-1.5"><i data-lucide="highlighter" class="w-4 h-4"></i>Highlighter<span data-sizedot class="ml-0.5 rounded-full bg-current shrink-0"></span></button>
+              <button data-tool="highlighter" type="button" class="tap px-3 py-2 rounded-lg text-sm font-semibold border flex items-center gap-1.5"><i data-lucide="highlighter" class="w-4 h-4"></i>Highlighter<span class="ml-1 inline-flex items-center justify-center shrink-0" style="width:10px;height:10px"><i data-sizedot class="rounded-full bg-current block"></i></span></button>
               <div data-sizepop="highlighter" class="hidden absolute z-20 mt-1 left-0 bg-slate-900 border border-slate-700 rounded-xl p-2 shadow-xl flex items-center gap-2.5"></div>
             </div>
             <button data-tool="text" type="button" class="tap px-3 py-2 rounded-lg text-sm font-semibold border flex items-center gap-1.5"><i data-lucide="type" class="w-4 h-4"></i>Text</button>
             <div class="relative">
-              <button data-tool="eraser" type="button" class="tap px-3 py-2 rounded-lg text-sm font-semibold border flex items-center gap-1.5"><i data-lucide="eraser" class="w-4 h-4"></i>Eraser<span data-sizedot class="ml-0.5 rounded-full bg-current shrink-0"></span></button>
+              <button data-tool="eraser" type="button" class="tap px-3 py-2 rounded-lg text-sm font-semibold border flex items-center gap-1.5"><i data-lucide="eraser" class="w-4 h-4"></i>Eraser<span class="ml-1 inline-flex items-center justify-center shrink-0" style="width:10px;height:10px"><i data-sizedot class="rounded-full bg-current block"></i></span></button>
               <div data-sizepop="eraser" class="hidden absolute z-20 mt-1 left-0 bg-slate-900 border border-slate-700 rounded-xl p-2 shadow-xl flex items-center gap-2.5"></div>
             </div>
             <div class="relative">
               <button id="mk-color-btn" type="button" class="tap px-3 py-2 rounded-lg text-sm font-semibold border border-slate-700 bg-slate-800 hover:border-slate-500 flex items-center gap-2"><span id="mk-color-dot" class="w-4 h-4 rounded-full border border-slate-500 shrink-0"></span>Color</button>
-              <div id="mk-color-pop" class="hidden absolute z-10 mt-1 left-0 bg-slate-900 border border-slate-700 rounded-xl p-2.5 shadow-xl w-max"></div>
+              <div id="mk-color-pop" class="hidden absolute z-10 mt-1 right-0 bg-slate-900 border border-slate-700 rounded-xl p-2.5 shadow-xl w-max max-w-[min(20rem,calc(100vw-2.5rem))] max-h-[70vh] overflow-auto"></div>
             </div>
             <div id="mk-recents" class="flex items-center gap-1"></div>
             <div class="ml-auto flex items-center gap-2">
@@ -1701,7 +1705,7 @@ function openMarkupEditor(item, onSave) {
   // Undo/redo keyboard shortcuts, active only while the editor is open. Skip while
   // the Add-text input is focused so ⌘Z there edits the text, not the drawing.
   function onKey(e) {
-    if (editorClosed || ov.querySelector('#mk-text-entry')) return;
+    if (editorClosed || editingId != null) return;
     const meta = e.metaKey || e.ctrlKey;
     if (meta && e.key.toLowerCase() === 'z') { e.preventDefault(); e.shiftKey ? redo() : undo(); }
     else if (meta && e.key.toLowerCase() === 'y') { e.preventDefault(); redo(); }
@@ -1744,9 +1748,17 @@ function openMarkupEditor(item, onSave) {
     g.querySelector('#mkg-save').onclick = () => { g.remove(); doSave(); };
   }
 
+  // Client → SVG user coordinates via getScreenCTM, which accounts for the viewBox
+  // AND preserveAspectRatio letterboxing. (A tall photo hits max-height:60vh and gets
+  // pillar-boxed — the drawable area is narrower than the element and centered — so a
+  // naive rect-ratio map put strokes progressively off toward the middle near the
+  // edges. The CTM inverse is exact regardless.)
   function pt(clientX, clientY) {
-    const r = svg.getBoundingClientRect();
-    return [clamp((clientX - r.left) / r.width * W, 0, W), clamp((clientY - r.top) / r.height * H, 0, H)];
+    const m = svg.getScreenCTM();
+    if (!m) return [0, 0];
+    const p = svg.createSVGPoint(); p.x = clientX; p.y = clientY;
+    const u = p.matrixTransform(m.inverse());
+    return [clamp(u.x, 0, W), clamp(u.y, 0, H)];
   }
   const pathD = pts => pts.map((p, i) => `${i ? 'L' : 'M'}${p[0].toFixed(1)} ${p[1].toFixed(1)}`).join(' ');
   // Marker strokes render at reduced opacity so the scene shows through, like a
@@ -1754,6 +1766,20 @@ function openMarkupEditor(item, onSave) {
   // Legacy overlays stored highlighter strokes as tool:'marker'; render/export honor
   // both so old media keeps its translucent ink even before the boot migration runs.
   const isHi = o => o.tool === 'marker' || o.tool === 'highlighter';
+  // Relative luminance → contrast outline: light inks (white, white-smoke, pale
+  // fire yellow) get a black halo, everything else white, so labels read over both
+  // orange flame and gray smoke.
+  function hexLum(hex) {
+    let h = String(hex).replace('#', '');
+    if (h.length === 3) h = h.split('').map(c => c + c).join('');
+    if (h.length !== 6) return 0;
+    const n = parseInt(h, 16);
+    if (isNaN(n)) return 0;
+    const lin = v => (v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4));
+    return 0.2126 * lin((n >> 16 & 255) / 255) + 0.7152 * lin((n >> 8 & 255) / 255) + 0.0722 * lin((n & 255) / 255);
+  }
+  const textBorder = c => (hexLum(c) > 0.8 ? '#000000' : '#ffffff');
+  const textBorderW = o => Math.max(2, o.size * 0.14);
   function objSvg(o) {
     if (o.type === 'text') {
       // Labels are tappable only under the Text tool (select/move/edit live there now).
@@ -1761,7 +1787,8 @@ function openMarkupEditor(item, onSave) {
       // start a native text selection (item 6).
       const pe = tool === 'text' ? 'auto' : 'none';
       const tr = o.rot ? ` transform="rotate(${o.rot} ${o.x} ${o.y})"` : '';   // rotate about the anchor
-      return `<text data-obj="${o.id}" data-obj-text="1" x="${o.x}" y="${o.y}"${tr} fill="${o.color}" font-size="${o.size}" font-weight="700" font-family="ui-sans-serif,system-ui,sans-serif" style="pointer-events:${pe};white-space:pre">${esc(o.text)}</text>`;
+      // paint-order:stroke draws the halo behind the fill so the letters keep their color.
+      return `<text data-obj="${o.id}" data-obj-text="1" x="${o.x}" y="${o.y}"${tr} fill="${o.color}" stroke="${textBorder(o.color)}" stroke-width="${textBorderW(o)}" stroke-linejoin="round" paint-order="stroke" font-size="${o.size}" font-weight="700" font-family="ui-sans-serif,system-ui,sans-serif" style="pointer-events:${pe};white-space:pre">${esc(o.text)}</text>`;
     }
     // Radius eraser hit-tests stroke points in JS, so strokes never need to catch
     // DOM pointer events — keep them inert to the pointer at all times.
@@ -1788,6 +1815,8 @@ function openMarkupEditor(item, onSave) {
   // Screen→user scale so the selection chrome renders at a constant on-screen size
   // regardless of the photo's resolution. Falls back to 1 before layout.
   function uPerPx() {
+    const m = svg.getScreenCTM();
+    if (m && m.a) return 1 / m.a;
     const r = svg.getBoundingClientRect();
     return r.width ? W / r.width : 1;
   }
@@ -1867,7 +1896,7 @@ function openMarkupEditor(item, onSave) {
   function labelDbl(e) {
     e.stopPropagation();
     const o = objects.find(x => x.id === Number(e.currentTarget.dataset.obj));
-    if (o) openTextEntry(o.x, o.y, o);
+    if (o) { pushUndo(); startTextEdit(o, false); }
   }
   // Radius eraser: remove pen/highlighter points within the eraser radius at (ex,ey),
   // splitting a stroke into sub-strokes where it's cut so the vector model stays
@@ -1979,10 +2008,10 @@ function openMarkupEditor(item, onSave) {
       if (dragging.moved) { suppressClick = true; dragging = null; return; }
       const stayed = dragging;
       dragging = null;
-      // Stationary release on a label that was ALREADY selected → edit it.
+      // Stationary release on a label that was ALREADY selected → edit it inline.
       if (stayed.wasSelected) {
         const o = objects.find(z => z.id === stayed.id);
-        if (o) { suppressClick = true; openTextEntry(o.x, o.y, o); }
+        if (o) { suppressClick = true; pushUndo(); startTextEdit(o, false); }
       }
       return;
     }
@@ -1995,9 +2024,9 @@ function openMarkupEditor(item, onSave) {
   svg.addEventListener('pointerdown', () => { suppressClick = false; }, true);
   svg.addEventListener('pointerup', onPointerUp);
   svg.addEventListener('pointercancel', onPointerUp);
-  // New-label placement fires on click (not pointerdown) so opening the entry modal
-  // never re-targets a trailing click onto `ov` and trips the leave-guard. Only an
-  // empty tap places — taps on a label or its handles are handled by the pointer flow.
+  // New-label placement fires on click (not pointerdown). Only an empty tap places —
+  // taps on a label or its handles are handled by the pointer flow. Placing drops an
+  // empty label at the tap point and starts inline editing immediately (no modal).
   svg.addEventListener('click', e => {
     if (!ready) return;
     if (suppressClick) { suppressClick = false; return; }
@@ -2005,7 +2034,11 @@ function openMarkupEditor(item, onSave) {
     const t = e.target;
     if (t && (t.getAttribute('data-obj') != null || t.getAttribute('data-handle') != null)) return;
     const [x, y] = pt(e.clientX, e.clientY);
-    openTextEntry(x, y, null);
+    pushUndo();
+    const sz = textSize;
+    const o = { id: nextId++, type: 'text', color, size: sz, x, y: y + sz * 0.35, text: '' };
+    objects.push(o); selId = o.id;
+    startTextEdit(o, true);
   });
 
   const SIZE_TOOLS = ['pen', 'highlighter', 'eraser'];
@@ -2013,6 +2046,7 @@ function openMarkupEditor(item, onSave) {
     ov.querySelectorAll('[data-sizepop]').forEach(p => { if (p.dataset.sizepop !== except) p.classList.add('hidden'); });
   }
   function setTool(t) {
+    if (editingId != null) commitTextEdit();
     tool = t;
     if (t !== 'text') selId = null;
     closeSizePops();
@@ -2111,6 +2145,15 @@ function openMarkupEditor(item, onSave) {
     color = c;
     updateColorDot();
     if (tool === 'eraser') setTool('pen');
+    // Recolor the label currently selected/being edited (item: text kept old color).
+    if (tool === 'text' && selId != null) {
+      const o = objects.find(x => x.id === selId && x.type === 'text');
+      if (o) {
+        if (editingId == null) pushUndo();        // mid-edit already owns an undo step
+        o.color = c; dirty = true; paint();
+        if (textInput) textInput.style.caretColor = c;
+      }
+    }
     renderRecents();
     // Recolor an open size popover so its dots preview the new ink.
     SIZE_TOOLS.forEach(t => { const p = ov.querySelector(`[data-sizepop="${t}"]`); if (p && !p.classList.contains('hidden')) renderSizePop(t); });
@@ -2143,56 +2186,84 @@ function openMarkupEditor(item, onSave) {
   // and a modal/repaint mid-gesture can re-target a click to `ov` and close the editor
   // unexpectedly. Cancel and the Back gesture close it. (See the text/move click notes.)
 
-  // Add Text (v2): tapping the scene in Text mode opens this small entry box; tapping
-  // an existing label reopens it to edit or remove. Text is placed with an alphabetic
-  // baseline (matching the SVG default and canvas export) at the tapped point.
-  function openTextEntry(x, y, existing) {
-    if (ov.querySelector('#mk-text-entry')) return;
-    const g = document.createElement('div');
-    g.id = 'mk-text-entry';
-    g.className = 'absolute inset-0 z-30 flex items-center justify-center bg-slate-950/80 p-4';
-    g.innerHTML = `
-      <div class="w-full max-w-sm bg-slate-900 border border-slate-700 rounded-2xl p-5 space-y-4 anim-in">
-        <h3 class="font-bold text-lg flex items-center gap-2"><i data-lucide="type" class="w-5 h-5 text-indigo-400"></i>${existing ? 'Edit text' : 'Add text'}</h3>
-        <input id="mk-text-input" type="text" maxlength="120" class="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2.5 text-white focus:border-indigo-500 focus:outline-none" placeholder="Type a label…" />
-        <div class="flex items-center justify-end gap-3">
-          ${existing ? '<button id="mk-text-del" type="button" class="tap mr-auto text-sm font-semibold text-rose-400 hover:text-rose-300">Remove</button>' : ''}
-          <button id="mk-text-cancel" type="button" class="tap px-4 py-2 rounded-xl font-semibold text-slate-300 hover:text-white">Cancel</button>
-          <button id="mk-text-ok" type="button" class="tap px-4 py-2 rounded-xl font-bold bg-amber-500 hover:bg-amber-400 text-slate-950">${existing ? 'Update' : 'Add'}</button>
-        </div>
-      </div>`;
-    ov.appendChild(g);
-    icons();
-    const input = g.querySelector('#mk-text-input');
-    if (existing) input.value = existing.text;
-    setTimeout(() => input.focus(), 0);
-    const close = () => g.remove();
-    const commit = () => {
-      const val = input.value.trim();
-      if (existing) {
-        if (val && val !== existing.text) { pushUndo(); existing.text = val; dirty = true; }
-      } else if (val) {
-        pushUndo();
-        const sz = textSize;
-        const id = nextId++;
-        objects.push({ id, type: 'text', color, size: sz, x, y: y + sz * 0.35, text: val });
-        selId = id;   // select the new label so its handles are ready
-        recordRecent(color); dirty = true;
-      }
-      close(); paint();
-    };
-    g.querySelector('#mk-text-ok').onclick = commit;
-    g.querySelector('#mk-text-cancel').onclick = close;
-    const del = g.querySelector('#mk-text-del');
-    if (del) del.onclick = () => { pushUndo(); objects = objects.filter(o => o !== existing); dirty = true; close(); paint(); };
-    input.onkeydown = e => {
-      if (e.key === 'Enter') { e.preventDefault(); commit(); }
-      else if (e.key === 'Escape') { e.preventDefault(); close(); }
-    };
+  // Inline text editing (v3): instead of a modal, an empty tap drops a label and this
+  // overlays a transparent <input> right on the canvas so the user types in place. The
+  // input's text is transparent (the live SVG <text> shows the real, bordered letters);
+  // only its caret is visible. The corner/rotate/delete handles show the whole time.
+  // Callers pushUndo() before starting so the whole create-or-edit is one undo step.
+  function positionTextInput(o) {
+    if (!textInput || !o) return;
+    const m = svg.getScreenCTM();
+    if (!m) return;
+    const cont = svg.parentElement.getBoundingClientRect();
+    const ax = m.a * o.x + m.c * o.y + m.e;      // screen x of the text anchor
+    const ay = m.b * o.x + m.d * o.y + m.f;      // screen y of the baseline
+    const fpx = Math.max(8, o.size * m.a);
+    textInput.style.fontSize = fpx + 'px';
+    textInput.style.left = (ax - cont.left) + 'px';
+    textInput.style.top = (ay - cont.top - fpx * 0.82) + 'px';   // baseline → top
+    textInput.style.height = (fpx * 1.15) + 'px';
+    textInput.style.width = Math.max(fpx * 2, cont.right - ax - 4) + 'px';
+    textInput.style.caretColor = o.color;
+    textInput.style.transform = o.rot ? `rotate(${o.rot}deg)` : '';
+    textInput.style.transformOrigin = `0 ${fpx * 0.82}px`;
+  }
+  function startTextEdit(o, isNew) {
+    if (editingId != null) commitTextEdit();     // finish any prior edit first
+    editingId = o.id; selId = o.id; editOrig = o.text || ''; editIsNew = isNew;
+    paint();                                     // render the (possibly empty) label + handles
+    textInput = document.createElement('input');
+    textInput.type = 'text'; textInput.maxLength = 120;
+    textInput.value = o.text || '';
+    textInput.autocomplete = 'off'; textInput.spellcheck = false;
+    Object.assign(textInput.style, {
+      position: 'absolute', zIndex: '6', color: 'transparent', background: 'transparent',
+      border: 'none', outline: 'none', padding: '0', margin: '0', whiteSpace: 'pre',
+      fontWeight: '700', fontFamily: 'ui-sans-serif, system-ui, sans-serif',
+    });
+    svg.parentElement.appendChild(textInput);
+    positionTextInput(o);
+    setTimeout(() => { textInput && textInput.focus(); }, 0);
+    textInput.addEventListener('input', () => {
+      const ob = objects.find(x => x.id === editingId); if (!ob) return;
+      ob.text = textInput.value; dirty = true;
+      paint(); positionTextInput(ob);
+    });
+    textInput.addEventListener('keydown', e => {
+      e.stopPropagation();
+      if (e.key === 'Enter') { e.preventDefault(); commitTextEdit(); }
+      else if (e.key === 'Escape') { e.preventDefault(); cancelTextEdit(); }
+    });
+    textInput.addEventListener('blur', () => commitTextEdit());
+  }
+  function endTextInput() { if (textInput) { const t = textInput; textInput = null; t.remove(); } }
+  function commitTextEdit() {
+    if (editingId == null) return;
+    const id = editingId; editingId = null;
+    endTextInput();
+    const o = objects.find(x => x.id === id);
+    let noop = false;
+    if (o && !o.text.trim()) {                   // left empty → drop the label
+      objects = objects.filter(x => x.id !== id);
+      if (selId === id) selId = null;
+      noop = editIsNew;                          // created-then-empty = net no change
+    } else if (o) {
+      if (editIsNew) recordRecent(o.color);
+      else if (o.text === editOrig) noop = true; // reopened but unchanged
+    }
+    if (noop && undoStack.length) undoStack.pop();
+    dirty = true; paint();
+  }
+  function cancelTextEdit() {
+    if (editingId == null) return;
+    const o = objects.find(x => x.id === editingId);
+    if (o) o.text = editOrig;                     // Esc reverts to the pre-edit text
+    commitTextEdit();
   }
 
   async function doSave() {
     if (uploading) return;
+    if (editingId != null) commitTextEdit();     // flush any in-progress inline edit
     const btn = ov.querySelector('#mk-save');
     // No strokes → revert to the clean base (drops any prior overlay). If the item
     // was never annotated, this is just the original image unchanged.
@@ -2214,11 +2285,14 @@ function openMarkupEditor(item, onSave) {
         if (o.type === 'text') {
           ctx.save();
           ctx.globalAlpha = 1;
-          ctx.fillStyle = o.color;
           ctx.font = `700 ${o.size}px ui-sans-serif, system-ui, sans-serif`;
           ctx.textBaseline = 'alphabetic';   // matches the SVG <text> default baseline
-          if (o.rot) { ctx.translate(o.x, o.y); ctx.rotate(o.rot * Math.PI / 180); ctx.fillText(o.text, 0, 0); }
-          else ctx.fillText(o.text, o.x, o.y);
+          ctx.lineJoin = 'round';
+          ctx.strokeStyle = textBorder(o.color);
+          ctx.lineWidth = textBorderW(o);   // matches the SVG stroke-width (fill covers the inner half)
+          ctx.fillStyle = o.color;
+          if (o.rot) { ctx.translate(o.x, o.y); ctx.rotate(o.rot * Math.PI / 180); ctx.strokeText(o.text, 0, 0); ctx.fillText(o.text, 0, 0); }
+          else { ctx.strokeText(o.text, o.x, o.y); ctx.fillText(o.text, o.x, o.y); }
           ctx.restore();
           continue;
         }

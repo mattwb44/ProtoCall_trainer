@@ -67,6 +67,30 @@ base; desktop + 375px mobile; console clean; 143/143).
 asserts `tool:'marker'` persists on the **write** path (server stores overlay verbatim;
 migration only touches pre-existing rows at boot). **143/143.**
 
+### D1 v3 follow-up fixes (owner testing 2026-08-24) — DONE, in the same working tree
+
+Six issues from the owner's second pass, all fixed + verified in preview:
+- **Inline text editing (no modal).** Replaced the `openTextEntry` centered modal with
+  `startTextEdit`/`positionTextInput`/`commitTextEdit`/`cancelTextEdit`: an empty tap
+  drops an empty label and overlays a **transparent `<input>`** on the canvas (caret
+  visible, text transparent) so the live SVG `<text>` shows the real bordered letters as
+  you type; corner/rotate/delete handles show throughout. Enter/blur commit; empty →
+  label dropped; Esc reverts to pre-edit text. One undo step per create-or-edit.
+- **Text now recolors.** `pickColor` recolors the selected/being-edited label (item was:
+  picking a color didn't change an existing label).
+- **Letter borders.** `objSvg` text gets a contrast halo via `stroke` + `paint-order:stroke`
+  (`textBorder`/`hexLum`: white halo for all inks, **black for near-white** — lum > 0.8);
+  mirrored in the canvas export (`strokeText` then `fillText`).
+- **Edge-offset drawing bug fixed.** `pt()` (and `uPerPx()`) now use `getScreenCTM().inverse()`
+  instead of a naive rect-ratio map, so a tall photo that hits `max-height:60vh` and gets
+  **pillar-boxed** maps clicks exactly (was drifting toward center near the edges).
+  Verified: dx=0 at the left edge under heavy letterboxing (CTM scale 0.425 vs naive 1.04).
+- **Size indicator no longer reflows the toolbar.** The `[data-sizedot]` sits in a fixed
+  10px box (inner `<i>` varies 3/5/7px), so changing size doesn't shift the buttons.
+- **Color popover no longer clipped.** `#mk-color-pop` is now `right-0` + `max-w`/`max-h`
+  + `overflow-auto`, so it opens leftward and stays inside the card (was cut off the right
+  edge; all Standard/Fire/Smoke swatches now reachable).
+
 Known minor (unchanged from v2): re-editing orphans the prior composite in `/media`
 (no GC — acceptable at this scale).
 
