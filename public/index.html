@@ -2180,26 +2180,29 @@ function openMarkupEditor(item, onSave) {
   const COLOR_NAME = {};
   for (const k in MARKUP_PALETTES) for (const [hex, name] of MARKUP_PALETTES[k].colors) COLOR_NAME[hex.toLowerCase()] = name;
   const nameOf = c => COLOR_NAME[String(c).toLowerCase()] || c;
-  const swatch = (c, title) => `<button data-color="${c}" type="button" title="${title || c}" class="tap w-7 h-7 rounded-md border ${c === color ? 'border-amber-400 ring-2 ring-amber-400/50' : 'border-slate-600'}" style="background:${c}"></button>`;
+  const swatch = (c, title, opacity) => `<button data-color="${c}" type="button" title="${title || c}" class="tap w-7 h-7 rounded-md border ${c === color ? 'border-amber-400 ring-2 ring-amber-400/50' : 'border-slate-600'}" style="background:${c}${opacity != null ? `;opacity:${opacity}` : ''}"></button>`;
   // Palettes are stacked (Standard, then Fire, then Smoke), each showing a few swatches
   // with a per-palette See all / Show less toggle. Recents are shared, shown at the end.
   const PREVIEW_N = 6;
+  const FADE_N = 3;   // extra swatches shown past the cutoff, fading toward blank before "See all"
   const palExpanded = { standard: false, fire: false, smoke: false };
-  // Stacked, overlapping dots in the hidden colors' own hues — a wordless hint that
-  // more swatches are sitting behind "See all" before anyone reads the label.
-  const stackDots = hexes => `<span class="inline-flex items-center -space-x-1.5">${hexes.map(h =>
-    `<span class="w-2.5 h-2.5 rounded-full border border-slate-900" style="background:${h}"></span>`).join('')}</span>`;
   function paletteSection(key) {
     const p = MARKUP_PALETTES[key], expanded = palExpanded[key];
-    const shown = expanded ? p.colors : p.colors.slice(0, PREVIEW_N);
     const more = p.colors.length > PREVIEW_N;
-    const hint = more && !expanded ? stackDots(p.colors.slice(PREVIEW_N, PREVIEW_N + 3).map(c => c[0])) : '';
+    let items;
+    if (expanded || !more) {
+      items = p.colors.map(([hex, name]) => swatch(hex, name));
+    } else {
+      const visible = p.colors.slice(0, PREVIEW_N).map(([hex, name]) => swatch(hex, name));
+      const step = 1 / (FADE_N + 1);
+      const faded = p.colors.slice(PREVIEW_N, PREVIEW_N + FADE_N)
+        .map(([hex, name], i) => swatch(hex, name, (1 - step * (i + 1)).toFixed(2)));
+      items = visible.concat(faded);
+    }
+    const toggle = more ? `<button data-seeall="${key}" type="button" class="tap text-[10px] font-semibold text-sky-400 hover:text-sky-300 whitespace-nowrap">${expanded ? 'Show less' : 'See all'}</button>` : '';
     return `<div class="mb-2">
-      <div class="flex items-center justify-between mb-1">
-        <span class="text-[10px] font-bold text-slate-400 tracking-wide">${p.label.toUpperCase()}</span>
-        ${more ? `<button data-seeall="${key}" type="button" class="tap flex items-center gap-1.5 text-[10px] font-semibold text-sky-400 hover:text-sky-300">${hint}${expanded ? 'Show less' : 'See all'}</button>` : ''}
-      </div>
-      <div class="flex flex-wrap gap-1.5">${shown.map(([hex, name]) => swatch(hex, name)).join('')}</div>
+      <div class="mb-1"><span class="text-[10px] font-bold text-slate-400 tracking-wide">${p.label.toUpperCase()}</span></div>
+      <div class="flex flex-wrap items-center gap-1.5">${items.join('')}${toggle}</div>
     </div>`;
   }
   function buildPop() {
