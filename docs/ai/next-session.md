@@ -91,6 +91,34 @@ Six issues from the owner's second pass, all fixed + verified in preview:
   + `overflow-auto`, so it opens leftward and stays inside the card (was cut off the right
   edge; all Standard/Fire/Smoke swatches now reachable).
 
+### D1 v3 follow-up round 2 (owner testing 2026-08-24) — DONE, UNCOMMITTED
+
+Eleven tweaks from a third pass (all in `public/index.html`, verified in preview):
+- **White + Black added to the Standard palette** (now 14 colors).
+- **Removed the per-button size-dot indicators** (pen/highlighter/eraser) — owner
+  disliked them; `updateSizeDots` gone.
+- **Rotate handle is now a circular arrow** (lucide rotate-cw glyph on the accent chip)
+  so it clearly reads as rotate.
+- **Empty text box is now visible at the cursor.** `drawHandles` falls back to a min
+  frame (≈1.8×em) for an empty/just-created label and the caret is high-contrast accent
+  (`caret-color:#38bdf8`), so the box shows where you clicked instead of appearing blank
+  until the first keystroke. (Positioning was already correct; the input was just
+  invisible.)
+- **Highlighter opacity slider** in its size popover (`hlOpacity`, 10–80%). Stored
+  per-stroke as `opacity`; render + canvas export use `o.opacity ?? 0.4` (legacy strokes
+  still 0.4). The size popovers are now `flex-col` to hold the slider.
+- **4 sizes instead of 3** for pen/highlighter/eraser (`SIZE_MULTS=[0.5,0.9,1.5,2.3]`,
+  names Small/Medium/Large/X-large).
+- **Color popover reworked:** palettes are **stacked** (Standard → Fire → Smoke, the
+  semantic order) instead of tabbed; each shows a few swatches (6) with a per-palette
+  **See all / Show less** toggle; recents at the bottom. `palette`/tab state removed.
+- **Click-off collapses the color popover** (`onDocDownColor`, capture-phase document
+  pointerdown; ignores the pop + the Color button).
+- **Color popover no longer flies off-screen when the window is tiny.** It's now
+  `position:fixed`, positioned + **clamped to the viewport** on open and on resize
+  (`placeColorPop`), with `max-height` + `overflow-y-auto`; swatches `flex-wrap` so they
+  reflow to the available width. Listeners are torn down in `closeColorPop`/`removeOverlay`.
+
 Known minor (unchanged from v2): re-editing orphans the prior composite in `/media`
 (no GC — acceptable at this scale).
 

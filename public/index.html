@@ -1571,6 +1571,7 @@ const MARKUP_PALETTES = {
       ['#D64545', 'Red'], ['#E97826', 'Orange'], ['#E8B931', 'Yellow'], ['#91B93E', 'Lime'],
       ['#3F9A63', 'Green'], ['#2F9C9A', 'Teal'], ['#3AA9C7', 'Cyan'], ['#3E78C8', 'Blue'],
       ['#5862C6', 'Indigo'], ['#8456B8', 'Purple'], ['#C9578B', 'Pink'], ['#8B6649', 'Brown'],
+      ['#FFFFFF', 'White'], ['#000000', 'Black'],
     ],
   },
   fire: {
@@ -1608,7 +1609,6 @@ function openMarkupEditor(item, onSave) {
   // overlay that contains a label throws on o.pts.map and the editor won't open).
   let objects = (item.overlay?.objects || []).map(o => o.pts ? { ...o, pts: o.pts.map(p => [...p]) } : { ...o });
   let tool = 'pen';
-  let palette = 'standard';  // active color palette tab (Standard | Fire | Smoke)
   let recents = [];
   try { recents = JSON.parse(localStorage.pcMarkupRecentColors || '[]'); } catch { recents = []; }
   let color = recents[0] || MARKUP_COLORS[0];
@@ -1617,8 +1617,9 @@ function openMarkupEditor(item, onSave) {
   let drawing = null, liveEl = null;
   // v3 per-tool size: each size-bearing tool remembers its own level (index into
   // SIZE_MULTS). Text is NOT here — text size is set via its corner handles.
-  const SIZE_MULTS = [0.6, 1, 1.6];
+  const SIZE_MULTS = [0.5, 0.9, 1.5, 2.3];
   const toolSize = { pen: 1, highlighter: 1, eraser: 1 };
+  let hlOpacity = 0.4;       // highlighter ink opacity (slider in its size popover)
   let selId = null;          // id of the currently selected text label (Text tool)
   let dragging = null;       // in-flight label move: { id, sx, sy, ox, oy, moved }
   let handleDrag = null;     // in-flight corner-scale / rotate: { id, kind, ... }
@@ -1653,21 +1654,21 @@ function openMarkupEditor(item, onSave) {
         <div class="p-4 sm:p-6 space-y-4">
           <div class="flex items-center gap-2 flex-wrap">
             <div class="relative">
-              <button data-tool="pen" type="button" class="tap px-3 py-2 rounded-lg text-sm font-semibold border flex items-center gap-1.5"><i data-lucide="pen-line" class="w-4 h-4"></i>Pen<span class="ml-1 inline-flex items-center justify-center shrink-0" style="width:10px;height:10px"><i data-sizedot class="rounded-full bg-current block"></i></span></button>
-              <div data-sizepop="pen" class="hidden absolute z-20 mt-1 left-0 bg-slate-900 border border-slate-700 rounded-xl p-2 shadow-xl flex items-center gap-2.5"></div>
+              <button data-tool="pen" type="button" class="tap px-3 py-2 rounded-lg text-sm font-semibold border flex items-center gap-1.5"><i data-lucide="pen-line" class="w-4 h-4"></i>Pen</button>
+              <div data-sizepop="pen" class="hidden absolute z-20 mt-1 left-0 bg-slate-900 border border-slate-700 rounded-xl p-2 shadow-xl flex flex-col gap-2"></div>
             </div>
             <div class="relative">
-              <button data-tool="highlighter" type="button" class="tap px-3 py-2 rounded-lg text-sm font-semibold border flex items-center gap-1.5"><i data-lucide="highlighter" class="w-4 h-4"></i>Highlighter<span class="ml-1 inline-flex items-center justify-center shrink-0" style="width:10px;height:10px"><i data-sizedot class="rounded-full bg-current block"></i></span></button>
-              <div data-sizepop="highlighter" class="hidden absolute z-20 mt-1 left-0 bg-slate-900 border border-slate-700 rounded-xl p-2 shadow-xl flex items-center gap-2.5"></div>
+              <button data-tool="highlighter" type="button" class="tap px-3 py-2 rounded-lg text-sm font-semibold border flex items-center gap-1.5"><i data-lucide="highlighter" class="w-4 h-4"></i>Highlighter</button>
+              <div data-sizepop="highlighter" class="hidden absolute z-20 mt-1 left-0 bg-slate-900 border border-slate-700 rounded-xl p-2 shadow-xl flex flex-col gap-2"></div>
             </div>
             <button data-tool="text" type="button" class="tap px-3 py-2 rounded-lg text-sm font-semibold border flex items-center gap-1.5"><i data-lucide="type" class="w-4 h-4"></i>Text</button>
             <div class="relative">
-              <button data-tool="eraser" type="button" class="tap px-3 py-2 rounded-lg text-sm font-semibold border flex items-center gap-1.5"><i data-lucide="eraser" class="w-4 h-4"></i>Eraser<span class="ml-1 inline-flex items-center justify-center shrink-0" style="width:10px;height:10px"><i data-sizedot class="rounded-full bg-current block"></i></span></button>
-              <div data-sizepop="eraser" class="hidden absolute z-20 mt-1 left-0 bg-slate-900 border border-slate-700 rounded-xl p-2 shadow-xl flex items-center gap-2.5"></div>
+              <button data-tool="eraser" type="button" class="tap px-3 py-2 rounded-lg text-sm font-semibold border flex items-center gap-1.5"><i data-lucide="eraser" class="w-4 h-4"></i>Eraser</button>
+              <div data-sizepop="eraser" class="hidden absolute z-20 mt-1 left-0 bg-slate-900 border border-slate-700 rounded-xl p-2 shadow-xl flex flex-col gap-2"></div>
             </div>
             <div class="relative">
               <button id="mk-color-btn" type="button" class="tap px-3 py-2 rounded-lg text-sm font-semibold border border-slate-700 bg-slate-800 hover:border-slate-500 flex items-center gap-2"><span id="mk-color-dot" class="w-4 h-4 rounded-full border border-slate-500 shrink-0"></span>Color</button>
-              <div id="mk-color-pop" class="hidden absolute z-10 mt-1 right-0 bg-slate-900 border border-slate-700 rounded-xl p-2.5 shadow-xl w-max max-w-[min(20rem,calc(100vw-2.5rem))] max-h-[70vh] overflow-auto"></div>
+              <div id="mk-color-pop" class="hidden fixed z-50 bg-slate-900 border border-slate-700 rounded-xl p-2.5 shadow-xl overflow-y-auto"></div>
             </div>
             <div id="mk-recents" class="flex items-center gap-1"></div>
             <div class="ml-auto flex items-center gap-2">
@@ -1700,6 +1701,8 @@ function openMarkupEditor(item, onSave) {
     editorClosed = true;
     window.removeEventListener('popstate', onBack);
     document.removeEventListener('keydown', onKey);
+    document.removeEventListener('pointerdown', onDocDownColor, true);
+    window.removeEventListener('resize', placeColorPop);
     ov.remove();
   }
   // Undo/redo keyboard shortcuts, active only while the editor is open. Skip while
@@ -1792,9 +1795,10 @@ function openMarkupEditor(item, onSave) {
     }
     // Radius eraser hit-tests stroke points in JS, so strokes never need to catch
     // DOM pointer events — keep them inert to the pointer at all times.
-    const op = isHi(o) ? ' stroke-opacity="0.4"' : '';
+    const hla = o.opacity ?? 0.4;                        // per-stroke; legacy strokes default to 0.4
+    const op = isHi(o) ? ` stroke-opacity="${hla}"` : '';
     if (o.pts.length === 1) {
-      const fo = isHi(o) ? ' fill-opacity="0.4"' : '';
+      const fo = isHi(o) ? ` fill-opacity="${hla}"` : '';
       return `<circle data-obj="${o.id}" cx="${o.pts[0][0]}" cy="${o.pts[0][1]}" r="${o.width / 2}" fill="${o.color}"${fo} style="pointer-events:none"/>`;
     }
     return `<path data-obj="${o.id}" d="${pathD(o.pts)}" fill="none" stroke="${o.color}" stroke-width="${o.width}"${op} stroke-linecap="round" stroke-linejoin="round" style="pointer-events:none"/>`;
@@ -1832,7 +1836,13 @@ function openMarkupEditor(item, onSave) {
     if (!o || o.type !== 'text') return;
     const el = svg.querySelector(`[data-obj="${selId}"]`);
     if (!el) return;
-    let b; try { b = el.getBBox(); } catch { return; }   // local bbox, ignores the rotate transform
+    let b; try { b = el.getBBox(); } catch { b = null; }   // local bbox, ignores the rotate transform
+    if (!b || b.width < 1 || b.height < 1) {
+      // Empty / just-created label being typed: show a min frame at the anchor so the
+      // text box is visible right where the cursor is (not blank until the first key).
+      const asc = o.size * 0.8;
+      b = { x: o.x, y: o.y - asc, width: Math.max(o.size * 1.8, b ? b.width : 0), height: o.size };
+    }
     const u = uPerPx();
     const pad = 6 * u, hR = 8 * u, stroke = 1.5 * u, stem = 22 * u, chipR = 10 * u;
     const x0 = b.x - pad, y0 = b.y - pad, x1 = b.x + b.width + pad, y1 = b.y + b.height + pad;
@@ -1852,6 +1862,14 @@ function openMarkupEditor(item, onSave) {
     add('rect', { x: x0, y: y0, width: x1 - x0, height: y1 - y0, fill: 'none', stroke: ACCENT, 'stroke-width': stroke, 'stroke-dasharray': `${5 * u} ${4 * u}`, rx: 2 * u });
     add('line', { x1: cx, y1: y0, x2: cx, y2: rotY, stroke: ACCENT, 'stroke-width': stroke });
     add('circle', { cx, cy: rotY, r: hR, fill: ACCENT, stroke: '#0b1220', 'stroke-width': u }, 'grab', 'rotate');
+    // Circular-arrow glyph (lucide rotate-cw) so the rotate handle reads as "rotate".
+    const s = hR * 1.5 / 24, ic = document.createElementNS(NS, 'g');
+    ic.setAttribute('transform', `translate(${cx} ${rotY}) scale(${s}) translate(-12 -12)`);
+    ic.setAttribute('fill', 'none'); ic.setAttribute('stroke', '#0b1220');
+    ic.setAttribute('stroke-width', '2.5'); ic.setAttribute('stroke-linecap', 'round'); ic.setAttribute('stroke-linejoin', 'round');
+    ic.style.pointerEvents = 'none';
+    ic.innerHTML = '<path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/>';
+    g.appendChild(ic);
     [[x0, y0], [x1, y0], [x0, y1], [x1, y1]].forEach(([hx, hy], i) => {
       const nwse = (i === 0 || i === 3) ? 'nwse-resize' : 'nesw-resize';
       add('circle', { cx: hx, cy: hy, r: hR, fill: '#0b1220', stroke: ACCENT, 'stroke-width': stroke }, nwse, 'scale');
@@ -1948,13 +1966,14 @@ function openMarkupEditor(item, onSave) {
     const base = isHl ? hlBase : penBase;
     const w = Math.max(1, Math.round(base * SIZE_MULTS[toolSize[tool]]));
     drawing = { id: nextId++, type: 'stroke', tool, color, width: w, pts: [[x, y]] };
+    if (isHl) drawing.opacity = hlOpacity;              // per-stroke highlighter opacity
     liveEl = document.createElementNS(NS, 'path');
     liveEl.setAttribute('fill', 'none');
     liveEl.setAttribute('stroke', color);
     liveEl.setAttribute('stroke-width', w);
     liveEl.setAttribute('stroke-linecap', 'round');
     liveEl.setAttribute('stroke-linejoin', 'round');
-    if (isHl) liveEl.setAttribute('stroke-opacity', '0.4');
+    if (isHl) liveEl.setAttribute('stroke-opacity', String(hlOpacity));
     liveEl.style.pointerEvents = 'none';
     svg.appendChild(liveEl);
     svg.setPointerCapture(e.pointerId);
@@ -2050,7 +2069,7 @@ function openMarkupEditor(item, onSave) {
     tool = t;
     if (t !== 'text') selId = null;
     closeSizePops();
-    ov.querySelector('#mk-color-pop')?.classList.add('hidden');
+    closeColorPop();
     ov.querySelectorAll('[data-tool]').forEach(b => {
       const on = b.dataset.tool === t;
       b.classList.toggle('bg-amber-500', on);
@@ -2078,35 +2097,41 @@ function openMarkupEditor(item, onSave) {
     if (sizeTool) { renderSizePop(t); ov.querySelector(`[data-sizepop="${t}"]`).classList.remove('hidden'); }
   });
 
-  // v3 morphing per-tool size: each size tool owns a 3-dot popover (overlaid, so no
-  // reflow). Dots preview the real stroke size and are filled in the current ink color
-  // (eraser = neutral rings). Picking one collapses the popover; the chosen level is
-  // shown as a small dot on the tool button. Size is per-tool (each remembers its own).
-  const SIZE_NAMES = ['Small', 'Medium', 'Large'];
+  // v3 morphing per-tool size: each size tool owns a size popover (overlaid, so no
+  // reflow). Dots preview the real stroke size, filled in the current ink color
+  // (eraser = neutral rings). Highlighter also gets an opacity slider. Picking a dot
+  // collapses the popover. Size is per-tool (each remembers its own).
+  const SIZE_NAMES = ['Small', 'Medium', 'Large', 'X-large'];
   function renderSizePop(t) {
     const popEl = ov.querySelector(`[data-sizepop="${t}"]`);
     if (!popEl) return;
-    popEl.innerHTML = SIZE_MULTS.map((m, i) => {
-      const d = Math.round(10 + m * 9);                 // preview diameter, scales with the real size
+    const dots = SIZE_MULTS.map((m, i) => {
+      const d = Math.round(8 + m * 8);                  // preview diameter, scales with the real size
       const active = toolSize[t] === i;
       const inner = t === 'eraser'
         ? `background:transparent;border:2px solid #94a3b8;`
-        : `background:${color};${t === 'highlighter' ? 'opacity:0.5;' : ''}`;
-      return `<button data-sizeidx="${i}" type="button" title="${SIZE_NAMES[i]}" class="tap flex items-center justify-center rounded-full transition ${active ? 'ring-2 ring-amber-400' : ''}" style="width:34px;height:34px">
+        : `background:${color};${t === 'highlighter' ? `opacity:${hlOpacity};` : ''}`;
+      return `<button data-sizeidx="${i}" type="button" title="${SIZE_NAMES[i]}" class="tap flex items-center justify-center rounded-full transition ${active ? 'ring-2 ring-amber-400' : ''}" style="width:30px;height:30px">
         <span class="rounded-full" style="width:${d}px;height:${d}px;box-sizing:border-box;${inner}"></span></button>`;
     }).join('');
+    const slider = t === 'highlighter'
+      ? `<div class="flex items-center gap-2 pt-1 border-t border-slate-700/70">
+           <span class="text-[11px] font-semibold text-slate-400">Opacity</span>
+           <input type="range" data-hlopacity min="10" max="80" step="5" value="${Math.round(hlOpacity * 100)}" class="flex-1 accent-amber-500" style="min-width:96px">
+           <span data-hlopval class="text-[11px] text-slate-300 w-9 text-right">${Math.round(hlOpacity * 100)}%</span>
+         </div>`
+      : '';
+    popEl.innerHTML = `<div class="flex items-center gap-2 justify-center">${dots}</div>${slider}`;
     popEl.querySelectorAll('[data-sizeidx]').forEach(btn => btn.onclick = () => {
       toolSize[t] = Number(btn.dataset.sizeidx);
-      updateSizeDots();
-      popEl.classList.add('hidden');
+      renderSizePop(t);                                 // reflect the new active ring
+      setTimeout(() => popEl.classList.add('hidden'), 90);
     });
-  }
-  function updateSizeDots() {
-    SIZE_TOOLS.forEach(t => {
-      const dot = ov.querySelector(`[data-tool="${t}"] [data-sizedot]`);
-      if (!dot) return;
-      const d = 3 + toolSize[t] * 2;                    // 3 / 5 / 7 px, inherits button text color
-      dot.style.width = d + 'px'; dot.style.height = d + 'px';
+    const range = popEl.querySelector('[data-hlopacity]');
+    if (range) range.addEventListener('input', () => {
+      hlOpacity = Number(range.value) / 100;
+      popEl.querySelector('[data-hlopval]').textContent = range.value + '%';
+      popEl.querySelectorAll('[data-sizeidx] span').forEach(s => { s.style.opacity = hlOpacity; });
     });
   }
 
@@ -2119,25 +2144,60 @@ function openMarkupEditor(item, onSave) {
   for (const k in MARKUP_PALETTES) for (const [hex, name] of MARKUP_PALETTES[k].colors) COLOR_NAME[hex.toLowerCase()] = name;
   const nameOf = c => COLOR_NAME[String(c).toLowerCase()] || c;
   const swatch = (c, title) => `<button data-color="${c}" type="button" title="${title || c}" class="tap w-7 h-7 rounded-md border ${c === color ? 'border-amber-400 ring-2 ring-amber-400/50' : 'border-slate-600'}" style="background:${c}"></button>`;
+  // Palettes are stacked (Standard, then Fire, then Smoke), each showing a few swatches
+  // with a per-palette See all / Show less toggle. Recents are shared, shown at the end.
+  const PREVIEW_N = 6;
+  const palExpanded = { standard: false, fire: false, smoke: false };
+  function paletteSection(key) {
+    const p = MARKUP_PALETTES[key], expanded = palExpanded[key];
+    const shown = expanded ? p.colors : p.colors.slice(0, PREVIEW_N);
+    const more = p.colors.length > PREVIEW_N;
+    return `<div class="mb-2">
+      <div class="flex items-center justify-between mb-1">
+        <span class="text-[10px] font-bold text-slate-400 tracking-wide">${p.label.toUpperCase()}</span>
+        ${more ? `<button data-seeall="${key}" type="button" class="tap text-[10px] font-semibold text-sky-400 hover:text-sky-300">${expanded ? 'Show less' : 'See all'}</button>` : ''}
+      </div>
+      <div class="flex flex-wrap gap-1.5">${shown.map(([hex, name]) => swatch(hex, name)).join('')}</div>
+    </div>`;
+  }
   function buildPop() {
-    const tabs = Object.keys(MARKUP_PALETTES).map(k => {
-      const on = k === palette;
-      return `<button data-pal="${k}" type="button" class="tap px-2.5 py-1 rounded-md text-xs font-semibold ${on ? 'bg-amber-500 text-slate-950' : 'text-slate-300 hover:text-white'}">${MARKUP_PALETTES[k].label}</button>`;
-    }).join('');
-    const cols = MARKUP_PALETTES[palette].colors;
-    pop.innerHTML = `
-      <div class="flex items-center gap-1 mb-2 bg-slate-800/70 border border-slate-700 rounded-lg p-0.5 w-max">${tabs}</div>
-      <div class="grid grid-cols-6 gap-1.5">${cols.map(([hex, name]) => swatch(hex, name)).join('')}</div>`
-      + (recents.length ? `<p class="text-[10px] font-bold text-slate-400 mt-2 mb-1 tracking-wide">RECENTLY USED</p><div class="flex flex-wrap gap-1.5">${recents.map(c => swatch(c, nameOf(c))).join('')}</div>` : '');
-    pop.querySelectorAll('[data-pal]').forEach(b => b.onclick = () => { palette = b.dataset.pal; buildPop(); });
-    pop.querySelectorAll('[data-color]').forEach(b => b.onclick = () => {
-      pickColor(b.dataset.color);
-      pop.classList.add('hidden');
-    });
+    pop.innerHTML = ['standard', 'fire', 'smoke'].map(paletteSection).join('')
+      + (recents.length ? `<p class="text-[10px] font-bold text-slate-400 mt-1 mb-1 tracking-wide">RECENTLY USED</p><div class="flex flex-wrap gap-1.5">${recents.map(c => swatch(c, nameOf(c))).join('')}</div>` : '');
+    pop.querySelectorAll('[data-seeall]').forEach(b => b.onclick = () => { palExpanded[b.dataset.seeall] = !palExpanded[b.dataset.seeall]; buildPop(); placeColorPop(); });
+    pop.querySelectorAll('[data-color]').forEach(b => b.onclick = () => { pickColor(b.dataset.color); closeColorPop(); });
+  }
+  // Fixed positioning clamped to the viewport, so the popover is always fully on-screen
+  // (it used to be clipped by the card's overflow / fly off the left edge when narrow).
+  function placeColorPop() {
+    if (pop.classList.contains('hidden')) return;
+    const btn = ov.querySelector('#mk-color-btn').getBoundingClientRect();
+    pop.style.maxWidth = Math.min(300, window.innerWidth - 16) + 'px';
+    pop.style.maxHeight = Math.max(160, window.innerHeight - btn.bottom - 16) + 'px';
+    pop.style.top = (btn.bottom + 4) + 'px';
+    pop.style.left = '0px';                     // reset so offsetWidth reflects wrapping
+    const pw = pop.offsetWidth;
+    pop.style.left = Math.max(8, Math.min(btn.right - pw, window.innerWidth - pw - 8)) + 'px';
+  }
+  function openColorPop() {
+    closeSizePops();
+    buildPop();
+    pop.classList.remove('hidden');
+    placeColorPop();
+    setTimeout(() => document.addEventListener('pointerdown', onDocDownColor, true), 0);
+    window.addEventListener('resize', placeColorPop);
+  }
+  function closeColorPop() {
+    pop.classList.add('hidden');
+    document.removeEventListener('pointerdown', onDocDownColor, true);
+    window.removeEventListener('resize', placeColorPop);
+  }
+  function onDocDownColor(e) {
+    if (pop.contains(e.target) || ov.querySelector('#mk-color-btn').contains(e.target)) return;
+    closeColorPop();                            // clicking anywhere else (incl. the canvas) collapses it
   }
   ov.querySelector('#mk-color-btn').onclick = () => {
-    if (pop.classList.contains('hidden')) { closeSizePops(); buildPop(); pop.classList.remove('hidden'); }
-    else pop.classList.add('hidden');
+    if (pop.classList.contains('hidden')) openColorPop();
+    else closeColorPop();
   };
   // Selecting a color keeps a drawing tool active — if the user was erasing, drop
   // them back onto the pen so the next tap draws rather than erases.
@@ -2151,7 +2211,6 @@ function openMarkupEditor(item, onSave) {
       if (o) {
         if (editingId == null) pushUndo();        // mid-edit already owns an undo step
         o.color = c; dirty = true; paint();
-        if (textInput) textInput.style.caretColor = c;
       }
     }
     renderRecents();
@@ -2204,7 +2263,7 @@ function openMarkupEditor(item, onSave) {
     textInput.style.top = (ay - cont.top - fpx * 0.82) + 'px';   // baseline → top
     textInput.style.height = (fpx * 1.15) + 'px';
     textInput.style.width = Math.max(fpx * 2, cont.right - ax - 4) + 'px';
-    textInput.style.caretColor = o.color;
+    textInput.style.caretColor = ACCENT;   // high-contrast caret so the cursor is visible
     textInput.style.transform = o.rot ? `rotate(${o.rot}deg)` : '';
     textInput.style.transformOrigin = `0 ${fpx * 0.82}px`;
   }
@@ -2296,7 +2355,7 @@ function openMarkupEditor(item, onSave) {
           ctx.restore();
           continue;
         }
-        ctx.globalAlpha = isHi(o) ? 0.4 : 1;   // highlighter (incl. legacy 'marker') = translucent
+        ctx.globalAlpha = isHi(o) ? (o.opacity ?? 0.4) : 1;   // highlighter (incl. legacy 'marker') = translucent
         if (o.pts.length === 1) {
           ctx.beginPath(); ctx.fillStyle = o.color;
           ctx.arc(o.pts[0][0], o.pts[0][1], o.width / 2, 0, Math.PI * 2); ctx.fill();
@@ -2347,7 +2406,6 @@ function openMarkupEditor(item, onSave) {
   baseImg.src = baseUrl;
 
   setTool('pen');
-  updateSizeDots();
   updateColorDot();
   renderRecents();
   updateUndoBtns();
