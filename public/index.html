@@ -4885,16 +4885,17 @@ async function renderSolo(scenarioId) {
   // those questions are on screen
   const canSubmit = !stageNames.length || showAll || soloTab === soloStage;
   app.innerHTML = `
-  <main class="max-w-3xl mx-auto px-4 sm:px-6 pb-24 anim-in">
-    <div class="sticky top-14 z-20 -mx-4 sm:-mx-6 px-4 sm:px-6 pt-4 pb-3 bg-slate-950/95 backdrop-blur border-b border-slate-800 space-y-2.5">
-      <header class="flex items-start justify-between gap-3">
-        <div class="min-w-0">
-          <p class="text-xs font-bold text-rose-400 flex items-center gap-1.5"><i data-lucide="user" class="w-3.5 h-3.5"></i>SOLO RUN${role ? ` · <span class="text-amber-400">${esc(role)}</span>` : ''}</p>
-          <h1 class="text-xl font-bold leading-tight">${esc(s.title)}</h1>
-        </div>
-        <button id="solo-exit" title="Exit run" class="tap shrink-0 flex items-center gap-1.5 text-xs font-semibold text-slate-400 hover:text-white px-2.5 py-1.5 rounded-lg hover:bg-slate-800"><i data-lucide="x" class="w-4 h-4"></i>Exit</button>
-      </header>
-      <div class="bg-rose-950/50 border border-rose-800/50 rounded-xl px-4 py-3 text-sm text-rose-100 max-h-36 overflow-y-auto">
+  <main class="max-w-3xl mx-auto pb-24 anim-in">
+    <header class="sticky top-14 z-20 bg-slate-950/95 backdrop-blur border-b border-slate-800 px-4 sm:px-6 py-3 flex items-start justify-between gap-3">
+      <div class="min-w-0">
+        <p class="text-xs font-bold text-rose-400 flex items-center gap-1.5"><i data-lucide="user" class="w-3.5 h-3.5"></i>SOLO RUN${role ? ` · <span class="text-amber-400">${esc(role)}</span>` : ''}</p>
+        <h1 class="text-xl font-bold leading-tight">${esc(s.title)}</h1>
+      </div>
+      <button id="solo-exit" title="Exit run" class="tap shrink-0 flex items-center gap-1.5 text-xs font-semibold text-slate-400 hover:text-white px-2.5 py-1.5 rounded-lg hover:bg-slate-800"><i data-lucide="x" class="w-4 h-4"></i>Exit</button>
+    </header>
+    ${mediaStrip(s.media)}
+    <div class="px-4 sm:px-6 pt-4 space-y-2.5">
+      <div class="bg-rose-950/50 border border-rose-800/50 rounded-xl px-4 py-3 text-sm text-rose-100">
         <p class="text-xs font-bold text-rose-300 mb-1">DISPATCH</p>
         <p class="whitespace-pre-wrap">${esc(s.description)}</p>
       </div>
@@ -4911,7 +4912,7 @@ async function renderSolo(scenarioId) {
         <button data-tab="all" class="tap shrink-0 text-xs font-bold px-3.5 py-2 rounded-full ${showAll ? 'bg-rose-600 text-white' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'}">All</button>
       </div>` : ''}
     </div>
-    <div class="space-y-4 mt-4">
+    <div class="px-4 sm:px-6 space-y-4 mt-4">
     ${!me ? `<div class="bg-amber-500/10 border border-amber-500/40 rounded-2xl px-4 py-3 text-xs text-amber-200">Playing as a guest — this run <b>won't be saved</b>.</div>` : ''}
     <div id="solo-cards" class="space-y-4">
     ${visible.map((q, i) => {
@@ -5039,6 +5040,11 @@ function soloReveal(s, qs, answers, official, role) {
       <p class="text-xs font-bold text-emerald-400 flex items-center gap-1.5"><i data-lucide="shield-check" class="w-3.5 h-3.5"></i>AFTER-ACTION${role ? ` · <span class="text-amber-400">${esc(role)}</span>` : ''}</p>
       <h1 class="text-xl font-bold leading-tight">${esc(s.title)}</h1>
     </header>
+    ${s.media?.length ? `<div class="space-y-2">${s.media.map(m => `
+      <div class="relative cursor-pointer group" onclick="openMediaViewer('${esc(m.url)}')">
+        <img src="${esc(m.url)}" class="w-full rounded-2xl border border-slate-700">
+        <span class="absolute bottom-2 right-2 bg-slate-950/80 text-xs px-2.5 py-1.5 rounded-lg flex items-center gap-1.5 group-hover:bg-slate-950"><i data-lucide="expand" class="w-3.5 h-3.5"></i>Tap to Expand</span>
+      </div>`).join('')}</div>` : ''}
     ${objectives.length ? `
     <div class="bg-slate-800/60 border border-slate-700 rounded-2xl px-4 py-3">
       <p class="text-xs font-bold text-slate-400 mb-2 flex items-center gap-1.5"><i data-lucide="target" class="w-3.5 h-3.5"></i>WHAT THIS SCENARIO TRAINS</p>
@@ -5053,7 +5059,6 @@ function soloReveal(s, qs, answers, official, role) {
     </div>`).join('')}
     </div>
     ${saveBlock}
-    <div id="reveal-next"></div>
   </main>`;
   icons();
 
@@ -5063,8 +5068,18 @@ function soloReveal(s, qs, answers, official, role) {
     const runId = await saveSoloRun(s.id, qs.map(q => q.id), answers, role);
     if (!runId) { toast('Could not save the run', 'bg-rose-600'); saveBtn.disabled = false; saveBtn.innerHTML = '<i data-lucide="save" class="w-5 h-5"></i>Save to Runs Completed'; icons(); return; }
     toast('Saved to Runs Completed');
-    $('#reveal-actions').innerHTML =
-      `<a href="#/session/${runId}" class="tap block text-center bg-slate-800 hover:bg-slate-700 rounded-xl py-3.5 font-semibold text-sm flex items-center justify-center gap-2"><i data-lucide="check" class="w-4 h-4 text-emerald-400"></i>Saved — view in your library</a>`;
+    // A buffered, clearly-a-button nav block replaces the save actions — separated
+    // from the scenario content above (border-t + extra top padding) so it reads as
+    // "the run is over, here's where to go" rather than another review card.
+    $('#reveal-actions').outerHTML = `
+      <div class="pt-8 mt-2 border-t border-slate-700/70 text-center space-y-3">
+        <p class="text-lg font-bold">Where to Next?</p>
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
+          <a href="#/" class="tap flex items-center justify-center gap-2 bg-slate-800 hover:bg-slate-700 rounded-xl py-3 font-semibold text-sm"><i data-lucide="house" class="w-4 h-4"></i>Back to Homepage</a>
+          <a href="#/library" class="tap flex items-center justify-center gap-2 bg-slate-800 hover:bg-slate-700 rounded-xl py-3 font-semibold text-sm"><i data-lucide="library" class="w-4 h-4"></i>My Library</a>
+          <a href="#/library/sessions" class="tap flex items-center justify-center gap-2 bg-slate-800 hover:bg-slate-700 rounded-xl py-3 font-semibold text-sm"><i data-lucide="list-checks" class="w-4 h-4"></i>My Sessions</a>
+        </div>
+      </div>`;
     icons();
   };
   const discardBtn = $('#rv-discard');
@@ -5076,19 +5091,6 @@ function soloReveal(s, qs, answers, official, role) {
     sessionStorage.authNext = `#/scenario/${s.id}`;
     location.hash = '#/signup';
   };
-
-  // Simple, non-personalized Next: another public scenario in the same category.
-  if (s.category) fetch(`/api/public/scenarios?category=${encodeURIComponent(s.category)}`)
-    .then(r => r.ok ? r.json() : [])
-    .then(list => {
-      const next = (list || []).find(x => x.id !== s.id);
-      if (!next) return;
-      $('#reveal-next').innerHTML =
-        `<a href="#/scenario/${next.id}" class="tap flex items-center justify-between gap-3 bg-slate-800 hover:bg-slate-700 rounded-2xl px-4 py-3.5">
-           <span class="min-w-0"><span class="text-xs font-bold text-slate-400 block">NEXT IN ${esc(catLabel(s.category).toUpperCase())}</span><span class="font-semibold text-sm truncate block">${esc(next.title)}</span></span>
-           <i data-lucide="arrow-right" class="w-5 h-5 text-slate-400 shrink-0"></i></a>`;
-      icons();
-    }).catch(() => {});
 }
 
 async function renderSessionDetail(id) {
