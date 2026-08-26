@@ -3442,7 +3442,7 @@ function stageChip(st) {
 }
 function drawHost(state) {
   hostState = state;
-  const { session } = state;
+  const { session, media } = state;
   // A3: once ended, the control room becomes a read-only review — no advance, no
   // re-end, and a clear way out. The host is always signed in, so the session is
   // already auto-saved to My Sessions (Discard deletes it).
@@ -3483,7 +3483,7 @@ function drawHost(state) {
         <div>
           <h2 class="font-bold text-lg flex items-center gap-2 mb-3"><i data-lucide="projector" class="w-5 h-5 text-amber-400"></i>What the crew sees
             <span class="text-xs font-normal text-slate-400">— official answers are yours only</span></h2>
-          ${session.image_url ? `<img src="${esc(session.image_url)}" alt="scene" class="w-full max-h-56 object-cover rounded-2xl mb-3">` : ''}
+          ${(media?.length || session.image_url) ? `<div class="mb-3">${sceneMedia(media, session.image_url)}</div>` : ''}
           ${session.description ? `<div class="bg-slate-800 rounded-2xl p-4 mb-3"><p class="text-xs font-bold text-rose-400 mb-1">DISPATCH</p><p class="text-sm text-slate-200 whitespace-pre-wrap">${esc(session.description)}</p></div>` : ''}
           <div id="matrix" class="space-y-4"></div>
         </div>
@@ -3857,6 +3857,20 @@ function mediaStrip(media, legacyUrl) {
       <span class="absolute bottom-2 right-2 bg-slate-950/80 text-xs px-2.5 py-1.5 rounded-lg flex items-center gap-1.5 group-hover:bg-slate-950"><i data-lucide="expand" class="w-3.5 h-3.5"></i>Tap to Expand</span>
     </div>`).join('')}
   </div>`;
+}
+// Full, unclipped scene photo(s) for the screens where studying the scene *is* the task —
+// host control room, solo run, after-action reveal. Unlike mediaStrip's compact snap-scroll
+// strip (built for quickly browsing several photos, deliberately cropped to a fixed height
+// with a tap-to-expand escape hatch), this shows each photo at its natural aspect ratio,
+// full width, no cropping — "Tap to Expand" here just offers an even larger fullscreen view.
+function sceneMedia(media, legacyUrl) {
+  const items = (media?.length ? media : (legacyUrl ? [{ kind: 'photo', url: legacyUrl }] : []));
+  if (!items.length) return '';
+  return `<div class="space-y-2">${items.map(m => `
+    <div class="relative cursor-pointer group" onclick="openMediaViewer('${esc(m.url)}')">
+      <img src="${esc(m.url)}" class="w-full rounded-2xl border border-slate-700">
+      <span class="absolute bottom-2 right-2 bg-slate-950/80 text-xs px-2.5 py-1.5 rounded-lg flex items-center gap-1.5 group-hover:bg-slate-950"><i data-lucide="expand" class="w-3.5 h-3.5"></i>Tap to Expand</span>
+    </div>`).join('')}</div>`;
 }
 function openMediaViewer(url) {
   const ov = document.createElement('div');
@@ -4893,7 +4907,7 @@ async function renderSolo(scenarioId) {
       </div>
       <button id="solo-exit" title="Exit run" class="tap shrink-0 flex items-center gap-1.5 text-xs font-semibold text-slate-400 hover:text-white px-2.5 py-1.5 rounded-lg hover:bg-slate-800"><i data-lucide="x" class="w-4 h-4"></i>Exit</button>
     </header>
-    ${mediaStrip(s.media)}
+    ${s.media?.length ? `<div class="px-4 sm:px-6 pt-4">${sceneMedia(s.media)}</div>` : ''}
     <div class="px-4 sm:px-6 pt-4 space-y-2.5">
       <div class="bg-rose-950/50 border border-rose-800/50 rounded-xl px-4 py-3 text-sm text-rose-100">
         <p class="text-xs font-bold text-rose-300 mb-1">DISPATCH</p>
@@ -5040,11 +5054,7 @@ function soloReveal(s, qs, answers, official, role) {
       <p class="text-xs font-bold text-emerald-400 flex items-center gap-1.5"><i data-lucide="shield-check" class="w-3.5 h-3.5"></i>AFTER-ACTION${role ? ` · <span class="text-amber-400">${esc(role)}</span>` : ''}</p>
       <h1 class="text-xl font-bold leading-tight">${esc(s.title)}</h1>
     </header>
-    ${s.media?.length ? `<div class="space-y-2">${s.media.map(m => `
-      <div class="relative cursor-pointer group" onclick="openMediaViewer('${esc(m.url)}')">
-        <img src="${esc(m.url)}" class="w-full rounded-2xl border border-slate-700">
-        <span class="absolute bottom-2 right-2 bg-slate-950/80 text-xs px-2.5 py-1.5 rounded-lg flex items-center gap-1.5 group-hover:bg-slate-950"><i data-lucide="expand" class="w-3.5 h-3.5"></i>Tap to Expand</span>
-      </div>`).join('')}</div>` : ''}
+    ${sceneMedia(s.media)}
     ${objectives.length ? `
     <div class="bg-slate-800/60 border border-slate-700 rounded-2xl px-4 py-3">
       <p class="text-xs font-bold text-slate-400 mb-2 flex items-center gap-1.5"><i data-lucide="target" class="w-3.5 h-3.5"></i>WHAT THIS SCENARIO TRAINS</p>
