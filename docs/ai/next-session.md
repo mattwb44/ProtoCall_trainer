@@ -4,13 +4,43 @@ _Updated 2026-08-28. Read `current-focus.md` and `decisions.md` first. The
 ops-hardening execution plan (`docs/execution-plan.md`) is complete; active work
 is now the **UX / polish backlog** at `docs/ai/ux-backlog.md` (grill 2026-08-16)._
 
-`npm test` = **143 passing**. **Phase C (C1–C9) committed AND pushed** to
+`npm test` = **147 passing**. **Phase C (C1–C9) committed AND pushed** to
 `origin/main` (latest `f82407f`). **Phase D:** D1 (v1 → v3 + two follow-up rounds),
 D2, a solo/host live-run photo bug fix, and a size-popover dot color fix are
-all committed AND PUSHED to `origin/main` (latest `33cc389`) — working tree
-clean.
+all committed AND PUSHED to `origin/main` (latest `33cc389`). **Phase E (E1+E2,
+attribution & credit) committed as `fdb13a3` — NOT YET PUSHED.** Working tree clean.
 
 ## Resume here — next feature
+
+**Phase E — Attribution & credit — DONE, COMMITTED (`fdb13a3`), NOT YET PUSHED
+(2026-08-28).** Both items shipped and verified in the preview browser:
+- **E1 — persistent "Created by {name}" credit.** New nullable `scenarios.credit_name`
+  (`server/db.js`), captured at creation from the creator's `display_name` (POST
+  `/api/scenarios`), copied **verbatim on every clone** (with a legacy fallback to
+  the source author's display_name) so the *original* maker keeps credit through
+  re-clones and source deletion. One-shot boot backfill (`scenario_credit_name_backfill`)
+  stamps existing rows. Kept separate from `author_id` (owner of *this* copy).
+  `SELECT s.*` means every scenario route already returns it. Client: `creditName`/
+  `creditByline` helpers (`public/index.html`) → subtle "Created by {name}" byline on
+  the scenario **detail** (replaced the old "· by {author_name}" which showed the
+  *owner*, wrong for clones) + an author chip line on grid cards + `· {name}` on the
+  dense list row.
+- **E2 — "Cloned from {title}" review link.** `cloned_from` + `cloned_from_title` +
+  `cloned_from_live` threaded through **both** `sessionDetailFor` (`server/index.js`)
+  and `rooms.getByCode`/`roomState` (`server/rooms.js`). Client `clonedFromLink(sess)`
+  helper renders a subtle secondary link in **exactly two review contexts**: My
+  Sessions ended-session detail + the **ended** hosted `drawHost` review (gated on
+  `ended` — never live). A soft-deleted original degrades to a disabled span showing
+  the remembered title.
+- **Test:** `test/credit-attribution.test.js` — credit at creation, verbatim clone
+  copy (author vs credit split + `cloned_from`), survival through re-clone + source
+  tamper/soft-delete, and the boot backfill. **147/147.**
+
+**Next options:** push `fdb13a3` to deploy on Railway; then build the **Fire & Smoke
+tools** (plan-only, `docs/prd-fire-smoke-tools.md`) — the only remaining scheduled
+feature. D3 stays parked; F6/F7/F8 are Future stubs (F8 explicitly NOT to build yet).
+
+---
 
 **Markup editor size-dots fix (2026-08-28):** the pen/highlighter size-preview
 dots (`renderSizePop`, `public/index.html`) were filled with the currently
@@ -21,9 +51,9 @@ already flips `text-slate-100` to near-black, so the dots stay visible
 regardless of theme or ink color (matches the eraser dots' existing
 neutral-ring treatment). Verified in both themes via the preview browser.
 
-Options: **Phase E** (E1 credit byline surviving cloning + card chip, E2
-clone→original review link), or build the **Fire & Smoke tools** (plan-only,
-`docs/prd-fire-smoke-tools.md`; they default to their palette tab, now in place).
+Phase E is now DONE (see the Phase E block above). Remaining scheduled feature:
+the **Fire & Smoke tools** (plan-only, `docs/prd-fire-smoke-tools.md`; they default
+to their palette tab, now in place).
 
 2026-08-28: no code changed this session — just recorded three new future ideas
 in `docs/ai/ux-backlog.md`'s Future stubs: **F6** Scenario of the day, **F7** Turn

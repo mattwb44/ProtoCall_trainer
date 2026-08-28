@@ -355,7 +355,10 @@ Non-trivial items get a `verifier` pass before being marked done.
 
 ## Phase E — Attribution & credit (grill 2026-08-16)
 
-- [ ] **E1. "Created by {display_name}" credit on every scenario.** Each scenario
+- [x] **E1. "Created by {display_name}" credit on every scenario.** DONE (`fdb13a3`).
+  `credit_name` column captured at creation, copied verbatim on every clone, boot
+  backfill for existing rows; "Created by {name}" byline on detail + author chip on
+  cards. Each scenario
   shows an author credit ("Created by {display_name}"). It **persists through
   cloning** so the *original* maker keeps credit.
   - _Grounding / catch:_ on clone today `author_id` is set to the **cloner**
@@ -372,7 +375,10 @@ Non-trivial items get a `verifier` pass before being marked done.
     baked image watermark. A subtle "Created by {display_name}" near the title on
     the scenario **detail page** + a small **author chip on cards**. Clean,
     themeable, never obscures the scene or collides with markups.
-- [ ] **E2. Clone → original-scenario link, in review contexts only.** A cloned
+- [x] **E2. Clone → original-scenario link, in review contexts only.** DONE (`fdb13a3`).
+  `cloned_from`/title/live threaded through `sessionDetailFor` + `rooms.roomState`;
+  subtle "Cloned from {title}" link in My Sessions ended detail + ended hosted
+  review, deleted-original degrades to a disabled span. A cloned
   scenario links back to the scenario it was cloned from, shown in **exactly two
   places**, both post-session review:
   1. **My Sessions → click an ended session →** the review view shows the link to
