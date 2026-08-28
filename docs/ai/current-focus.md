@@ -14,10 +14,10 @@ freehand radius eraser, morphing per-tool size dots, Marker→Highlighter rename
 boot migration, three color palettes) plus two follow-up rounds of owner-requested
 polish (inline text editing, letter borders, corner-anchored resize, chevron-
 accordion color palettes, 5-color recents cap, per-photo palette memory) and a
-solo/host live-run photo bug fix are all BUILT, verified, and COMMITTED on `main`
-(latest `f0b968d`) — 8 commits ahead of `origin/main`, none pushed.** Remaining:
-push to deploy, then Phase E (E1 credit byline, E2 clone→original link) or the
-Fire & Smoke tools (plan-only, `docs/prd-fire-smoke-tools.md`); D3 parked. See
+solo/host live-run photo bug fix, plus a size-popover dot color fix, are all
+BUILT, verified, COMMITTED, and PUSHED to `origin/main` (latest `33cc389`).**
+Remaining: Phase E (E1 credit byline, E2 clone→original link) or the Fire &
+Smoke tools (plan-only, `docs/prd-fire-smoke-tools.md`); D3 parked. See
 `docs/ai/next-session.md` for the resume point. Forks decided; see `decisions.md`.
 
 ---

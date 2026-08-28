@@ -6,20 +6,24 @@ is now the **UX / polish backlog** at `docs/ai/ux-backlog.md` (grill 2026-08-16)
 
 `npm test` = **143 passing**. **Phase C (C1–C9) committed AND pushed** to
 `origin/main` (latest `f82407f`). **Phase D:** D1 (v1 → v3 + two follow-up rounds),
-D2, plus a solo/host live-run photo bug fix are all committed on `main` — working
-tree clean, **8 commits ahead of `origin/main`, NONE pushed**:
-`d932881 68cb885 929d136 363d392 983541f` then D1 v3 + follow-ups
-(`45cc03b 8a16f6a daa51a1 f22424f`) then the r4–r8 color-palette/memory rounds
-(`6e95b48 d653468 7ff1572 168417c 4805d89`) then the live-run photo fixes
-(`810d1c5 f0b968d`).
+D2, a solo/host live-run photo bug fix, and a size-popover dot color fix are
+all committed AND PUSHED to `origin/main` (latest `33cc389`) — working tree
+clean.
 
-## Resume here — push, then next feature
+## Resume here — next feature
 
-**First action:** push all 8 local commits to deploy on Railway (nothing left to
-commit — working tree is clean). Then options: **Phase E** (E1 credit byline
-surviving cloning + card chip, E2 clone→original review link), or build the
-**Fire & Smoke tools** (plan-only, `docs/prd-fire-smoke-tools.md`; they default to
-their palette tab, now in place).
+**Markup editor size-dots fix (2026-08-28):** the pen/highlighter size-preview
+dots (`renderSizePop`, `public/index.html`) were filled with the currently
+selected ink color, so a white/near-white ink vanished against the popover
+background in light mode. Fixed to use `background:currentColor` on a
+`text-slate-100`-classed span — the site's existing light-theme CSS remap
+already flips `text-slate-100` to near-black, so the dots stay visible
+regardless of theme or ink color (matches the eraser dots' existing
+neutral-ring treatment). Verified in both themes via the preview browser.
+
+Options: **Phase E** (E1 credit byline surviving cloning + card chip, E2
+clone→original review link), or build the **Fire & Smoke tools** (plan-only,
+`docs/prd-fire-smoke-tools.md`; they default to their palette tab, now in place).
 
 2026-08-28: no code changed this session — just recorded three new future ideas
 in `docs/ai/ux-backlog.md`'s Future stubs: **F6** Scenario of the day, **F7** Turn
