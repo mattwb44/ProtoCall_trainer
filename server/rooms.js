@@ -28,7 +28,14 @@ export class Rooms {
 
   getByCode(code) {
     const session = this.db.prepare(
-      `SELECT s.*, sc.title, sc.description, sc.category, sc.subcategory, sc.image_url
+      // E2: carry the clone lineage so the ended-session review can show a
+      // "Cloned from {original}" link (title remembered even if the original was
+      // deleted; link disabled then).
+      `SELECT s.*, sc.title, sc.description, sc.category, sc.subcategory, sc.image_url,
+              sc.cloned_from,
+              (SELECT o.title FROM scenarios o WHERE o.id=sc.cloned_from) AS cloned_from_title,
+              (SELECT CASE WHEN o.deleted_at IS NULL THEN 1 ELSE 0 END
+                 FROM scenarios o WHERE o.id=sc.cloned_from) AS cloned_from_live
        FROM live_sessions s JOIN scenarios sc ON sc.id = s.scenario_id
        WHERE s.room_code = ?`).get(code?.toUpperCase());
     if (!session) return null;
@@ -310,6 +317,9 @@ export class Rooms {
         stages, stage_index: room.session.stage_index,
         description: room.session.description, category: room.session.category,
         subcategory: room.session.subcategory, image_url: room.session.image_url,
+        cloned_from: room.session.cloned_from,
+        cloned_from_title: room.session.cloned_from_title,
+        cloned_from_live: room.session.cloned_from_live,
       },
       questions,
       media: room.media,

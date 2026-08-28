@@ -306,6 +306,23 @@ function migrate(db) {
   addColumn('scenario_media', 'base_url', 'base_url TEXT');
   addColumn('scenario_media', 'overlay', 'overlay TEXT');
 
+  // E1 (Phase E — persistent author credit): a scenario shows "Created by
+  // {credit_name}", captured at creation and copied VERBATIM on every clone so
+  // the *original* maker keeps credit no matter how many times the work is
+  // re-cloned or whether the source is later deleted. Kept separate from
+  // author_id, which still marks who owns *this* copy. Nullable — a scenario
+  // with no stored credit (e.g. the seeded 'system' author) simply shows none.
+  addColumn('scenarios', 'credit_name', 'credit_name TEXT');
+  // One-shot backfill: stamp existing scenarios with their current author's
+  // display_name so pre-Phase-E work carries a credit too. Cloning already-
+  // cloned rows after this will propagate whatever the source now holds.
+  if (!hasFlag(db, 'scenario_credit_name_backfill')) {
+    db.exec(`UPDATE scenarios SET credit_name=(
+               SELECT display_name FROM users u WHERE u.id=scenarios.author_id)
+             WHERE credit_name IS NULL AND author_id IS NOT NULL`);
+    setFlag(db, 'scenario_credit_name_backfill');
+  }
+
   // D1 v3 (Marker → Highlighter rename): overlays used to store highlighter strokes
   // as tool:'marker'; the editor now writes tool:'highlighter'. Rewrite existing
   // overlay JSON once so stored data matches the new value. One-shot + flag-guarded;

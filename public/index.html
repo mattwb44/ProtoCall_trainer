@@ -495,6 +495,28 @@ const scenarioChips = s => [
   s.cloned_from ? '<span class="text-[10px] font-bold tracking-wider bg-slate-700 text-slate-300 px-2 py-0.5 rounded-full inline-flex items-center gap-1" title="Cloned from another scenario"><i data-lucide="copy" class="w-3 h-3"></i>CLONED</span>' : '',
 ].filter(Boolean).join('');
 
+// E1 (Phase E): the persistent maker credit. credit_name is copied verbatim on
+// every clone so it names the *original* author, not whoever owns this copy
+// (author_name). Fall back to author_name only if a row somehow lacks a stored
+// credit (backfill should cover all existing rows).
+const creditName = s => s.credit_name || s.author_name || null;
+const creditByline = s => {
+  const n = creditName(s);
+  return n ? `<span class="inline-flex items-center gap-1 text-slate-500"><i data-lucide="user" class="w-3 h-3"></i>${esc(n)}</span>` : '';
+};
+
+// E2 (Phase E): a subtle, secondary "Cloned from {original}" link shown ONLY in
+// post-session review contexts (My Sessions detail + the ended hosted review) —
+// never during a live session or on the scenario detail. Links to the original
+// unless it was deleted, in which case the remembered title shows disabled.
+const clonedFromLink = sess => {
+  if (!sess?.cloned_from || !sess.cloned_from_title) return '';
+  const inner = `<i data-lucide="git-branch" class="w-3.5 h-3.5"></i>Cloned from <span class="font-medium">${esc(sess.cloned_from_title)}</span>`;
+  return sess.cloned_from_live
+    ? `<a href="#/scenario/${esc(sess.cloned_from)}" class="inline-flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-300 mt-1">${inner}</a>`
+    : `<span class="inline-flex items-center gap-1.5 text-xs text-slate-600 mt-1" title="The original scenario was deleted">${inner}</span>`;
+};
+
 const scenarioCard = (s, { corner = '', footer = '' } = {}) => {
   // Part 8: cards carry their category color — thick left edge + faint wash —
   // so the All tab still reads at a glance (EMS = white edge, blue wash).
@@ -507,6 +529,7 @@ const scenarioCard = (s, { corner = '', footer = '' } = {}) => {
     </div>
     <a href="#/scenario/${s.id}" class="font-bold leading-snug hover:underline line-clamp-2">${esc(s.title)}</a>
     <p class="text-xs text-slate-500">${esc(catLabel(s.category))} · ${esc(s.subcategory)} · ${s.question_count} question${s.question_count === 1 ? '' : 's'}${s.objective_primary ? ' · ' + esc(s.objective_primary) : ''}</p>
+    ${creditName(s) ? `<p class="text-[11px] leading-none">${creditByline(s)}</p>` : ''}
     <p class="text-sm text-slate-400 line-clamp-3 flex-1">${esc(s.description || '')}</p>
     <div class="flex items-center gap-2 pt-1">${footer}</div>
   </div>`;
@@ -528,7 +551,7 @@ const scenarioRow = (s, actions = '') => {
   <div class="bg-slate-800 rounded-xl ${s.is_official ? 'ring-1 ring-emerald-600/60' : ''} ${cm ? `cat-card-edge cat-k-${cm.icon}` : ''} pl-4 pr-3 py-2.5 flex items-center gap-3">
     <div class="min-w-0 flex-1">
       <div class="flex items-center gap-2 min-w-0"><a href="#/scenario/${s.id}" class="font-semibold truncate hover:underline">${esc(s.title || '(untitled draft)')}</a><span class="flex items-center gap-1.5 shrink-0">${scenarioChips(s)}</span></div>
-      <p class="text-xs text-slate-500 truncate">${esc(catLabel(s.category) || '—')}${s.subcategory ? ' · ' + esc(s.subcategory) : ''} · ${s.question_count} q${s.objective_primary ? ' · ' + esc(s.objective_primary) : ''}</p>
+      <p class="text-xs text-slate-500 truncate">${esc(catLabel(s.category) || '—')}${s.subcategory ? ' · ' + esc(s.subcategory) : ''} · ${s.question_count} q${s.objective_primary ? ' · ' + esc(s.objective_primary) : ''}${creditName(s) ? ' · ' + esc(creditName(s)) : ''}</p>
     </div>
     <div class="flex items-center gap-1.5 shrink-0">${actions}</div>
   </div>`;
@@ -3460,6 +3483,7 @@ function drawHost(state) {
             <span class="w-2.5 h-2.5 ${ended ? 'bg-slate-500' : 'bg-emerald-500 live-dot'} rounded-full"></span> ${ended ? 'SESSION ENDED' : 'LIVE SESSION'}</div>
           <h1 class="font-bold text-lg leading-snug">${esc(session.title)}</h1>
           <p class="text-sm text-slate-400 mt-1">${esc(catLabel(session.category))} · ${esc(session.subcategory)}</p>
+          ${ended ? clonedFromLink(session) : ''}
         </div>
         <div class="bg-slate-800 rounded-2xl p-4 flex items-center gap-4">
           <img id="qr" src="/api/sessions/${esc(session.room_code)}/qr.svg" alt="QR join code" class="rounded-lg bg-white p-1 w-20 h-20 shrink-0">
@@ -4793,7 +4817,8 @@ async function renderScenarioDetail(id) {
     ${s.image_url ? `<img src="${esc(s.image_url)}" class="w-full max-h-64 object-cover rounded-2xl">` : ''}
     <div>
       <h1 class="text-2xl font-bold leading-tight">${esc(s.title)}</h1>
-      <p class="text-sm text-slate-400 mt-1">${esc(catLabel(s.category))} · ${esc(s.subcategory)} · by ${esc(s.author_name ?? 'unknown')}</p>
+      <p class="text-sm text-slate-400 mt-1">${esc(catLabel(s.category))} · ${esc(s.subcategory)}</p>
+      ${creditName(s) ? `<p class="text-xs mt-1 flex items-center gap-1 text-slate-500"><i data-lucide="user" class="w-3.5 h-3.5"></i>Created by ${esc(creditName(s))}</p>` : ''}
       ${[s.objective_primary, s.objective_secondary, s.difficulty,
          bldgList.length, vehList.length].some(Boolean) ? `
       <div class="flex items-center gap-2 flex-wrap mt-2">
@@ -5127,6 +5152,7 @@ async function renderSessionDetail(id) {
       <div class="min-w-0">
         <h1 class="font-bold text-lg">${esc(session.title)}</h1>
         <p class="text-sm text-slate-400 mt-1">${esc(catLabel(session.category))} · ${esc(session.subcategory)} · ${session.mode === 'solo' ? '<span class="text-rose-400 font-semibold">solo run</span>' : `room ${esc(session.room_code)}`} · ${esc(session.started_at)}</p>
+        ${clonedFromLink(session)}
       </div>
       <a href="/api/me/sessions/${esc(session.id)}/pdf" class="tap flex items-center gap-2 bg-rose-600 hover:bg-rose-500 rounded-xl px-4 py-2.5 font-bold text-sm shrink-0">
         <i data-lucide="file-down" class="w-4 h-4"></i>Download PDF</a>

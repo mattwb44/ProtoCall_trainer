@@ -991,12 +991,14 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
     const id = uuid();
     const tx = db.transaction(() => {
       db.prepare(`INSERT INTO scenarios (id, title, description, category, subcategory, image_url, visibility, shared_department, shared_public, author_id, department_id,
-                    objective_primary, objective_secondary, difficulty, building_type, vehicle_type, review_status, submitted_at, is_draft)
-                  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(id, title, description, category, subcategory, image_url,
+                    objective_primary, objective_secondary, difficulty, building_type, vehicle_type, review_status, submitted_at, is_draft, credit_name)
+                  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(id, title, description, category, subcategory, image_url,
                     shares.visibility, shares.dept ? 1 : 0, shares.pub ? 1 : 0, user.id, shares.department_id,
                     t.objective_primary, t.objective_secondary, t.difficulty, t.building_type, t.vehicle_type,
                     gatedStatus({ prev: '', pub: shares.pub, wasPub: false }),
-                    shares.pub ? new Date().toISOString().slice(0, 19).replace('T', ' ') : null, draft ? 1 : 0);
+                    shares.pub ? new Date().toISOString().slice(0, 19).replace('T', ' ') : null, draft ? 1 : 0,
+                    // E1: capture the creator's display name as the persistent credit.
+                    user.display_name ?? null);
       const ins = db.prepare(`INSERT INTO questions (id, scenario_id, prompt, kind, choices, instructor_answer, role_track, roles, stage, objective, sort_order)
                               VALUES (?,?,?,?,?,?,?,?,?,?,?)`);
       questions.forEach((q, i) => { const roles = q.roles ?? q.role_track; ins.run(uuid(), id, q.prompt, q.kind ?? 'text',
@@ -1117,10 +1119,16 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
     const src = db.prepare('SELECT * FROM scenarios WHERE id=?').get(req.params.id);
     if (!src || !canSee(src, user)) return reply.code(404).send({ error: 'not found' });
     const id = uuid();
+    // E1: the original maker's credit rides every clone verbatim. Fall back to the
+    // source author's current display_name for a legacy row that predates the
+    // credit_name backfill (should be rare — the boot backfill covers existing rows).
+    const creditName = src.credit_name
+      ?? db.prepare('SELECT display_name FROM users WHERE id=?').get(src.author_id)?.display_name
+      ?? null;
     const tx = db.transaction(() => {
-      db.prepare(`INSERT INTO scenarios (id, title, description, category, subcategory, image_url, visibility, author_id, cloned_from)
-                  VALUES (?,?,?,?,?,?,'private',?,?)`)
-        .run(id, src.title, src.description, src.category, src.subcategory, src.image_url, user.id, src.id);
+      db.prepare(`INSERT INTO scenarios (id, title, description, category, subcategory, image_url, visibility, author_id, cloned_from, credit_name)
+                  VALUES (?,?,?,?,?,?,'private',?,?,?)`)
+        .run(id, src.title, src.description, src.category, src.subcategory, src.image_url, user.id, src.id, creditName);
       const qs = db.prepare('SELECT * FROM questions WHERE scenario_id=? AND deleted=0 ORDER BY sort_order').all(src.id);
       const ins = db.prepare(`INSERT INTO questions (id, scenario_id, prompt, kind, choices, instructor_answer, role_track, roles, stage, sort_order)
                               VALUES (?,?,?,?,?,?,?,?,?,?)`);
@@ -1270,7 +1278,14 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
   // Shared by the JSON detail view and the PDF download. Returns null if not permitted.
   function sessionDetailFor(user, sessionId) {
     const ls = db.prepare(
-      `SELECT ls.*, sc.title, sc.description, sc.category, sc.subcategory, sc.image_url
+      // E2: expose the clone lineage so the review view can show a "Cloned from
+      // {original}" link. cloned_from_title/live come from the original row — the
+      // title is remembered even if the original is soft-deleted (link disabled).
+      `SELECT ls.*, sc.title, sc.description, sc.category, sc.subcategory, sc.image_url,
+              sc.cloned_from,
+              (SELECT o.title FROM scenarios o WHERE o.id=sc.cloned_from) AS cloned_from_title,
+              (SELECT CASE WHEN o.deleted_at IS NULL THEN 1 ELSE 0 END
+                 FROM scenarios o WHERE o.id=sc.cloned_from) AS cloned_from_live
        FROM live_sessions ls JOIN scenarios sc ON sc.id=ls.scenario_id
        WHERE ls.id=? AND ls.deleted_at IS NULL`).get(sessionId);
     const me = ls && db.prepare('SELECT * FROM participants WHERE session_id=? AND user_id=?').get(ls.id, user.id);
