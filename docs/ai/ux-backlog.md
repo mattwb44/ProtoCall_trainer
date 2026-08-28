@@ -264,8 +264,16 @@ Non-trivial items get a `verifier` pass before being marked done.
 
 ## Phase D — Larger features
 
-- [~] **D1. Media View/Edit markup editor.** **v1 core DONE (uncommitted); v2
-  deferred.** v1 shipped: View/Edit (pencil) button left of trash on every media
+- [x] **D1. Media View/Edit markup editor.** **v1 → v3 + follow-ups all DONE,
+  committed** (`d932881` … `f0b968d`, 8 commits ahead of `origin/main`, not
+  pushed). v3 added on-canvas text handles (corner-anchored resize, rotate,
+  inline editing, letter-border contrast halo), a freehand radius eraser,
+  morphing per-tool size popovers (4 sizes + highlighter opacity), Marker→
+  Highlighter rename with a boot migration, and three switchable color
+  palettes (Standard/Fire/Smoke) presented as chevron accordions matching the
+  site's existing Filters pattern, capped 5-color Recently Used, and per-photo
+  palette-expansion memory. See `docs/ai/next-session.md` for the full
+  per-round changelog. v1 shipped: View/Edit (pencil) button left of trash on every media
   row (`drawMedia`, `public/index.html`), opening `openMarkupEditor(item, onSave)`
   — a full-size viewer + drawer modeled on `openMapEditor` (body overlay, Back-trap,
   leave-guard). Tools: **pen**, **object-level eraser** (tap a stroke to remove —
@@ -388,3 +396,24 @@ Non-trivial items get a `verifier` pass before being marked done.
 - [ ] **F2. Quizlet-style flashcards.**
 - [ ] **F3. Academy: "promote to driver" track.**
 - [ ] **F4. Academy for paramedics.**
+- [ ] **F5. "Choose Random Scenario" button on Community/My Library.** Tabled
+  2026-08-24 when the "NEXT IN {category}" button at the end of a run was
+  removed (owner liked the impulse to keep going, disliked it living at the
+  bottom of a just-finished scenario). Revisit as a button on the Community or
+  My Library browse pages instead.
+- [ ] **F6. Scenario of the day.** Idea only, no design yet.
+- [ ] **F7. Turn a session into index cards.** Idea only, no design yet — likely
+  ties into the gated Track E study-library work ([[decisions.md]] → Process).
+- [ ] **F8. Scenario version history — likely not worth building as designed.**
+  2026-08-28: owner's concern is that as features roll out over the next few
+  months, creators will want to polish/update older scenarios, but if a
+  scenario already has votes/likes (future feature, not yet built), people who
+  voted for v1 might not want v2. Considered a full parallel-version system
+  (copy-on-write, versions linked in a chain, sessions permanently pinned to
+  the version actually played — both decided, if built). **Recommendation:
+  don't build this yet.** It's solving for a voting system that doesn't exist.
+  Ship voting first; if creators editing voted scenarios turns out to be a
+  real, recurring complaint, the likely fix is lighter than a version system:
+  warn on editing a voted scenario, offer "edit in place" vs. "save as a new
+  copy" (reusing Clone) — no dual-listing, no per-version vote UI, no new
+  tables. Revisit only if that complaint actually shows up.

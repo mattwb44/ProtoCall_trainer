@@ -11,10 +11,13 @@ captured in `docs/ai/ux-backlog.md` — 25 items in phases A–D + future stubs.
 docs commits are all committed — **5 commits ahead of `origin/main`, none pushed.**
 **D1 v3 (markup editor rework — on-canvas text handles, edit/move gesture split,
 freehand radius eraser, morphing per-tool size dots, Marker→Highlighter rename +
-boot migration, drawing-over-label fix, three color palettes) is BUILT + verified
-(143/143) but UNCOMMITTED in the working tree.** Remaining: commit D1 v3 + push to
-deploy, then Phase E (E1 credit byline, E2 clone→original link) or the Fire & Smoke
-tools (plan-only, `docs/prd-fire-smoke-tools.md`); D3 parked. See
+boot migration, three color palettes) plus two follow-up rounds of owner-requested
+polish (inline text editing, letter borders, corner-anchored resize, chevron-
+accordion color palettes, 5-color recents cap, per-photo palette memory) and a
+solo/host live-run photo bug fix are all BUILT, verified, and COMMITTED on `main`
+(latest `f0b968d`) — 8 commits ahead of `origin/main`, none pushed.** Remaining:
+push to deploy, then Phase E (E1 credit byline, E2 clone→original link) or the
+Fire & Smoke tools (plan-only, `docs/prd-fire-smoke-tools.md`); D3 parked. See
 `docs/ai/next-session.md` for the resume point. Forks decided; see `decisions.md`.
 
 ---

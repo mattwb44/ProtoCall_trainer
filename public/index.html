@@ -2155,11 +2155,15 @@ function openMarkupEditor(item, onSave, photoKey) {
     const dots = SIZE_MULTS.map((m, i) => {
       const d = Math.round(8 + m * 8);                  // preview diameter, scales with the real size
       const active = toolSize[t] === i;
+      // Dots preview the real stroke *size*, not the ink color — a white/near-white
+      // ink would vanish against the (theme-dependent) popover background otherwise.
+      // Filled with currentColor so text-slate-100's theme remap (white in dark mode,
+      // near-black in light mode) does the contrast work for free.
       const inner = t === 'eraser'
         ? `background:transparent;border:2px solid #94a3b8;`
-        : `background:${color};${t === 'highlighter' ? `opacity:${hlOpacity};` : ''}`;
+        : `background:currentColor;${t === 'highlighter' ? `opacity:${hlOpacity};` : ''}`;
       return `<button data-sizeidx="${i}" type="button" title="${SIZE_NAMES[i]}" class="tap flex items-center justify-center rounded-full transition ${active ? 'ring-2 ring-amber-400' : ''}" style="width:30px;height:30px">
-        <span class="rounded-full" style="width:${d}px;height:${d}px;box-sizing:border-box;${inner}"></span></button>`;
+        <span class="rounded-full text-slate-100" style="width:${d}px;height:${d}px;box-sizing:border-box;${inner}"></span></button>`;
     }).join('');
     const slider = t === 'highlighter'
       ? `<div class="flex items-center gap-2 pt-1 border-t border-slate-700/70">

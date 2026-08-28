@@ -1,22 +1,54 @@
 # Next session
 
-_Updated 2026-08-24. Read `current-focus.md` and `decisions.md` first. The
+_Updated 2026-08-28. Read `current-focus.md` and `decisions.md` first. The
 ops-hardening execution plan (`docs/execution-plan.md`) is complete; active work
 is now the **UX / polish backlog** at `docs/ai/ux-backlog.md` (grill 2026-08-16)._
 
 `npm test` = **143 passing**. **Phase C (C1–C9) committed AND pushed** to
-`origin/main` (latest `f82407f`). **Phase D:** D1 v1 (`d932881`), D2 (`929d136`),
-D1 v2 (`68cb885`), plus two docs commits (`363d392`, `983541f`) are committed —
-**5 commits ahead of `origin/main`, NONE pushed.** **D1 v3 (markup editor rework)
-is now BUILT + verified but UNCOMMITTED** in the working tree.
+`origin/main` (latest `f82407f`). **Phase D:** D1 (v1 → v3 + two follow-up rounds),
+D2, plus a solo/host live-run photo bug fix are all committed on `main` — working
+tree clean, **8 commits ahead of `origin/main`, NONE pushed**:
+`d932881 68cb885 929d136 363d392 983541f` then D1 v3 + follow-ups
+(`45cc03b 8a16f6a daa51a1 f22424f`) then the r4–r8 color-palette/memory rounds
+(`6e95b48 d653468 7ff1572 168417c 4805d89`) then the live-run photo fixes
+(`810d1c5 f0b968d`).
 
-## Resume here — commit + push
+## Resume here — push, then next feature
 
-**First action:** commit D1 v3 (working tree = `public/index.html`, `server/db.js`,
-`test/media-pdf.test.js`), then **push all 6 local commits** to deploy on Railway.
-Then options: **Phase E** (E1 credit byline surviving cloning + card chip, E2
-clone→original review link), or build the **Fire & Smoke tools** (plan-only,
-`docs/prd-fire-smoke-tools.md`; they default to their palette tab, now in place).
+**First action:** push all 8 local commits to deploy on Railway (nothing left to
+commit — working tree is clean). Then options: **Phase E** (E1 credit byline
+surviving cloning + card chip, E2 clone→original review link), or build the
+**Fire & Smoke tools** (plan-only, `docs/prd-fire-smoke-tools.md`; they default to
+their palette tab, now in place).
+
+2026-08-28: no code changed this session — just recorded three new future ideas
+in `docs/ai/ux-backlog.md`'s Future stubs: **F6** Scenario of the day, **F7** Turn
+a session into index cards, **F8** Scenario version history (owner's idea to let
+creators publish a "v2" of a scenario without disturbing votes on v1; **recorded
+but recommended NOT to build yet** — it solves for a voting/liking system that
+doesn't exist yet. See F8's entry for the lighter fallback if this becomes a real
+complaint after voting ships).
+
+## Solo/host live-run photo fixes (owner report, 2026-08-24/26) — DONE, COMMITTED
+
+Two bugs found after D1 v3 shipped, both fixed and verified live (`810d1c5`, `f0b968d`):
+- **No photo visible during a solo run at all.** Root cause + redesign: added a
+  "Where to Next?" section (Back to Homepage / My Library / My Sessions buttons,
+  replacing the unclear "Saved — view in your library" link) and reordered every
+  run/reveal screen to **Title → Photo → Dispatch → Questions**. Removed the
+  "NEXT IN {category}" feature entirely (tabled by owner — possible future
+  "Choose Random Scenario" button on Community/My Library instead, not built).
+- **Photo present but cropped/narrow on solo run, and missing entirely on the
+  host screen.** `renderSolo`/`soloReveal` were reusing `mediaStrip()` — a
+  compact, deliberately cropped (`h-52 object-cover`) strip built for the
+  multiplayer participant's photo-browsing UI. `drawHost()` had a real bug: it
+  only ever read the legacy singular `session.image_url` column and never the
+  `media` array, even though the server (`rooms.roomState()` / `join_room`) was
+  already sending `state.media` to the host client. Fix: new `sceneMedia(media,
+  legacyUrl)` helper (full-width, uncropped, natural aspect ratio, tap-to-expand)
+  now backs `renderSolo`, `soloReveal`, and `drawHost`; `mediaStrip()` itself is
+  untouched and still used as-is by the participant screen and session-history
+  detail view.
 
 ## D1 v3 (markup editor rework) — DONE, UNCOMMITTED (2026-08-24)
 
@@ -91,7 +123,7 @@ Six issues from the owner's second pass, all fixed + verified in preview:
   + `overflow-auto`, so it opens leftward and stays inside the card (was cut off the right
   edge; all Standard/Fire/Smoke swatches now reachable).
 
-### D1 v3 follow-up round 2 (owner testing 2026-08-24) — DONE, UNCOMMITTED
+### D1 v3 follow-up round 2 (owner testing 2026-08-24) — DONE, COMMITTED (`8a16f6a`)
 
 Eleven tweaks from a third pass (all in `public/index.html`, verified in preview):
 - **White + Black added to the Standard palette** (now 14 colors).
@@ -121,6 +153,31 @@ Eleven tweaks from a third pass (all in `public/index.html`, verified in preview
 
 Known minor (unchanged from v2): re-editing orphans the prior composite in `/media`
 (no GC — acceptable at this scale).
+
+### D1 v3 follow-up rounds 3–8 (owner testing 2026-08-24) — DONE, COMMITTED
+
+Further passes after round 2, each its own commit:
+- **r3 (`45cc03b`):** smaller text-box resize/rotate/delete handles with a real
+  buffer between the delete chip and the corner handle (they used to overlap);
+  corner-anchored resize — the dragged corner moves, the **opposite** corner
+  stays fixed (rewritten to measure from the fixed corner + a rotation-aware
+  anchor recompute, not the anchor point, which made one corner wildly
+  oversensitive).
+- **r4–r6 (`6e95b48`, `d653468`, `7ff1572`):** three iterations on how to hint
+  that a color palette has more colors hidden — dots, then a fade-to-blank
+  strip, then a stacked/overlapping swatch deck with a FLIP-animated
+  expand/collapse — each explicitly rejected by the owner in turn. **Landed
+  on:** reusing the site's existing Filters accordion pattern (`.ft-cat`/
+  `.ft-cat-head`/`.ft-chev`, same as Community/My Library filters) — whole
+  palette-name header row is the click target, chevron rotates 180°, collapsed
+  shows zero swatches, expanded reveals **all** colors at once (no partial
+  preview, no stacking, no fade). All intermediate stack/FLIP code was deleted.
+- **r7 (`168417c`):** Recently Used colors capped at the last 5 (`RECENTS_N`)
+  — was growing unbounded.
+  - **r8 (`4805d89`):** per-photo palette-expansion memory (`mkPaletteMemory`,
+  keyed by photo index, reset per scenario-creation session in `renderCreator`)
+  — each new photo defaults to Standard expanded, independent of other photos
+  in the same scenario; Fire/Smoke start collapsed per photo.
 
 Not in D1 v3: the **Fire & Smoke tools** — plan-only, see `docs/prd-fire-smoke-tools.md`.
 
@@ -183,14 +240,14 @@ All additive on the v1 overlay pipeline in `openMarkupEditor` (`public/index.htm
 
 ### v1 baseline + D2 (already committed)
 
-**D2 — Academies gate + WIP placeholder — DONE (committed `929d136`, not pushed).** `renderAcademies`
+**D2 — Academies gate + WIP placeholder — DONE (committed `929d136`).** `renderAcademies`
 early-returns a coming-soon placeholder (graduation-cap, "Academies — coming
 soon", WORK IN PROGRESS, decided two-paragraph blurb) for anyone whose
 `me?.role !== 'site_admin'`; only the site admin sees the functional list + New
 Academy. **UI-only gate** (owner-chosen) — server academy API untouched, so
 `academies.test.js` stays green. Verified both roles, desktop + mobile; 142/142.
 
-**D1 v1 — Media View/Edit markup editor — committed locally (`d932881`); v2 now built on top (uncommitted, see above).**
+**D1 v1 — Media View/Edit markup editor — committed (`d932881`); v2/v3 built on top (see above).**
 Full-size viewer + drawer on every media row. Plan file:
 `~/.claude/plans/refactored-marinating-lamport.md`. What landed:
 - **Client** (`public/index.html`): `openMarkupEditor(item, onSave)` (modeled on
@@ -212,11 +269,11 @@ Full-size viewer + drawer on every media row. Plan file:
   → reverts to clean base; full save-draft → server → reload → reopen persists;
   object-erase; mobile 375px; console clean.
 
-**Next options:** (a) **commit D1 v2** (working-tree `public/index.html` +
-`test/media-pdf.test.js`), then **push** all 3 local commits to deploy on Railway;
-(b) **Phase E** (E1 credit byline surviving cloning + card chip, E2 clone→original
-review link). D1 v2 is done; D3 stays parked. Known minor: re-editing orphans the
-prior composite in `/media` (no GC today — acceptable at this scale).
+**Next options (see "Resume here" at top):** push all 8 local commits to deploy on
+Railway; then **Phase E** (E1 credit byline surviving cloning + card chip, E2
+clone→original review link) or the Fire & Smoke tools. D1 (v1–v3 + follow-ups) is
+done; D3 stays parked. Known minor: re-editing orphans the prior composite in
+`/media` (no GC today — acceptable at this scale).
 
 ---
 
