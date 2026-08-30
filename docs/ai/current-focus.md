@@ -17,7 +17,7 @@ accordion color palettes, 5-color recents cap, per-photo palette memory) and a
 solo/host live-run photo bug fix, plus a size-popover dot color fix, are all
 BUILT, verified, COMMITTED, and PUSHED to `origin/main` (latest `33cc389`).**
 **Phase E (E1 persistent author credit + E2 clone→original review link) is BUILT,
-verified in the preview, and COMMITTED (`fdb13a3`) — NOT YET PUSHED. 147/147.**
+verified in the preview, and COMMITTED AND PUSHED to `origin/main` (`fdb13a3`). 147/147.**
 Remaining scheduled feature: the Fire & Smoke tools (plan-only,
 `docs/prd-fire-smoke-tools.md`); D3 parked. See `docs/ai/next-session.md` for the
 resume point. Forks decided; see `decisions.md`.

@@ -8,11 +8,11 @@ is now the **UX / polish backlog** at `docs/ai/ux-backlog.md` (grill 2026-08-16)
 `origin/main` (latest `f82407f`). **Phase D:** D1 (v1 → v3 + two follow-up rounds),
 D2, a solo/host live-run photo bug fix, and a size-popover dot color fix are
 all committed AND PUSHED to `origin/main` (latest `33cc389`). **Phase E (E1+E2,
-attribution & credit) committed as `fdb13a3` — NOT YET PUSHED.** Working tree clean.
+attribution & credit) committed AND PUSHED to `origin/main` (`fdb13a3`).** Working tree clean.
 
 ## Resume here — next feature
 
-**Phase E — Attribution & credit — DONE, COMMITTED (`fdb13a3`), NOT YET PUSHED
+**Phase E — Attribution & credit — DONE, COMMITTED AND PUSHED (`fdb13a3`)
 (2026-08-28).** Both items shipped and verified in the preview browser:
 - **E1 — persistent "Created by {name}" credit.** New nullable `scenarios.credit_name`
   (`server/db.js`), captured at creation from the creator's `display_name` (POST
@@ -36,9 +36,10 @@ attribution & credit) committed as `fdb13a3` — NOT YET PUSHED.** Working tree 
   copy (author vs credit split + `cloned_from`), survival through re-clone + source
   tamper/soft-delete, and the boot backfill. **147/147.**
 
-**Next options:** push `fdb13a3` to deploy on Railway; then build the **Fire & Smoke
-tools** (plan-only, `docs/prd-fire-smoke-tools.md`) — the only remaining scheduled
-feature. D3 stays parked; F6/F7/F8 are Future stubs (F8 explicitly NOT to build yet).
+**Next options:** Railway auto-deploys `origin/main` — verify the credit backfill ran
+clean on the next deploy; then build the **Fire & Smoke tools** (plan-only,
+`docs/prd-fire-smoke-tools.md`) — the only remaining scheduled feature. D3 stays
+parked; F6/F7/F8 are Future stubs (F8 explicitly NOT to build yet).
 
 ---
 
