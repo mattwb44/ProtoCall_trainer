@@ -423,3 +423,18 @@ Non-trivial items get a `verifier` pass before being marked done.
   warn on editing a voted scenario, offer "edit in place" vs. "save as a new
   copy" (reusing Clone) — no dual-listing, no per-version vote UI, no new
   tables. Revisit only if that complaint actually shows up.
+- [ ] **F9. Feature flags — ship UI/features "dark", release on a toggle.**
+  2026-09-12: not scheduled, recorded for later. The value is decoupling
+  *deploy* from *release* — merge unfinished UI to `main` in small increments,
+  deploy it wrapped in an off-by-default flag so no user sees it, preview it
+  live as site_admin, then flip it on (and instantly off if it misbehaves)
+  **without a redeploy or the deploy blip**. Fits the existing stack with no new
+  infra: store flags as `feature_*` rows in `app_meta` (same table already used
+  for migration one-shots), have the server read them and add a small `flags:{}`
+  object to the bootstrap/`me` payload the client already receives, and gate UI
+  on `flags.*` (with a `me.role==='site_admin'` shortcut so the owner can always
+  preview an off flag). Can grow to per-user beta lists or a %-rollout canary
+  later. **Discipline required:** a flag is temporary rollout scaffolding, not
+  permanent config — delete the flag and the dead code path once a feature is
+  fully rolled out, or they accumulate as debt. Most useful once there are real
+  users to roll changes out *to*, so it pairs naturally with opening up.

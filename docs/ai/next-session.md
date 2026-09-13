@@ -421,18 +421,16 @@ union semantics in both `renderLibrary` and `renderPublic`; the accordion markup
 is `catTreeHtml`, and diff/obj use `selAccordionHtml`. **Now in Phase C** — see
 "Resume here" at top.
 
-**1. Open bug report — Railway deploy crash (not yet diagnosed).**
-User reports "Railway always crashes with a new deployment." Missing
-`MEDIA_DIR`/`DB_PATH` (the PR 3 boot guard) was the first hypothesis —
-**ruled out**, user confirmed `MEDIA_DIR=/data/media` is set on Railway.
-Static review of `server/db.js` (migrations, all idempotent `addColumn`
-calls), `server/media.js` (`createMediaStore`, looks safe), and
-`server/analysis.js` (`ANTHROPIC_API_KEY` missing → returns `null`, not
-fatal) turned up nothing. **Next step: get actual Railway deploy-log output
-from the user** (Deployments tab → failing deploy → logs) — need to know
-whether it dies during build or after start, and whether the boot-guard
-`FATAL:` message appears, a stack trace, or a healthcheck timeout. No
-further static-analysis guessing without that.
+**1. ~~Railway deploy crash~~ — CLOSED, not a bug (2026-09-03).** The owner
+confirmed the new deploy **comes back up on its own** within a minute. That's
+the expected single-replica-plus-volume swap blip, not a crash: with
+`replicas=1` and the SQLite volume at `/data`, Railway can't overlap old and
+new containers (one volume, one attachment), so it stops the old one, moves the
+volume, and starts the new one — a few seconds where `/healthz` blips, then
+recovers. A real crash would stay down until manual intervention; this doesn't.
+No fix needed. Only consequence is the one deploy rule 6 already covers: don't
+push during a live session (mid-session users eat the blip as a
+disconnect/reconnect). Recorded in `decisions.md`; do not re-open.
 
 ## Execution plan status (`docs/execution-plan.md`)
 P1 (pre-beta) done: PR 1–6. P2: PR 7 (optimistic concurrency, server+client),

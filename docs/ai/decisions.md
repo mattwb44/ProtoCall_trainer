@@ -38,6 +38,15 @@ Full item list + grounding in `docs/ai/ux-backlog.md`. The four decided forks:
   later, deliberate migration, not a near-term need.
 - **Deploy model:** merges to `main` auto-deploy to `protocalltrainer.com` via
   Railway. Branch per PR, run `npm test` + a preview check, then merge.
+- **The deploy "crash" is expected, not a bug (settled 2026-09-03).** Every
+  deploy shows a few-second unavailability where `/healthz` blips and the app
+  recovers on its own. Cause: `replicas=1` + the SQLite volume at `/data` — one
+  volume can attach to one container at a time, so Railway can't overlap old and
+  new; it stops the old, moves the volume, starts the new. This is *not* a crash
+  (a crash stays down until manual intervention). No fix; the app not needing
+  multiple instances is the same reason we stay on SQLite (see Persistence). The
+  only operational consequence is deploy rule 6: never push during a live session,
+  or mid-session users eat the blip as a disconnect/reconnect.
 - **Backups: in-app nightly snapshot is the baseline, not Railway volume
   snapshots.** A scheduler in the app process runs better-sqlite3's online
   `db.backup()` (point-in-time-consistent while live) once a day to
