@@ -4,7 +4,7 @@ _Updated 2026-08-28. Read `current-focus.md` and `decisions.md` first. The
 ops-hardening execution plan (`docs/execution-plan.md`) is complete; active work
 is now the **UX / polish backlog** at `docs/ai/ux-backlog.md` (grill 2026-08-16)._
 
-`npm test` = **147 passing**. **Phase C (C1–C9) committed AND pushed** to
+`npm test` = **148 tests** (147 + the 5xx-only error-alert test, 2026-10-09). Error-alert emails now fire on server errors (5xx) only; see `decisions.md` → Product / infrastructure. Known: `media-pdf.test.js` "size-capped" (expects 413) failed in a fresh Node 22 cloud checkout on `main` too; unverified on Matthew's machine. **Phase C (C1–C9) committed AND pushed** to
 `origin/main` (latest `f82407f`). **Phase D:** D1 (v1 → v3 + two follow-up rounds),
 D2, a solo/host live-run photo bug fix, and a size-popover dot color fix are
 all committed AND PUSHED to `origin/main` (latest `33cc389`). **Phase E (E1+E2,
