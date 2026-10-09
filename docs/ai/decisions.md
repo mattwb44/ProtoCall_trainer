@@ -70,6 +70,13 @@ Full item list + grounding in `docs/ai/ux-backlog.md`. The four decided forks:
   lifecycle rule** for retention (the app deliberately can't delete offsite
   copies), and confirm the first nightly run logs
   `Offsite backup uploaded: <key>` — a signing/permission failure surfaces there.
+- **Error-alert emails fire on 5xx only (settled 2026-10-09).** The Fastify
+  error handler calls the Resend alerter only when the response status is ≥ 500.
+  Client errors (400 malformed/empty JSON from bots, 429 rate-limit hits) are
+  normal traffic, not incidents. They used to email too, and the per-message
+  hourly throttle didn't help because rate-limit messages embed a changing
+  "retry in N seconds" countdown (one burst sent 12 emails). Uncaught exceptions
+  and unhandled rejections still alert. (`server/index.js`, `test/error-alert.test.js`.)
 
 ## Solo run UX
 - **No punitive stage lock.** Progressive stage reveal stays (later stages

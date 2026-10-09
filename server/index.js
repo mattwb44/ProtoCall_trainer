@@ -95,10 +95,14 @@ export async function buildServer({ dbFile, mediaDir, authRateMax = 10, globalRa
     cacheControl: true, maxAge: '365d', immutable: true, // filenames are content-unique UUIDs
   });
   app.register(fastifyMultipart, { limits: { fileSize: MAX_UPLOAD_BYTES, files: 1 } });
+  // Only genuine server failures (5xx) are reported; 4xx are the client's problem
+  // (malformed bodies, rate-limit hits) and would otherwise flood the alert inbox.
   // Reporting is wrapped so a throwing/misbehaving reporter can never affect the response.
   app.setErrorHandler((error, request, reply) => {
-    try { reportError(error); } catch { /* reporting must never affect the response */ }
     const statusCode = error.statusCode || 500;
+    if (statusCode >= 500) {
+      try { reportError(error); } catch { /* reporting must never affect the response */ }
+    }
     reply.code(statusCode).send({ error: statusCode >= 500 ? 'internal server error' : error.message });
   });
 
