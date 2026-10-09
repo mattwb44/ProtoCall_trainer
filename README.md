@@ -54,5 +54,8 @@ Environment variables read by `server/`:
 - `server/` — Fastify + Socket.IO + better-sqlite3 (`index.js` API/sockets, `db.js` schema/seed, `rooms.js` session logic)
 - `public/index.html` — single-page frontend (Tailwind + Lucide, hash routing)
 - `test/` — integration tests
-- `SPEC.md` / `PRD.md` — architecture spec and v1 product requirements
+- `CLAUDE.md` — orientation / working agreement for Claude Code sessions (start here)
+- `docs/ai/` — current source of truth: `next-session.md`, `current-focus.md`, `decisions.md`, `ux-backlog.md`
+- `docs/` — `execution-plan.md` (ops readiness), `ops-log.md`, `runbooks.md`, PRDs for in-flight features
+- `docs/archive/` — inception-era specs/PRDs/roadmap, kept for history (not authoritative)
 - `ProtoCall_trainer.html` — the original static prototype (superseded by the live app)
